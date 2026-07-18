@@ -1,4 +1,4 @@
-venv/
+Flucitoenv/
 __pycache__/
 *.pyc
 .env
