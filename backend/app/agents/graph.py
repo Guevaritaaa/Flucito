@@ -1,6 +1,7 @@
 from langchain_core.messages import SystemMessage
 from langchain_groq import ChatGroq
 from langgraph.graph import END, StateGraph
+from langgraph.checkpoint.memory import MemorySaver
 
 from app.agents.prompts import SYSTEM_PROMPT
 from app.agents.state import AsistenteState
@@ -24,4 +25,5 @@ graph_builder.add_node("flucito", nodo_flucito)
 graph_builder.set_entry_point("flucito")
 graph_builder.add_edge("flucito", END)
 
-grafo = graph_builder.compile()
+memoria = MemorySaver()
+grafo = graph_builder.compile(checkpointer=memoria)
