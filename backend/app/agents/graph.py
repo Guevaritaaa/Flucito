@@ -14,9 +14,7 @@ llm = ChatGroq(
 
 
 def nodo_flucito(state: AsistenteState) -> AsistenteState:
-    """Nodo de conversación principal. Se encarga temporalmente de todo; después será el nodo
-    de 'charla general', con nodos hermanos que se usaran para tareas especificas.
-    """
+    """Nodo Principal de Flucito, recibe los mensajes del usuario y retorna la respuesta del LLM."""
     mensajes = [SystemMessage(content=SYSTEM_PROMPT)] + state["messages"]
     respuesta = llm.invoke(mensajes)
     return {"messages": [respuesta]}
