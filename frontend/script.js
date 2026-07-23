@@ -29,6 +29,11 @@ async function enviarMensaje(mensaje) {
     return datos.respuesta;
 }
 
+agregarMensaje(
+    "¡Hola! Soy Flucito, el asistente virtual de Interflu. ¿En qué puedo ayudarte?",
+    "flucito"
+);
+
 formulario.addEventListener("submit", async (evento) => {
     evento.preventDefault();
 
