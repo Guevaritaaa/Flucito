@@ -19,9 +19,13 @@ body {
     background: #16213e;
     border-radius: 12px;
     padding: 24px;
-    width: 100%;
-    max-width: 480px;
+    width: 500px;
+    height: 85vh; 
+    max-height: 850px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    
+    display: flex;
+    flex-direction: column;
 }
 
 h1 {
@@ -36,13 +40,21 @@ h1 {
 }
 
 .mensajes {
-    height: 350px;
+    flex: 1; 
     overflow-y: auto;
     display: flex;
     flex-direction: column;
     gap: 10px;
     margin-bottom: 16px;
     padding-right: 4px;
+}
+
+.mensajes::-webkit-scrollbar {
+    width: 6px;
+}
+.mensajes::-webkit-scrollbar-thumb {
+    background: #0f4c75;
+    border-radius: 10px;
 }
 
 .mensaje {
@@ -96,6 +108,7 @@ button {
     color: #fff;
     font-weight: 600;
     cursor: pointer;
+    transition: background 0.2s;
 }
 
 button:hover {
