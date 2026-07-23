@@ -5,6 +5,23 @@ const formulario = document.getElementById("formulario-chat");
 const entrada = document.getElementById("entrada-mensaje");
 const contenedorMensajes = document.getElementById("mensajes");
 
+const BACKEND_URL = "https://flucito.onrender.com";
+
+function despertarBackend() {
+    const estado = document.getElementById("estado-backend");
+    fetch(BACKEND_URL)
+        .then(() => {
+            if (estado) estado.remove();
+        })
+        .catch(() => {
+            if (estado) estado.textContent = "El servidor está despertando, dale un momento...";
+        });
+}
+
+despertarBackend();
+
+despertarBackend();
+
 function agregarMensaje(texto, clase) {
     const div = document.createElement("div");
     div.classList.add("mensaje", clase);

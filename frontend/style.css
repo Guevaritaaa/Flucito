@@ -39,6 +39,12 @@ h1 {
     margin-bottom: 16px;
 }
 
+.estado-backend {
+    font-size: 0.75rem;
+    color: #f0a500;
+    margin-bottom: 8px;
+}
+
 .mensajes {
     flex: 1; 
     overflow-y: auto;
