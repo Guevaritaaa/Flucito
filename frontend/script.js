@@ -20,8 +20,6 @@ function despertarBackend() {
 
 despertarBackend();
 
-despertarBackend();
-
 function agregarMensaje(texto, clase) {
     const div = document.createElement("div");
     div.classList.add("mensaje", clase);
