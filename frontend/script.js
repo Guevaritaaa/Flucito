@@ -1,6 +1,7 @@
 const API_URL = "https://flucito.onrender.com/api/v1/chat";
-const API_CFDI_URL = "https://flucito.onrender.com/api/v1/cfdi/excel";
+const API_CFDI_UPLOAD_URL = "https://flucito.onrender.com/api/v1/cfdi/upload";
 const sessionId = crypto.randomUUID();
+let cfdiJobId = null;
 
 const formulario = document.getElementById("formulario-chat");
 const entrada = document.getElementById("entrada-mensaje");
@@ -34,10 +35,13 @@ function agregarMensaje(texto, clase) {
 }
 
 async function enviarMensaje(mensaje) {
+    const cuerpo = { mensaje, session_id: sessionId };
+    if (cfdiJobId) cuerpo.cfdi_job_id = cfdiJobId;
+
     const respuesta = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mensaje, session_id: sessionId }),
+        body: JSON.stringify(cuerpo),
     });
 
     if (!respuesta.ok) {
@@ -45,7 +49,7 @@ async function enviarMensaje(mensaje) {
     }
 
     const datos = await respuesta.json();
-    return datos.respuesta;
+    return datos;
 }
 
 agregarMensaje(
@@ -68,10 +72,10 @@ async function generarExcelDesdeXml() {
     const datos = new FormData();
     archivos.forEach((archivo) => datos.append("archivos", archivo));
     botonGenerarExcel.disabled = true;
-    estadoXml.textContent = "Generando Excel...";
+    estadoXml.textContent = "Cargando XML...";
 
     try {
-        const respuesta = await fetch(API_CFDI_URL, {
+        const respuesta = await fetch(API_CFDI_UPLOAD_URL, {
             method: "POST",
             body: datos,
         });
@@ -81,16 +85,11 @@ async function generarExcelDesdeXml() {
             throw new Error(error.detail || "No se pudo generar el Excel");
         }
 
-        const archivoExcel = await respuesta.blob();
-        const url = URL.createObjectURL(archivoExcel);
-        const enlace = document.createElement("a");
-        enlace.href = url;
-        enlace.download = "reporte_cfdi.xlsx";
-        enlace.click();
-        URL.revokeObjectURL(url);
-
+        const resultado = await respuesta.json();
+        cfdiJobId = resultado.job_id;
         entradaXml.value = "";
-        estadoXml.textContent = "Excel descargado";
+        botonGenerarExcel.disabled = true;
+        estadoXml.textContent = "XML listos. Pide a Flucito generar el reporte.";
     } catch (error) {
         estadoXml.textContent = error.message || "Error al generar Excel";
         botonGenerarExcel.disabled = false;
@@ -112,9 +111,18 @@ formulario.addEventListener("submit", async (evento) => {
     const mensajeCargando = agregarMensaje("Flucito está escribiendo...", "cargando");
 
     try {
-        const respuesta = await enviarMensaje(mensaje);
+        const datos = await enviarMensaje(mensaje);
         mensajeCargando.remove();
-        agregarMensaje(respuesta, "flucito");
+        agregarMensaje(datos.respuesta, "flucito");
+        if (datos.archivo_excel_url) {
+            const enlace = document.createElement("a");
+            enlace.href = new URL(datos.archivo_excel_url, BACKEND_URL);
+            enlace.download = "reporte_cfdi.xlsx";
+            enlace.textContent = "Descargar reporte CFDI";
+            enlace.className = "enlace-descarga";
+            contenedorMensajes.appendChild(enlace);
+            contenedorMensajes.scrollTop = contenedorMensajes.scrollHeight;
+        }
     } catch (error) {
         mensajeCargando.remove();
         agregarMensaje("Hubo un error al contactar a Flucito. Intenta de nuevo.", "flucito");
