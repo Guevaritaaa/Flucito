@@ -75,5 +75,13 @@ def generar_reporte_cfdi_job(job_id: str) -> str:
     )
     datos = json.loads(resultado)
     if datos.get("ok"):
-        datos["job_id"] = job_id
+        datos = {
+            "ok": True,
+            "reporte_generado": True,
+            "job_id": job_id,
+            "comprobantes": datos.get("comprobantes", 0),
+            "conceptos": datos.get("conceptos", 0),
+            "impuestos": datos.get("impuestos", 0),
+            "errores": datos.get("errores", 0),
+        }
     return json.dumps(datos, ensure_ascii=False)

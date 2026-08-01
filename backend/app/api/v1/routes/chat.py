@@ -35,7 +35,7 @@ def chat(request: ChatRequest) -> ChatResponse:
         except (TypeError, json.JSONDecodeError):
             continue
         job_id = datos.get("job_id") or request.cfdi_job_id
-        if datos.get("ok") and datos.get("archivo_excel") and job_id:
+        if datos.get("ok") and datos.get("reporte_generado") and job_id:
             archivo_excel_url = f"/api/v1/cfdi/jobs/{job_id}/download"
             break
 

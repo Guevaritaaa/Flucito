@@ -22,8 +22,9 @@ def test_generar_reporte_cfdi_job_usa_rutas_del_job(tmp_path: Path) -> None:
     datos = json.loads(resultado)
 
     assert datos["ok"] is True
+    assert datos["reporte_generado"] is True
     assert datos["job_id"] == job_id
-    assert Path(datos["archivo_excel"]).is_file()
+    assert (directorio_job / "reporte_cfdi.xlsx").is_file()
 
     jobs.eliminar_job(job_id)
 
