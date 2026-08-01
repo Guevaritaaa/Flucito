@@ -14,6 +14,24 @@
 
         <div id="mensajes" class="mensajes"></div>
 
+        <div class="acciones-xml">
+            <input
+                class="visualmente-oculto"
+                type="file"
+                id="entrada-xml"
+                accept=".xml,application/xml,text/xml"
+                multiple
+            >
+            <label class="boton-xml" for="entrada-xml" title="Seleccionar archivos XML">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 16V4m0 0L8 8m4-4 4 4M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" />
+                </svg>
+                <span>Adjuntar XML</span>
+            </label>
+            <span id="estado-xml" class="estado-xml" role="status">Sin archivos seleccionados</span>
+            <button type="button" id="boton-generar-excel" disabled>Generar Excel</button>
+        </div>
+
         <form id="formulario-chat">
             <input
                 type="text"

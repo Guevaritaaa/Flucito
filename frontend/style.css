@@ -86,6 +86,67 @@ h1 {
     font-style: italic;
 }
 
+.acciones-xml {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.visualmente-oculto {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.boton-xml {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    border: 1px solid #0f4c75;
+    border-radius: 8px;
+    color: #d8ecff;
+    cursor: pointer;
+    font-size: 0.82rem;
+}
+
+.boton-xml:hover {
+    background: #0f4c75;
+}
+
+.visualmente-oculto:focus + .boton-xml {
+    outline: 2px solid #76c7ff;
+    outline-offset: 2px;
+}
+
+.boton-xml svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 2;
+}
+
+.estado-xml {
+    color: #aaa;
+    font-size: 0.75rem;
+}
+
+#boton-generar-excel {
+    padding: 8px 10px;
+    font-size: 0.82rem;
+}
+
 #formulario-chat {
     display: flex;
     gap: 8px;
