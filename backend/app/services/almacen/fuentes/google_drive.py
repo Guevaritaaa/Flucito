@@ -1,4 +1,4 @@
-"""Modelos y agrupaciÃ³n de documentos provenientes de Google Drive."""
+"""Modelos y agrupación de documentos provenientes de Google Drive."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ MIME_CARPETA = "application/vnd.google-apps.folder"
 
 @dataclass(frozen=True)
 class DriveArchivo:
-    """Metadatos mÃ­nimos de un archivo listado por Drive."""
+    """Metadatos mínimos de un archivo listado por Drive."""
 
     id: str
     nombre: str

@@ -1,8 +1,8 @@
 """
-Genera/actualiza la BASE DE ENTRADAS DE ALMACÃ‰N: un solo Excel acumulativo
+Genera/actualiza la BASE DE ENTRADAS DE ALMACÉN: un solo Excel acumulativo
 (no uno por factura). Cada corrida agrega lo nuevo y se sobreescribe el
 mismo archivo. Emparejamiento XML <-> pdf/txt de apoyo por folio real.
-Modo borrador: sin diccionario de mapeo interno ni factores de precio todavÃ­a.
+Modo borrador: sin diccionario de mapeo interno ni factores de precio todavía.
 """
 
 from __future__ import annotations
@@ -21,22 +21,22 @@ from app.services.almacen.resumen import construir_resumen, guardar_resumen_json
 
 
 COLUMNAS_ASPEL = [
-    "ESTATUS", "Clave ArtÃ­culo", "TIPO ELE", "DESCRIPCION", "DescripciÃ³n CFDI",
-    "Unidad de entrada", "Unidad de salida", "Peso nc", "LÃ­nea", "Clave SAT",
+    "ESTATUS", "Clave Artículo", "TIPO ELE", "DESCRIPCION", "Descripción CFDI",
+    "Unidad de entrada", "Unidad de salida", "Peso nc", "Línea", "Clave SAT",
     "Clave unidad", "Con serie", "Con lote", "Con pedimento", "Tipo de costeo",
     "CLAVE ESQUEMA", "PROVEEDOR", "MONEDA", "PRECIO COMPRA", "PUBLICO",
     "MINIMO", "LIQUIDACION", "MOSTRADOR", "MAYOREO", "DISTRIBUIDOR",
-    "cero", "Existencias", "Fecha de Ãºltima compra",
+    "cero", "Existencias", "Fecha de última compra",
 ]
 
-TITULO = "ENTRADAS DE ALMACÃ‰N"
+TITULO = "ENTRADAS DE ALMACÉN"
 COLOR_HEADER = "1F3864"  # azul marino, como tu plantilla
 NOMBRE_ARCHIVO_BASE = "BASE_ENTRADAS_ALMACEN.xlsx"
 NOMBRE_ARCHIVO_RESUMEN = "RESUMEN_ENTRADAS_ALMACEN.json"
 
 # clave para no duplicar el mismo producto si vuelves a correr el script
 # sobre los mismos XML (borrador: puede afinarse cuando haya UUID/folio por fila)
-CLAVES_DEDUPE = ["Clave ArtÃ­culo", "Fecha de Ãºltima compra", "PROVEEDOR"]
+CLAVES_DEDUPE = ["Clave Artículo", "Fecha de última compra", "PROVEEDOR"]
 
 PATRON_FECHA_CFDI = re.compile(r"^(\d{4})-(\d{2})-(\d{2})")
 
@@ -47,7 +47,7 @@ def _formatea_fecha(fecha_iso: str) -> str | None:
         return None
     m = PATRON_FECHA_CFDI.match(fecha_iso)
     if not m:
-        return fecha_iso  # no deberÃ­a pasar en un CFDI vÃ¡lido, pero no truena
+        return fecha_iso  # no debería pasar en un CFDI válido, pero no truena
     anio, mes, dia = m.groups()
     return f"{dia}-{mes}-{anio}"
 
@@ -55,19 +55,19 @@ def _formatea_fecha(fecha_iso: str) -> str | None:
 def _fila_desde_concepto(c: dict, dato: dict | None) -> dict:
     clave_articulo = dato["clave_articulo"] if dato else c["no_identificacion"]
     linea = dato["linea"] if dato else None
-    # descripciÃ³n corta: la del pdf/txt si la encontramos, si no, cae a la del XML
+    # descripción corta: la del pdf/txt si la encontramos, si no, cae a la del XML
     descripcion_corta = (dato.get("descripcion_corta") if dato else None) or c["descripcion"]
 
     return {
         "ESTATUS": "A",
-        "Clave ArtÃ­culo": clave_articulo,
+        "Clave Artículo": clave_articulo,
         "TIPO ELE": "P",
         "DESCRIPCION": descripcion_corta,
-        "DescripciÃ³n CFDI": c["descripcion"],
+        "Descripción CFDI": c["descripcion"],
         "Unidad de entrada": "pza",
         "Unidad de salida": "pza",
         "Peso nc": None,
-        "LÃ­nea": linea,
+        "Línea": linea,
         "Clave SAT": c["clave_prod_serv"],
         "Clave unidad": c["clave_unidad"],
         "Con serie": "N",
@@ -86,12 +86,12 @@ def _fila_desde_concepto(c: dict, dato: dict | None) -> dict:
         "DISTRIBUIDOR": None,
         "cero": "0",
         "Existencias": None,
-        "Fecha de Ãºltima compra": _formatea_fecha(c["fecha_compra"]),
+        "Fecha de última compra": _formatea_fecha(c["fecha_compra"]),
     }
 
 
 def procesar_xml(ruta_xml: str, carpeta: str) -> pd.DataFrame:
-    """Un XML -> DataFrame con sus productos (todavÃ­a no escribe a disco)."""
+    """Un XML -> DataFrame con sus productos (todavía no escribe a disco)."""
     conceptos = extraer_conceptos(ruta_xml)
     meta = leer_meta(ruta_xml)
 
@@ -104,12 +104,12 @@ def procesar_xml(ruta_xml: str, carpeta: str) -> pd.DataFrame:
         for c in conceptos
     ]
 
-    # el proveedor a veces usa un formato de cÃ³digo totalmente distinto en el
+    # el proveedor a veces usa un formato de código totalmente distinto en el
     # pdf/txt (visto con Universal Fittings: "UQ62-DOT-06" en xml vs "D62-06"
-    # en pdf). Si el match por cÃ³digo fallÃ³ para TODO el archivo y el total
-    # de filas coincide, se asume mismo orden en ambos y se empareja por posiciÃ³n.
+    # en pdf). Si el match por código falló para TODO el archivo y el total
+    # de filas coincide, se asume mismo orden en ambos y se empareja por posición.
     if apoyo and all(d is None for d in datos) and len(apoyo) == len(conceptos):
-        print(f"[{os.path.basename(ruta_xml)}] match por cÃ³digo fallÃ³ para todo, "
+        print(f"[{os.path.basename(ruta_xml)}] match por código falló para todo, "
               f"uso orden posicional ({len(conceptos)} filas en ambos)")
         datos = apoyo
 
@@ -123,14 +123,14 @@ def procesar_xml(ruta_xml: str, carpeta: str) -> pd.DataFrame:
 def _cargar_base_existente(ruta: str) -> pd.DataFrame:
     if not os.path.exists(ruta):
         return pd.DataFrame(columns=COLUMNAS_ASPEL)
-    # fila 1 = tÃ­tulo (merged), fila 2 = encabezados, datos desde fila 3
+    # fila 1 = título (merged), fila 2 = encabezados, datos desde fila 3
     return pd.read_excel(ruta, header=1)
 
 
 def _aplicar_estilo(ruta: str, n_columnas: int) -> None:
     wb = openpyxl.load_workbook(ruta)
     ws = wb.active
-    ws.insert_rows(1)  # deja espacio para el tÃ­tulo arriba de los encabezados
+    ws.insert_rows(1)  # deja espacio para el título arriba de los encabezados
 
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_columnas)
     celda_titulo = ws.cell(row=1, column=1, value=TITULO)

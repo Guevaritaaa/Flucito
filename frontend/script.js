@@ -1,8 +1,6 @@
 const API_URL = "https://flucito.onrender.com/api/v1/chat";
-const API_CFDI_UPLOAD_URL = "https://flucito.onrender.com/api/v1/cfdi/upload";
 const API_DRIVE_UPLOAD_URL = "https://flucito.onrender.com/api/v1/almacen/upload";
 const sessionId = crypto.randomUUID();
-let cfdiJobId = null;
 
 const formulario = document.getElementById("formulario-chat");
 const entrada = document.getElementById("entrada-mensaje");
@@ -10,7 +8,6 @@ const contenedorMensajes = document.getElementById("mensajes");
 const entradaXml = document.getElementById("entrada-xml");
 const estadoXml = document.getElementById("estado-xml");
 const botonSubirDrive = document.getElementById("boton-subir-drive");
-const botonGenerarExcel = document.getElementById("boton-generar-excel");
 
 const BACKEND_URL = "https://flucito.onrender.com";
 
@@ -38,7 +35,6 @@ function agregarMensaje(texto, clase) {
 
 async function enviarMensaje(mensaje) {
     const cuerpo = { mensaje, session_id: sessionId };
-    if (cfdiJobId) cuerpo.cfdi_job_id = cfdiJobId;
 
     const respuesta = await fetch(API_URL, {
         method: "POST",
@@ -63,7 +59,6 @@ entradaXml.addEventListener("change", () => {
     const cantidad = entradaXml.files.length;
     const xmls = Array.from(entradaXml.files).filter((archivo) => archivo.name.toLowerCase().endsWith(".xml"));
     botonSubirDrive.disabled = cantidad === 0;
-    botonGenerarExcel.disabled = cantidad === 0;
     estadoXml.textContent = cantidad
         ? `${cantidad} documento${cantidad === 1 ? "" : "s"} seleccionado${cantidad === 1 ? "" : "s"} (${xmls.length} XML)`
         : "Sin archivos seleccionados";
@@ -76,7 +71,6 @@ async function subirDocumentosDrive() {
     const datos = new FormData();
     archivos.forEach((archivo) => datos.append("archivos", archivo));
     botonSubirDrive.disabled = true;
-    botonGenerarExcel.disabled = true;
     estadoXml.textContent = "Guardando documentos en Drive...";
 
     try {
@@ -88,43 +82,10 @@ async function subirDocumentosDrive() {
     } catch (error) {
         estadoXml.textContent = error.message || "Error al guardar en Drive";
         botonSubirDrive.disabled = false;
-        botonGenerarExcel.disabled = false;
-    }
-}
-
-async function generarExcelDesdeXml() {
-    const archivos = Array.from(entradaXml.files).filter((archivo) => archivo.name.toLowerCase().endsWith(".xml"));
-    if (!archivos.length) return;
-
-    const datos = new FormData();
-    archivos.forEach((archivo) => datos.append("archivos", archivo));
-    botonGenerarExcel.disabled = true;
-    estadoXml.textContent = "Cargando XML...";
-
-    try {
-        const respuesta = await fetch(API_CFDI_UPLOAD_URL, {
-            method: "POST",
-            body: datos,
-        });
-
-        if (!respuesta.ok) {
-            const error = await respuesta.json().catch(() => ({}));
-            throw new Error(error.detail || "No se pudo generar el Excel");
-        }
-
-        const resultado = await respuesta.json();
-        cfdiJobId = resultado.job_id;
-        entradaXml.value = "";
-        botonGenerarExcel.disabled = true;
-        estadoXml.textContent = "XML listos. Pide a Flucito generar el reporte.";
-    } catch (error) {
-        estadoXml.textContent = error.message || "Error al generar Excel";
-        botonGenerarExcel.disabled = false;
     }
 }
 
 botonSubirDrive.addEventListener("click", subirDocumentosDrive);
-botonGenerarExcel.addEventListener("click", generarExcelDesdeXml);
 
 formulario.addEventListener("submit", async (evento) => {
     evento.preventDefault();
@@ -142,16 +103,12 @@ formulario.addEventListener("submit", async (evento) => {
         const datos = await enviarMensaje(mensaje);
         mensajeCargando.remove();
         agregarMensaje(datos.respuesta, "flucito");
-        const archivoUrl = datos.archivo_excel_url || datos.archivo_almacen_url;
+        const archivoUrl = datos.archivo_almacen_url;
         if (archivoUrl) {
             const enlace = document.createElement("a");
             enlace.href = new URL(archivoUrl, BACKEND_URL);
-            enlace.download = datos.archivo_almacen_url
-                ? "BASE_ENTRADAS_ALMACEN.xlsx"
-                : "reporte_cfdi.xlsx";
-            enlace.textContent = datos.archivo_almacen_url
-                ? "Descargar base de almacÃ©n"
-                : "Descargar reporte CFDI";
+            enlace.download = "BASE_ENTRADAS_ALMACEN.xlsx";
+            enlace.textContent = "Descargar base de almacén";
             enlace.className = "enlace-descarga";
             contenedorMensajes.appendChild(enlace);
             contenedorMensajes.scrollTop = contenedorMensajes.scrollHeight;

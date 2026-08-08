@@ -12,7 +12,7 @@ from pathlib import Path
 
 NS = {"cfdi": "http://www.sat.gob.mx/cfd/4"}
 
-# Carpeta donde Compras deja xml + txt/pdf (mismo nombre base, distinta extensiÃ³n)
+# Carpeta donde Compras deja xml + txt/pdf (mismo nombre base, distinta extensión)
 CARPETA_DATOS = Path(
     os.getenv(
         "ALMACEN_CARPETA_DATOS",
@@ -26,10 +26,10 @@ PATRON_PRIMER_TOKEN = re.compile(r"^(\S+)")
 
 def _codigo_desde_descripcion(descripcion: str) -> str | None:
     """
-    NoIdentificacion es opcional en el CFDI. Si falta, el cÃ³digo de producto
+    NoIdentificacion es opcional en el CFDI. Si falta, el código de producto
     suele venir al inicio de Descripcion, con dos formatos vistos hasta ahora:
       Makronix:  "[011040P005] 25KL4P05000 Indicador..." -> nos interesa el 2do token
-      Universal: "UQ62-DOT-06 UniÃ³n RÃ¡pida..."            -> nos interesa el 1er token
+      Universal: "UQ62-DOT-06 Unión Rápida..."            -> nos interesa el 1er token
     """
     if not descripcion:
         return None
@@ -41,7 +41,7 @@ def _codigo_desde_descripcion(descripcion: str) -> str | None:
 
 
 def leer_meta(ruta_xml: str | Path) -> dict:
-    """Folio y aÃ±o del comprobante, para emparejar con el pdf/txt de apoyo por folio real."""
+    """Folio y año del comprobante, para emparejar con el pdf/txt de apoyo por folio real."""
     root = ET.parse(ruta_xml).getroot()
     folio = root.get("Folio")
     fecha = root.get("Fecha") or ""

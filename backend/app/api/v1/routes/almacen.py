@@ -1,4 +1,4 @@
-"""Rutas para descargar la base acumulativa de entradas de almacÃ©n."""
+"""Rutas para descargar la base acumulativa de entradas de almacén."""
 
 from __future__ import annotations
 
@@ -18,17 +18,17 @@ MAX_ARCHIVOS = 150
 MAX_BYTES = 20 * 1024 * 1024
 
 
-router = APIRouter(prefix="/almacen", tags=["AlmacÃ©n"])
+router = APIRouter(prefix="/almacen", tags=["Almacén"])
 
 
-@router.get("/download", summary="Descarga base de entradas de almacÃ©n")
+@router.get("/download", summary="Descarga base de entradas de almacén")
 def descargar_base_almacen() -> FileResponse:
     """Entrega la base generada desde la carpeta configurada."""
     ruta = CARPETA_DATOS / NOMBRE_ARCHIVO_BASE
     if not ruta.is_file():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Base de entradas de almacÃ©n no encontrada",
+        detail="Base de entradas de almacén no encontrada",
         )
 
     return FileResponse(

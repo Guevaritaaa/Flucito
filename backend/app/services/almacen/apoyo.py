@@ -1,10 +1,10 @@
 """
-Datos que el CFDI no trae (LÃ­nea/familia, y la Clave ArtÃ­culo "real" de Aspel)
+Datos que el CFDI no trae (Línea/familia, y la Clave Artículo "real" de Aspel)
 se sacan del PDF o TXT que Compras manda junto al XML.
 
 El emparejamiento NO es por nombre de archivo (cada sistema nombra distinto,
 con distinto padding de folio: "FAC20261827" vs "INV-FAC2026001827-...").
-Se hace por el folio real que trae el propio XML (atributo Folio + aÃ±o de Fecha).
+Se hace por el folio real que trae el propio XML (atributo Folio + año de Fecha).
 """
 
 from __future__ import annotations
@@ -26,15 +26,15 @@ def _coinciden(cod_a: str, cod_b: str) -> bool:
     a, b = _normaliza(cod_a), _normaliza(cod_b)
     if not a or not b:
         return False
-    # el cÃ³digo del PDF a veces trae un sufijo extra (ej. "25KL4P05000X"
+    # el código del PDF a veces trae un sufijo extra (ej. "25KL4P05000X"
     # vs "25KL4P05000" que sale del XML) -> match por prefijo
     return a == b or a.startswith(b) or b.startswith(a)
 
 
 def _extraer_year_folio(nombre_archivo: str):
     """
-    De un nombre de archivo saca (aÃ±o, folio_int) a partir de la primera
-    corrida larga de dÃ­gitos, sin importar el padding del folio.
+    De un nombre de archivo saca (año, folio_int) a partir de la primera
+    corrida larga de dígitos, sin importar el padding del folio.
     "FAC20261827.pdf"                 -> ("2026", 1827)
     "INV-FAC2026001827-MX-..."        -> ("2026", 1827)
     """
@@ -48,14 +48,14 @@ def _extraer_year_folio(nombre_archivo: str):
     return year, int(folio_str)
 
 
-PATRON_LINEA = re.compile(r"^[A-Z]{2,6}$")  # solo letras (ADC, UF...) -> distingue de "H87" (trae dÃ­gito)
+PATRON_LINEA = re.compile(r"^[A-Z]{2,6}$")  # solo letras (ADC, UF...) -> distingue de "H87" (trae dígito)
 
 
 def _procesar_fila(fila) -> dict | None:
     """
     Extrae {codigo_norm, clave_articulo, linea, descripcion_corta} de una fila
-    de tabla por CONTENIDO, no por posiciÃ³n fija de columna -- distintos pdf
-    traen distinto nÃºmero de columnas (Makronix: 13, Universal Fittings: 17).
+    de tabla por CONTENIDO, no por posición fija de columna -- distintos pdf
+    traen distinto número de columnas (Makronix: 13, Universal Fittings: 17).
     """
     cant_idx = next((i for i, v in enumerate(fila)
                       if v and PATRON_CANTIDAD.match(str(v).strip())), None)
@@ -77,8 +77,8 @@ def _procesar_fila(fila) -> dict | None:
             linea, idx_linea = str(v).strip(), i
             break
 
-    # descripciÃ³n corta: la primera celda con texto "de verdad" (varias letras,
-    # no solo un cÃ³digo) despuÃ©s de la lÃ­nea -- es la columna DescripciÃ³n del pdf
+    # descripción corta: la primera celda con texto "de verdad" (varias letras,
+    # no solo un código) después de la línea -- es la columna Descripción del pdf
     descripcion_corta = None
     for v in fila[idx_linea + 1:]:
         texto = str(v).strip() if v else ""
@@ -110,7 +110,7 @@ def _leer_desde_pdf(ruta_pdf: str) -> list:
 
 
 def _leer_desde_txt(ruta_txt: str) -> list:
-    """Fallback si no hay PDF. Menos confiable por saltos de lÃ­nea del export."""
+    """Fallback si no hay PDF. Menos confiable por saltos de línea del export."""
     datos = []
     with open(ruta_txt, encoding="utf-8", errors="ignore") as f:
         for linea_txt in f:
@@ -155,7 +155,7 @@ def obtener_apoyo_por_folio(carpeta: str, year: str, folio: int) -> list:
 
 
 def buscar_dato(apoyo: list, codigo_concepto: str) -> dict | None:
-    """Empareja el cÃ³digo del concepto XML contra la lista de apoyo, por cÃ³digo."""
+    """Empareja el código del concepto XML contra la lista de apoyo, por código."""
     for dato in apoyo:
         if _coinciden(codigo_concepto, dato["codigo_norm"]):
             return dato

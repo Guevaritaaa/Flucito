@@ -1,4 +1,4 @@
-"""Estado local para sincronizaciÃ³n incremental de Google Drive."""
+"""Estado local para sincronización incremental de Google Drive."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ NOMBRE_ESTADO = "ESTADO_DRIVE_ALMACEN.json"
 
 
 def cargar_estado(ruta: str | Path) -> dict[str, dict[str, str]]:
-    """Carga fileId y modifiedTime procesados; estado vacÃ­o si no existe."""
+    """Carga fileId y modifiedTime procesados; estado vacío si no existe."""
     archivo = Path(ruta)
     if not archivo.is_file():
         return {"archivos": {}}
@@ -24,7 +24,7 @@ def cargar_estado(ruta: str | Path) -> dict[str, dict[str, str]]:
 
 
 def guardar_estado(ruta: str | Path, estado: dict[str, dict[str, str]]) -> None:
-    """Persiste estado solo despuÃ©s de completar sincronizaciÃ³n."""
+    """Persiste estado solo después de completar sincronización."""
     archivo = Path(ruta)
     archivo.parent.mkdir(parents=True, exist_ok=True)
     archivo.write_text(

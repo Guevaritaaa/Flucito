@@ -1,1 +1,1 @@
-"""Fuentes de documentos para el mÃ³dulo de almacÃ©n."""
+"""Fuentes de documentos para el módulo de almacén."""

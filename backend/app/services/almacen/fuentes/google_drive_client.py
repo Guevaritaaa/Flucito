@@ -20,11 +20,11 @@ ARCHIVOS_FIELDS = "nextPageToken,files(id,name,mimeType,modifiedTime,parents)"
 
 
 class GoogleDriveConfigError(RuntimeError):
-    """ConfiguraciÃ³n o dependencias de Google Drive ausentes."""
+    """Configuración o dependencias de Google Drive ausentes."""
 
 
 def crear_cliente_drive() -> Any:
-    """Crea cliente Drive usando JSON de cuenta de servicio en configuraciÃ³n."""
+    """Crea cliente Drive usando JSON de cuenta de servicio en configuración."""
     if not settings.google_drive_folder_id:
         raise GoogleDriveConfigError(
             "Falta GOOGLE_DRIVE_FOLDER_ID"

@@ -1,4 +1,4 @@
-"""ConstrucciÃ³n de resumen conversacional para entradas de almacÃ©n."""
+"""Construcción de resumen conversacional para entradas de almacén."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ def construir_resumen(
     })
 
     fechas = pd.to_datetime(
-        filas_acumuladas.get("Fecha de Ãºltima compra", pd.Series(dtype=str)),
+        filas_acumuladas.get("Fecha de última compra", pd.Series(dtype=str)),
         dayfirst=True,
         errors="coerce",
     ).dropna()

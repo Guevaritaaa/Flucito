@@ -1,4 +1,4 @@
-"""Sincroniza subcarpetas Drive con el pipeline local de almacÃ©n."""
+"""Sincroniza subcarpetas Drive con el pipeline local de almacén."""
 
 from __future__ import annotations
 

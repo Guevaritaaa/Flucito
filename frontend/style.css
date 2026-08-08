@@ -142,11 +142,6 @@ h1 {
     font-size: 0.75rem;
 }
 
-#boton-generar-excel {
-    padding: 8px 10px;
-    font-size: 0.82rem;
-}
-
 #formulario-chat {
     display: flex;
     gap: 8px;

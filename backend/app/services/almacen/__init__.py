@@ -1,4 +1,4 @@
-"""Servicios de almacÃ©n."""
+"""Servicios de almacén."""
 
 from app.services.almacen.apoyo import buscar_dato, obtener_apoyo_por_folio
 from app.services.almacen.extractor import CARPETA_DATOS, extraer_conceptos, leer_meta
