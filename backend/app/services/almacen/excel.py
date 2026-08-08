@@ -7,7 +7,6 @@ Modo borrador: sin diccionario de mapeo interno ni factores de precio todavía.
 
 from __future__ import annotations
 
-import glob
 import os
 import re
 
@@ -189,7 +188,11 @@ def guardar_en_base_acumulada(df_nuevo: pd.DataFrame, carpeta: str = CARPETA_DAT
 
 
 def procesar_carpeta(carpeta: str = CARPETA_DATOS) -> None:
-    xmls = glob.glob(os.path.join(carpeta, "*.xml"))
+    xmls = [
+        os.path.join(carpeta, nombre)
+        for nombre in os.listdir(carpeta)
+        if os.path.splitext(nombre)[1].lower() == ".xml"
+    ]
     if not xmls:
         print(f"No hay XML en {carpeta}")
         return
