@@ -27,6 +27,7 @@ def chat(request: ChatRequest) -> ChatResponse:
     respuesta = resultado["messages"][-1].content
 
     archivo_excel_url = None
+    archivo_almacen_url = None
     for mensaje in reversed(resultado["messages"]):
         if getattr(mensaje, "type", None) != "tool":
             continue
@@ -38,8 +39,12 @@ def chat(request: ChatRequest) -> ChatResponse:
         if datos.get("ok") and datos.get("reporte_generado") and job_id:
             archivo_excel_url = f"/api/v1/cfdi/jobs/{job_id}/download"
             break
+        if datos.get("ok") and datos.get("reporte_generado") and datos.get("resumen"):
+            archivo_almacen_url = "/api/v1/almacen/download"
+            break
 
     return ChatResponse(
         respuesta=respuesta,
         archivo_excel_url=archivo_excel_url,
+        archivo_almacen_url=archivo_almacen_url,
     )

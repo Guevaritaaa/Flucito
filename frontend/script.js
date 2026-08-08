@@ -1,5 +1,6 @@
 const API_URL = "https://flucito.onrender.com/api/v1/chat";
 const API_CFDI_UPLOAD_URL = "https://flucito.onrender.com/api/v1/cfdi/upload";
+const API_DRIVE_UPLOAD_URL = "https://flucito.onrender.com/api/v1/almacen/upload";
 const sessionId = crypto.randomUUID();
 let cfdiJobId = null;
 
@@ -8,6 +9,7 @@ const entrada = document.getElementById("entrada-mensaje");
 const contenedorMensajes = document.getElementById("mensajes");
 const entradaXml = document.getElementById("entrada-xml");
 const estadoXml = document.getElementById("estado-xml");
+const botonSubirDrive = document.getElementById("boton-subir-drive");
 const botonGenerarExcel = document.getElementById("boton-generar-excel");
 
 const BACKEND_URL = "https://flucito.onrender.com";
@@ -59,14 +61,39 @@ agregarMensaje(
 
 entradaXml.addEventListener("change", () => {
     const cantidad = entradaXml.files.length;
+    const xmls = Array.from(entradaXml.files).filter((archivo) => archivo.name.toLowerCase().endsWith(".xml"));
+    botonSubirDrive.disabled = cantidad === 0;
     botonGenerarExcel.disabled = cantidad === 0;
     estadoXml.textContent = cantidad
-        ? `${cantidad} archivo${cantidad === 1 ? "" : "s"} XML seleccionado${cantidad === 1 ? "" : "s"}`
+        ? `${cantidad} documento${cantidad === 1 ? "" : "s"} seleccionado${cantidad === 1 ? "" : "s"} (${xmls.length} XML)`
         : "Sin archivos seleccionados";
 });
 
-async function generarExcelDesdeXml() {
+async function subirDocumentosDrive() {
     const archivos = Array.from(entradaXml.files);
+    if (!archivos.length) return;
+
+    const datos = new FormData();
+    archivos.forEach((archivo) => datos.append("archivos", archivo));
+    botonSubirDrive.disabled = true;
+    botonGenerarExcel.disabled = true;
+    estadoXml.textContent = "Guardando documentos en Drive...";
+
+    try {
+        const respuesta = await fetch(API_DRIVE_UPLOAD_URL, { method: "POST", body: datos });
+        const resultado = await respuesta.json().catch(() => ({}));
+        if (!respuesta.ok) throw new Error(resultado.detail || "No se pudieron guardar documentos en Drive");
+        entradaXml.value = "";
+        estadoXml.textContent = `${resultado.subidos} documento${resultado.subidos === 1 ? "" : "s"} nuevo${resultado.subidos === 1 ? "" : "s"} guardado${resultado.subidos === 1 ? "" : "s"} en Drive.`;
+    } catch (error) {
+        estadoXml.textContent = error.message || "Error al guardar en Drive";
+        botonSubirDrive.disabled = false;
+        botonGenerarExcel.disabled = false;
+    }
+}
+
+async function generarExcelDesdeXml() {
+    const archivos = Array.from(entradaXml.files).filter((archivo) => archivo.name.toLowerCase().endsWith(".xml"));
     if (!archivos.length) return;
 
     const datos = new FormData();
@@ -96,6 +123,7 @@ async function generarExcelDesdeXml() {
     }
 }
 
+botonSubirDrive.addEventListener("click", subirDocumentosDrive);
 botonGenerarExcel.addEventListener("click", generarExcelDesdeXml);
 
 formulario.addEventListener("submit", async (evento) => {
@@ -114,11 +142,16 @@ formulario.addEventListener("submit", async (evento) => {
         const datos = await enviarMensaje(mensaje);
         mensajeCargando.remove();
         agregarMensaje(datos.respuesta, "flucito");
-        if (datos.archivo_excel_url) {
+        const archivoUrl = datos.archivo_excel_url || datos.archivo_almacen_url;
+        if (archivoUrl) {
             const enlace = document.createElement("a");
-            enlace.href = new URL(datos.archivo_excel_url, BACKEND_URL);
-            enlace.download = "reporte_cfdi.xlsx";
-            enlace.textContent = "Descargar reporte CFDI";
+            enlace.href = new URL(archivoUrl, BACKEND_URL);
+            enlace.download = datos.archivo_almacen_url
+                ? "BASE_ENTRADAS_ALMACEN.xlsx"
+                : "reporte_cfdi.xlsx";
+            enlace.textContent = datos.archivo_almacen_url
+                ? "Descargar base de almacÃ©n"
+                : "Descargar reporte CFDI";
             enlace.className = "enlace-descarga";
             contenedorMensajes.appendChild(enlace);
             contenedorMensajes.scrollTop = contenedorMensajes.scrollHeight;

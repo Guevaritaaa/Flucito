@@ -19,17 +19,18 @@
                 class="visualmente-oculto"
                 type="file"
                 id="entrada-xml"
-                accept=".xml,application/xml,text/xml"
+                accept=".xml,.pdf,.txt,application/xml,text/xml,application/pdf,text/plain"
                 multiple
             >
-            <label class="boton-xml" for="entrada-xml" title="Seleccionar archivos XML">
+            <label class="boton-xml" for="entrada-xml" title="Seleccionar XML, PDF o TXT">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M12 16V4m0 0L8 8m4-4 4 4M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" />
                 </svg>
-                <span>Adjuntar XML</span>
+                <span>Adjuntar documentos</span>
             </label>
             <span id="estado-xml" class="estado-xml" role="status">Sin archivos seleccionados</span>
-            <button type="button" id="boton-generar-excel" disabled>Cargar XML</button>
+            <button type="button" id="boton-subir-drive" disabled>Guardar en Drive</button>
+            <button type="button" id="boton-generar-excel" disabled>Preparar reporte CFDI</button>
         </div>
 
         <form id="formulario-chat">

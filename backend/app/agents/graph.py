@@ -6,11 +6,11 @@ from langgraph.prebuilt import ToolNode
 
 from app.agents.prompts import SYSTEM_PROMPT
 from app.agents.state import AsistenteState
-from app.agents.tools import generar_reporte_cfdi_job
+from app.agents.tools import generar_entradas_almacen, generar_reporte_cfdi_job
 from app.core.config import settings
 
 
-HERRAMIENTAS = [generar_reporte_cfdi_job]
+HERRAMIENTAS = [generar_reporte_cfdi_job, generar_entradas_almacen]
 
 llm = ChatGroq(
     model=settings.groq_model,
