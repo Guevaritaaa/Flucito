@@ -20,3 +20,9 @@ app.include_router(almacen_router, prefix="/api/v1")
 @app.get("/")
 def root():
     return {"mensaje": "Flucito API corriendo"}
+
+
+@app.get("/health", include_in_schema=False)
+def health():
+    """Endpoint liviano para monitoreo externo y health checks."""
+    return {"status": "ok"}
