@@ -25,7 +25,7 @@ def crear_llm_openai() -> BaseChatModel:
         model=settings.openai_model,
         api_key=settings.openai_api_key,
         temperature=0.4,
-        use_responses_api=True,
+        reasoning_effort="none",
     )
 
 
