@@ -2,7 +2,7 @@
 
 Flucito es el asistente virtual que estoy construyendo para Interflu, una refaccionaria industrial y neumática.
 
-La primera versión ya puede conversar, recibir documentos de facturas, guardarlos en Google Drive y generar una base acumulativa de entradas de almacén en Excel. El objetivo no es solamente tener un chat: quiero convertirlo poco a poco en un agente que ayude con facturación, almacén y decisiones de inventario.
+La primera versión ya puede conversar, recibir documentos de facturas, guardarlos en Google Drive y generar una base acumulativa de entradas de almacén en Excel. El objetivo no es solamente tener un chat: quiero convertirlo poco a poco en un agente que ayude con la facturación, almacén y decisiones de inventario.
 
 ## Qué puede hacer actualmente
 
@@ -67,7 +67,7 @@ La plantilla está en [`backend/.env.example`](backend/.env.example). Las variab
 - `OPENAI_MODEL`: modelo usado por OpenAI.
 - `LLM_PRIMARY_PROVIDER`: normalmente `groq`.
 - `LLM_FALLBACK_ENABLED`: activa o desactiva el respaldo.
-- `GOOGLE_DRIVE_FOLDER_ID`: carpeta raíz de documentos.
+- `GOOGLE_DRIVE_FOLDER_ID`: id de la carpeta de drive usada.
 - `GOOGLE_OAUTH_CLIENT_JSON` y `GOOGLE_OAUTH_TOKEN_JSON`: configuración OAuth para Render.
 - `ALMACEN_CARPETA_DATOS`: ubicación local de archivos generados; si se omite, usa `backend/datos/almacen`.
 
