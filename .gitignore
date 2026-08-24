@@ -4,10 +4,14 @@ __pycache__/
 **/.pytest_cache/
 *.pyc
 .env
+.env.*
+!.env.example
 .vscode/
 
 # Credenciales privadas de Google Drive
 backend/flucito-*.json
+backend/credenciales_OAuth.json
+backend/token_drive*.json
 **/service-account*.json
 **/*credentials*.json
 **/*oauth*.json
