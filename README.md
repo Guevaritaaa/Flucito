@@ -72,10 +72,12 @@ Después hay que completar `.env` con las claves y configuraciones correspondien
 Para iniciar la API:
 
 ```powershell
-uvicorn app.main:app --reload
+fastapi dev app/main.py
 ```
 
 La API queda disponible en `http://127.0.0.1:8000` y su documentación interactiva en `http://127.0.0.1:8000/docs`.
+
+`fastapi dev` es el comando de desarrollo de FastAPI: activa recarga automática y escucha en localhost. Uvicorn sigue siendo válido; el CLI de FastAPI lo utiliza internamente. Para producción se usa `fastapi run app/main.py` o el comando de Uvicorn configurado en Render.
 
 ## Variables de entorno
 
@@ -132,6 +134,8 @@ python -m pytest tests -q --basetemp ..\pytest-temp
 ```
 
 Las pruebas cubren salud de la API, chat, fallback de proveedores, carga de archivos, estado de Drive y procesamiento del almacén.
+
+La guía completa de pruebas automáticas y manuales está en [`docs/pruebas.md`](docs/pruebas.md).
 
 ## Despliegue
 
