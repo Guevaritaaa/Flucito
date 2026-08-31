@@ -105,6 +105,8 @@ mensaje → modelo → herramienta → modelo → respuesta
 
 El fallback se activa cuando el proveedor principal devuelve errores recuperables, como modelo no disponible, límite de peticiones o errores temporales.
 
+La herramienta disponible y su funcionamiento están descritos en [`docs/herramientas.md`](docs/herramientas.md).
+
 La memoria actual usa `MemorySaver` y `session_id`. Funciona para la V1, pero vive en la memoria del proceso: si Render reinicia el servicio, las conversaciones se pierden. Una versión posterior deberá guardar sesiones en una base de datos.
 
 ## Flujo de documentos y almacén
