@@ -83,6 +83,8 @@ La plantilla completa está en [`backend/.env.example`](backend/.env.example). L
 
 La explicación de configuración local, Render, OAuth y cuenta de servicio está en [`docs/variables-entorno.md`](docs/variables-entorno.md).
 
+La guía de uso diario está en [`docs/flujo-usuario.md`](docs/flujo-usuario.md).
+
 - `GROQ_API_KEY` y `GROQ_MODEL`: proveedor y modelo principales.
 - `OPENAI_API_KEY` y `OPENAI_MODEL`: proveedor y modelo de respaldo.
 - `LLM_PRIMARY_PROVIDER`: normalmente `groq`.
