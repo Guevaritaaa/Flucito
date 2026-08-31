@@ -1,22 +1,42 @@
-# Flucito
+# Flucito 🤖
 
-Flucito es el asistente virtual que estoy construyendo para Interflu, una refaccionaria industrial y neumática.
+Flucito es un agente de Inteligencia Artificial que estoy construyendo para Interflu, una empresa dedicada a refacciones y soluciones hidráulicas y neumáticas.
 
-La primera versión ya puede conversar, recibir documentos de facturas, guardarlos en Google Drive y generar una base acumulativa de entradas de almacén en Excel. El objetivo no es solamente tener un chat: quiero convertirlo poco a poco en un agente que ayude con la facturación, almacén y decisiones de inventario.
+Esta primera versión busca resolver algo concreto: recibir documentos de facturas, organizarlos, extraer información útil y convertirla en una base operativa para el almacén. A partir de ahí, el proyecto puede crecer hacia facturación automática, consultas sobre inventario y apoyo para tomar mejores decisiones comerciales.
+
+## Desarrolladores
+
+- Roberto Carlos Luis Guevara
+- Jatziri Guadalupe Camacho Madero
+
+## Estado actual
+
+La V1 ya cuenta con un flujo funcional de conversación, carga de documentos, almacenamiento en Google Drive y generación de reportes en Excel. El frontend actual es una interfaz de pruebas; la prioridad de esta etapa es consolidar el backend, probarlo y dejar documentado cómo funciona.
 
 ## Qué puede hacer actualmente
 
-- Mantener una conversación por sesión.
+- Mantener una conversación con contexto por sesión.
 - Usar Groq como proveedor principal de lenguaje.
-- Cambiar a OpenAI cuando Groq falla o no está disponible.
-- Recibir archivos XML, PDF y TXT desde el frontend.
-- Agrupar documentos relacionados con una factura.
-- Subir documentos a una carpeta de Google Drive.
-- Leer documentos de Drive y actualizar la base acumulativa del almacén.
-- Generar y descargar un archivo Excel.
-- Trabajar con XML como fuente principal, PDF como apoyo y TXT cuando no existe PDF.
+- Cambiar automáticamente a OpenAI cuando el proveedor principal falla.
+- Recibir XML, PDF y TXT desde la interfaz.
+- Agrupar documentos relacionados con una misma factura.
+- Subir y organizar documentos en Google Drive.
+- Extraer datos estructurados de comprobantes fiscales XML.
+- Usar PDF o TXT como apoyo cuando están disponibles.
+- Actualizar una base acumulativa de entradas de almacén.
+- Generar y descargar un archivo Excel compatible con el flujo de trabajo de Aspel SAE.
 
-## Estructura general
+## Stack tecnológico
+
+- **Backend:** Python, FastAPI y LangGraph.
+- **Modelos de lenguaje:** Groq como proveedor principal y OpenAI como fallback.
+- **Documentos y Excel:** XML, PDF, TXT, pandas y openpyxl.
+- **Almacenamiento:** Google Drive API.
+- **Frontend V1:** HTML, CSS y JavaScript.
+- **Despliegue:** Render.
+- **Monitoreo:** endpoint `/health` y cron job externo.
+
+## Estructura del proyecto
 
 ```text
 Flucito/
@@ -24,7 +44,7 @@ Flucito/
 │   ├── app/
 │   │   ├── agents/             # Grafo, estado, prompt, herramientas y fallback
 │   │   ├── api/v1/routes/      # Endpoints de chat y almacén
-│   │   ├── core/               # Configuración desde variables de entorno
+│   │   ├── core/               # Configuración y variables de entorno
 │   │   ├── schemas/            # Modelos de entrada y respuesta
 │   │   └── services/almacen/   # Extracción, Excel y Google Drive
 │   ├── tests/                  # Pruebas automatizadas
@@ -36,7 +56,7 @@ Flucito/
     └── style.css
 ```
 
-## Cómo ejecutarlo localmente
+## Ejecutar localmente
 
 Desde `backend`:
 
@@ -47,7 +67,7 @@ pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-Después, completa `.env` con las claves y configuraciones necesarias. Nunca subas ese archivo a Git.
+Después hay que completar `.env` con las claves y configuraciones correspondientes. Ese archivo no debe subirse a Git.
 
 Para iniciar la API:
 
@@ -55,50 +75,49 @@ Para iniciar la API:
 uvicorn app.main:app --reload
 ```
 
-La API queda disponible en `http://127.0.0.1:8000`. La documentación interactiva de FastAPI está en `/docs`.
+La API queda disponible en `http://127.0.0.1:8000` y su documentación interactiva en `http://127.0.0.1:8000/docs`.
 
 ## Variables de entorno
 
-La plantilla está en [`backend/.env.example`](backend/.env.example). Las variables principales son:
+La plantilla completa está en [`backend/.env.example`](backend/.env.example). Las variables principales son:
 
-- `GROQ_API_KEY`: clave del proveedor principal.
-- `GROQ_MODEL`: modelo usado por Groq.
-- `OPENAI_API_KEY`: clave del proveedor de respaldo.
-- `OPENAI_MODEL`: modelo usado por OpenAI.
+- `GROQ_API_KEY` y `GROQ_MODEL`: proveedor y modelo principales.
+- `OPENAI_API_KEY` y `OPENAI_MODEL`: proveedor y modelo de respaldo.
 - `LLM_PRIMARY_PROVIDER`: normalmente `groq`.
-- `LLM_FALLBACK_ENABLED`: activa o desactiva el respaldo.
-- `GOOGLE_DRIVE_FOLDER_ID`: id de la carpeta de drive usada.
+- `LLM_FALLBACK_ENABLED`: activa o desactiva el fallback.
+- `GOOGLE_DRIVE_FOLDER_ID`: carpeta raíz de documentos.
 - `GOOGLE_OAUTH_CLIENT_JSON` y `GOOGLE_OAUTH_TOKEN_JSON`: configuración OAuth para Render.
-- `ALMACEN_CARPETA_DATOS`: ubicación local de archivos generados; si se omite, usa `backend/datos/almacen`.
+- `ALMACEN_CARPETA_DATOS`: ubicación local de archivos generados.
 
-## Cómo funciona el chat
+## Cómo funciona el agente
 
-El endpoint `POST /api/v1/chat` envía el mensaje al grafo de LangGraph. El modelo puede responder directamente o solicitar la herramienta de entradas de almacén.
-
-Cuando solicita la herramienta, el flujo es:
+El endpoint `POST /api/v1/chat` envía cada mensaje al grafo de LangGraph. Flucito puede responder directamente o decidir que necesita consultar la herramienta de entradas de almacén.
 
 ```text
-mensaje → modelo → herramienta de almacén → modelo → respuesta
+mensaje → modelo → herramienta → modelo → respuesta
 ```
 
-El grafo conserva la conversación mediante `MemorySaver` y `session_id`. Esta memoria es temporal: se pierde si Render reinicia el proceso. Para una versión posterior será necesario guardar las conversaciones en una base de datos.
+El fallback se activa cuando el proveedor principal devuelve errores recuperables, como modelo no disponible, límite de peticiones o errores temporales.
+
+La memoria actual usa `MemorySaver` y `session_id`. Funciona para la V1, pero vive en la memoria del proceso: si Render reinicia el servicio, las conversaciones se pierden. Una versión posterior deberá guardar sesiones en una base de datos.
 
 ## Flujo de documentos y almacén
 
-1. El frontend recibe XML, PDF o TXT.
-2. `POST /api/v1/almacen/upload` agrupa los archivos por factura.
-3. Los documentos se suben a Google Drive.
+1. El usuario selecciona XML, PDF o TXT desde el frontend.
+2. `POST /api/v1/almacen/upload` recibe y agrupa los archivos por factura.
+3. Los documentos se suben y organizan en Google Drive.
 4. La herramienta del agente sincroniza documentos nuevos.
-5. El extractor obtiene datos del XML y usa PDF/TXT como apoyo.
-6. Se actualiza la base acumulativa.
-7. El agente responde con un resumen y ofrece descargar el Excel.
+5. El extractor obtiene datos fiscales y conceptos del XML.
+6. PDF o TXT sirven como apoyo cuando hace falta validar o completar información.
+7. Se actualiza el Excel acumulativo de entradas de almacén.
+8. Flucito devuelve un resumen y habilita la descarga del archivo.
 
-Endpoints principales:
+## Endpoints principales
 
 - `GET /health`: comprobación ligera del servicio.
 - `POST /api/v1/chat`: conversación con Flucito.
 - `POST /api/v1/almacen/upload`: carga documentos a Google Drive.
-- `GET /api/v1/almacen/download`: descarga la base de almacén.
+- `GET /api/v1/almacen/download`: descarga la base acumulativa de almacén.
 
 ## Pruebas
 
@@ -108,19 +127,31 @@ Desde `backend`:
 python -m pytest tests -q --basetemp ..\pytest-temp
 ```
 
-Las pruebas cubren salud de la API, chat, fallback de proveedores, carga de documentos, estado de Drive y procesamiento del almacén.
+Las pruebas cubren salud de la API, chat, fallback de proveedores, carga de archivos, estado de Drive y procesamiento del almacén.
 
 ## Despliegue
 
-El backend se despliega en Render. Las variables de `.env` deben configurarse en el panel de Render; no se guardan en el repositorio.
+El backend está desplegado en Render. Las variables de entorno se configuran directamente en el panel del servicio y no forman parte del repositorio.
 
-Después de cada cambio importante:
+Para evitar que la instancia gratuita permanezca inactiva durante la jornada, un cron job externo consulta periódicamente `/health`. Ese endpoint no ejecuta modelos ni herramientas; solamente confirma que la API está activa.
 
-1. Ejecutar las pruebas localmente.
-2. Probar la ruta afectada en Render.
-3. Revisar los logs.
-4. Crear un commit que explique el cambio.
+## Hoja de ruta
 
-## Estado de esta versión
+### V1: consolidación
 
-Esta es la primera versión funcional. Ya existe el flujo principal, pero todavía quedan tareas importantes: persistir conversaciones, mejorar manejo de errores de Google Drive, agregar más pruebas de integración y documentar decisiones técnicas conforme el proyecto crezca.
+- Mantener estable el flujo actual.
+- Mejorar manejo de errores.
+- Aumentar cobertura de pruebas.
+- Documentar configuración y decisiones técnicas.
+
+### V2: evolución del asistente
+
+- Sustituir la interfaz de pruebas por el diseño completo de Figma.
+- Guardar conversaciones en una base de datos.
+- Consultar información comercial y de inventario desde los sistemas de Interflu.
+- Generar reportes de ventas, existencias y productos con baja rotación.
+- Preparar automatización de facturas y tareas repetitivas del almacén.
+
+## Nota de alcance
+
+Flucito todavía es una primera versión funcional, no un sistema terminado de producción. La automatización de facturas, las recomendaciones de inventario y el modelo de machine learning forman parte de la evolución prevista, pero requieren más datos, validaciones y pruebas antes de automatizar decisiones importantes.
