@@ -81,6 +81,8 @@ La API queda disponible en `http://127.0.0.1:8000` y su documentación interacti
 
 La plantilla completa está en [`backend/.env.example`](backend/.env.example). Las variables principales son:
 
+La explicación de configuración local, Render, OAuth y cuenta de servicio está en [`docs/variables-entorno.md`](docs/variables-entorno.md).
+
 - `GROQ_API_KEY` y `GROQ_MODEL`: proveedor y modelo principales.
 - `OPENAI_API_KEY` y `OPENAI_MODEL`: proveedor y modelo de respaldo.
 - `LLM_PRIMARY_PROVIDER`: normalmente `groq`.
