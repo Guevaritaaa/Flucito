@@ -2,7 +2,7 @@
 
 Este archivo resume cambios importantes de Flucito. Los commits contienen el detalle técnico de cada modificación.
 
-## [0.1.0] - 2026-09-05
+## [1.0.0] - 2026-09-05
 
 Primera versión funcional del asistente.
 

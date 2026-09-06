@@ -11,6 +11,8 @@ Esta primera versión busca resolver algo concreto: recibir documentos de factur
 
 ## Estado actual
 
+**Estado de V1 — septiembre de 2026**
+
 La V1 ya cuenta con un flujo funcional de conversación, carga de documentos, almacenamiento en Google Drive y generación de reportes en Excel. El frontend actual es una interfaz de pruebas; la prioridad de esta etapa es consolidar el backend, probarlo y dejar documentado cómo funciona.
 
 ## Qué puede hacer actualmente
