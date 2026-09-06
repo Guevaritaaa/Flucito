@@ -87,6 +87,8 @@ La explicación de configuración local, Render, OAuth y cuenta de servicio est�
 
 La guía de uso diario está en [`docs/flujo-usuario.md`](docs/flujo-usuario.md).
 
+Los cambios importantes de cada versión se registran en [`CHANGELOG.md`](CHANGELOG.md).
+
 - `GROQ_API_KEY` y `GROQ_MODEL`: proveedor y modelo principales.
 - `OPENAI_API_KEY` y `OPENAI_MODEL`: proveedor y modelo de respaldo.
 - `LLM_PRIMARY_PROVIDER`: normalmente `groq`.
