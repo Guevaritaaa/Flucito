@@ -7,6 +7,7 @@ Modo borrador: sin diccionario de mapeo interno ni factores de precio todavía.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 
@@ -38,6 +39,7 @@ NOMBRE_ARCHIVO_RESUMEN = "RESUMEN_ENTRADAS_ALMACEN.json"
 CLAVES_DEDUPE = ["Clave Artículo", "Fecha de última compra", "PROVEEDOR"]
 
 PATRON_FECHA_CFDI = re.compile(r"^(\d{4})-(\d{2})-(\d{2})")
+logger = logging.getLogger(__name__)
 
 
 def _formatea_fecha(fecha_iso: str) -> str | None:
@@ -108,14 +110,22 @@ def procesar_xml(ruta_xml: str, carpeta: str) -> pd.DataFrame:
     # en pdf). Si el match por código falló para TODO el archivo y el total
     # de filas coincide, se asume mismo orden en ambos y se empareja por posición.
     if apoyo and all(d is None for d in datos) and len(apoyo) == len(conceptos):
-        print(f"[{os.path.basename(ruta_xml)}] match por código falló para todo, "
-              f"uso orden posicional ({len(conceptos)} filas en ambos)")
+        logger.warning(
+            "[%s] match por código falló para todo; uso orden posicional "
+            "(%s filas en ambos)",
+            os.path.basename(ruta_xml),
+            len(conceptos),
+        )
         datos = apoyo
 
     filas = [_fila_desde_concepto(c, d) for c, d in zip(conceptos, datos)]
     df = pd.DataFrame(filas, columns=COLUMNAS_ASPEL)
-    print(f"[{os.path.basename(ruta_xml)}] {len(df)} productos "
-          f"(apoyo {'encontrado' if apoyo else 'NO encontrado'})")
+    logger.info(
+        "[%s] %s productos (apoyo %s)",
+        os.path.basename(ruta_xml),
+        len(df),
+        "encontrado" if apoyo else "NO encontrado",
+    )
     return df
 
 
@@ -168,7 +178,7 @@ def guardar_en_base_acumulada(df_nuevo: pd.DataFrame, carpeta: str = CARPETA_DAT
     combinado.drop_duplicates(subset=CLAVES_DEDUPE, keep="last", inplace=True)
     duplicados_ignorados = antes - len(combinado)
     if duplicados_ignorados:
-        print(f"({duplicados_ignorados} fila(s) duplicada(s) ignorada(s))")
+        logger.info("%s fila(s) duplicada(s) ignorada(s)", duplicados_ignorados)
 
     combinado.to_excel(ruta, index=False)
     _aplicar_estilo(ruta, len(COLUMNAS_ASPEL))
@@ -183,7 +193,7 @@ def guardar_en_base_acumulada(df_nuevo: pd.DataFrame, carpeta: str = CARPETA_DAT
         ),
         ruta_json,
     )
-    print(f"-> {ruta}  ({len(combinado)} productos en total)")
+    logger.info("Reporte guardado en %s (%s productos en total)", ruta, len(combinado))
     return ruta
 
 
@@ -194,7 +204,7 @@ def procesar_carpeta(carpeta: str = CARPETA_DATOS) -> None:
         if os.path.splitext(nombre)[1].lower() == ".xml"
     ]
     if not xmls:
-        print(f"No hay XML en {carpeta}")
+        logger.info("No hay XML en %s", carpeta)
         return
 
     dfs = []
@@ -202,7 +212,7 @@ def procesar_carpeta(carpeta: str = CARPETA_DATOS) -> None:
         try:
             dfs.append(procesar_xml(ruta_xml, carpeta))
         except Exception as error:
-            print(f"[{os.path.basename(ruta_xml)}] ERROR: {error}")
+            logger.exception("[%s] ERROR al procesar XML: %s", os.path.basename(ruta_xml), error)
 
     if dfs:
         df_nuevo = pd.concat(dfs, ignore_index=True)
