@@ -1,0 +1,65 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Flucito · Workflow del agente",
+    "subtitle": "Decisión del LLM y ejecución opcional de herramientas",
+    "output": "flucito-agent-workflow.html",
+    "animation": "trace",
+    "visual_preset": "signal-flow",
+    "quality_profile": "showcase",
+    "views": [
+      { "id": "direct-response", "label": "Respuesta directa", "focus": ["usuario", "frontend", "api", "grafo", "llm", "respuesta"], "note": "El flujo termina cuando el LLM no solicita una herramienta." },
+      { "id": "tool-loop", "label": "Loop de herramienta", "focus": ["grafo", "llm", "decision", "tool", "resultado"], "note": "La herramienta procesa documentos y devuelve datos al agente para una segunda respuesta." },
+      { "id": "provider-fallback", "label": "Fallback del proveedor", "focus": ["llm", "respuesta"], "note": "El proveedor alterno se documenta en la secuencia conversacional." }
+    ]
+  },
+  "lanes": [
+    { "id": "ui", "label": "Interfaz" },
+    { "id": "agent", "label": "Runtime del agente" },
+    { "id": "tools", "label": "Herramientas y datos" }
+  ],
+  "phases": [
+    { "id": "intake", "label": "Entrada", "fromCol": 0, "toCol": 1 },
+    { "id": "reasoning", "label": "Invocación y decisión", "fromCol": 2, "toCol": 3, "variant": "emphasis" },
+    { "id": "execution", "label": "Tool y respuesta", "fromCol": 4, "toCol": 5, "variant": "dashed" }
+  ],
+  "groups": [
+    { "id": "agent_loop", "label": "Ciclo agente → tool → agente", "lane": "agent", "fromCol": 2, "toCol": 5, "variant": "emphasis" },
+    { "id": "tool_work", "label": "Proceso empresarial automatizado", "lane": "tools", "fromCol": 4, "toCol": 5, "variant": "dashed" }
+  ],
+  "mainPath": ["usuario", "frontend", "api", "grafo", "llm", "decision", "respuesta"],
+  "semanticChecks": {
+    "allowedRoots": ["usuario"],
+    "allowedTerminals": ["respuesta"],
+    "requiredPaths": [
+      { "from": "grafo", "to": "respuesta" },
+      { "from": "grafo", "to": "tool" },
+      { "from": "tool", "to": "grafo" }
+    ]
+  },
+  "nodes": [
+    { "id": "usuario", "lane": "ui", "col": 0, "type": "external", "label": "Usuario", "sublabel": "solicita información", "width": 132 },
+    { "id": "frontend", "lane": "ui", "col": 1, "type": "frontend", "label": "Frontend", "sublabel": "chat + archivos", "width": 132 },
+    { "id": "api", "lane": "agent", "col": 2, "type": "backend", "label": "FastAPI", "sublabel": "recibe el request", "width": 132 },
+    { "id": "grafo", "lane": "agent", "col": 3, "type": "backend", "label": "LangGraph", "sublabel": "coordina el ciclo", "tag": "MemorySaver", "width": 146 },
+    { "id": "llm", "lane": "agent", "col": 4, "type": "cloud", "label": "LLM", "sublabel": "Groq / OpenAI", "width": 132 },
+    { "id": "decision", "lane": "agent", "col": 4, "type": "security", "label": "¿tool_call?", "sublabel": "decisión del grafo", "width": 132, "yOffset": 70 },
+    { "id": "respuesta", "lane": "ui", "col": 5, "type": "backend", "label": "Respuesta final", "sublabel": "texto + enlace", "width": 132 },
+    { "id": "tool", "lane": "tools", "col": 4, "type": "backend", "label": "Tool almacén", "sublabel": "entradas_almacen", "width": 156 },
+    { "id": "resultado", "lane": "tools", "col": 5, "type": "database", "label": "Resultado", "sublabel": "Excel acumulativo", "width": 132 }
+  ],
+  "edges": [
+    { "id": "request-frontend", "from": "usuario", "to": "frontend", "variant": "emphasis" },
+    { "id": "frontend-api", "from": "frontend", "to": "api", "label": "HTTP", "variant": "default" },
+    { "id": "api-grafo", "from": "api", "to": "grafo", "label": "mensaje + sesión", "variant": "emphasis" },
+    { "id": "grafo-llm", "from": "grafo", "to": "llm", "label": "invocar", "variant": "emphasis" },
+    { "id": "llm-decision", "from": "llm", "to": "decision", "label": "respuesta", "variant": "default" },
+    { "id": "no-tool-response", "from": "decision", "to": "respuesta", "label": "no", "variant": "default", "role": "return", "route": "outside-right" },
+    { "id": "tool-branch", "from": "decision", "to": "tool", "label": "sí: tool_call", "variant": "emphasis", "role": "branch" },
+    { "id": "tool-result", "from": "tool", "to": "resultado", "label": "procesar y actualizar", "variant": "default" },
+    { "id": "result-grafo", "from": "resultado", "to": "grafo", "label": "resultado estructurado", "variant": "dashed", "role": "return" },
+    { "id": "loop-llm", "from": "grafo", "to": "llm", "label": "segunda invocación", "variant": "dashed", "role": "return", "route": "up-channel" },
+    { "id": "llm-final", "from": "llm", "to": "respuesta", "label": "respuesta final", "variant": "emphasis", "role": "return" }
+  ]
+}

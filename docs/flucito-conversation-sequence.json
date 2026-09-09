@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Flucito · Secuencia conversacional",
+    "subtitle": "Respuesta directa o ciclo opcional de herramienta",
+    "output": "flucito-conversation-sequence.html",
+    "viewBox": [1080, 760],
+    "animation": "trace",
+    "visual_preset": "signal-flow",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "views": [
+      { "id": "direct-reply", "label": "Respuesta directa", "focus": ["usuario", "frontend", "api", "grafo", "groq"], "note": "El LLM responde sin solicitar una herramienta." },
+      { "id": "tool-roundtrip", "label": "Ciclo con tool", "focus": ["grafo", "groq", "tool", "drive", "api"], "note": "La tool se ejecuta, devuelve su resultado al grafo y el LLM genera la respuesta final." },
+      { "id": "fallback", "label": "Fallback", "focus": ["grafo", "groq", "openai"], "note": "OpenAI se usa cuando el proveedor principal falla de forma recuperable." }
+    ]
+  },
+  "participants": [
+    { "id": "usuario", "type": "external", "label": "Usuario", "sublabel": "Interflu" },
+    { "id": "frontend", "type": "frontend", "label": "Frontend", "sublabel": "HTML · CSS · JS" },
+    { "id": "api", "type": "backend", "label": "FastAPI", "sublabel": "API /api/v1" },
+    { "id": "grafo", "type": "backend", "label": "LangGraph", "sublabel": "Agente + memoria" },
+    { "id": "groq", "type": "cloud", "label": "Groq", "sublabel": "LLM principal" },
+    { "id": "openai", "type": "cloud", "label": "OpenAI", "sublabel": "Fallback" },
+    { "id": "tool", "type": "backend", "label": "Tool almacén", "sublabel": "entradas_almacen" },
+    { "id": "drive", "type": "cloud", "label": "Google Drive", "sublabel": "XML · PDF · TXT" }
+  ],
+  "segments": [
+    { "from": 140, "to": 275, "label": "Entrada y primera respuesta" },
+    { "from": 290, "to": 520, "label": "Ejecución opcional de tool" },
+    { "from": 535, "to": 705, "label": "Respuesta final" }
+  ],
+  "messages": [
+    { "from": "usuario", "to": "frontend", "y": 160, "label": "mensaje", "variant": "emphasis" },
+    { "from": "frontend", "to": "api", "y": 185, "label": "POST /api/v1/chat", "variant": "emphasis" },
+    { "from": "api", "to": "grafo", "y": 220, "label": "mensaje + session_id", "variant": "default" },
+    { "from": "grafo", "to": "groq", "y": 255, "label": "invocar LLM", "variant": "emphasis" },
+    { "from": "groq", "to": "grafo", "y": 295, "label": "respuesta o tool_call", "variant": "return" },
+    { "from": "grafo", "to": "openai", "y": 335, "label": "fallback si Groq falla", "variant": "dashed" },
+    { "from": "openai", "to": "grafo", "y": 375, "label": "respuesta de respaldo", "variant": "return" },
+    { "from": "grafo", "to": "tool", "y": 415, "label": "ejecutar tool", "variant": "emphasis" },
+    { "from": "tool", "to": "drive", "y": 455, "label": "leer documentos", "variant": "default" },
+    { "from": "drive", "to": "tool", "y": 495, "label": "XML / PDF / TXT", "variant": "return" },
+    { "from": "tool", "to": "grafo", "y": 525, "label": "resultado estructurado", "variant": "return" },
+    { "from": "grafo", "to": "groq", "y": 565, "label": "generar respuesta final", "variant": "emphasis" },
+    { "from": "groq", "to": "grafo", "y": 605, "label": "respuesta final", "variant": "return" },
+    { "from": "grafo", "to": "api", "y": 645, "label": "estado final", "variant": "return" },
+    { "from": "api", "to": "frontend", "y": 675, "label": "respuesta visible + enlace", "variant": "return" }
+  ],
+  "activations": [
+    { "participant": "api", "from": 180, "to": 620, "type": "backend" },
+    { "participant": "grafo", "from": 215, "to": 612, "type": "backend" },
+    { "participant": "groq", "from": 250, "to": 582, "type": "cloud" },
+    { "participant": "tool", "from": 390, "to": 510, "type": "backend" },
+    { "participant": "drive", "from": 425, "to": 480, "type": "cloud" }
+  ]
+}
