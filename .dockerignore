@@ -1,0 +1,15 @@
+.git
+.gitignore
+.env
+**/.env
+**/__pycache__
+**/.pytest_cache
+**/.pytest_tmp*
+**/Flucitoenv
+**/*.pyc
+backend/datos
+backend/*.json
+docs
+frontend
+*.xlsx
+*.log
