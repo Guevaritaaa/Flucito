@@ -1,5 +1,12 @@
-const API_URL = "https://flucito.onrender.com/api/v1/chat";
-const API_DRIVE_UPLOAD_URL = "https://flucito.onrender.com/api/v1/almacen/upload";
+const host = window.location.hostname;
+const BACKEND_URL = host.endsWith("onrender.com")
+    ? "https://flucito.onrender.com"
+    : host === "localhost" || host === "127.0.0.1"
+        ? "http://127.0.0.1:8000"
+        : "";
+
+const API_URL = `${BACKEND_URL}/api/v1/chat`;
+const API_DRIVE_UPLOAD_URL = `${BACKEND_URL}/api/v1/almacen/upload`;
 const sessionId = crypto.randomUUID();
 
 const formulario = document.getElementById("formulario-chat");
@@ -9,11 +16,9 @@ const entradaXml = document.getElementById("entrada-xml");
 const estadoXml = document.getElementById("estado-xml");
 const botonSubirDrive = document.getElementById("boton-subir-drive");
 
-const BACKEND_URL = "https://flucito.onrender.com";
-
 function despertarBackend() {
     const estado = document.getElementById("estado-backend");
-    fetch(BACKEND_URL)
+    fetch(BACKEND_URL || "/")
         .then(() => {
             if (estado) estado.remove();
         })
@@ -106,7 +111,7 @@ formulario.addEventListener("submit", async (evento) => {
         const archivoUrl = datos.archivo_almacen_url;
         if (archivoUrl) {
             const enlace = document.createElement("a");
-            enlace.href = new URL(archivoUrl, BACKEND_URL);
+            enlace.href = new URL(archivoUrl, BACKEND_URL || window.location.origin);
             enlace.download = "BASE_ENTRADAS_ALMACEN.xlsx";
             enlace.textContent = "Descargar base de almacén";
             enlace.className = "enlace-descarga";
