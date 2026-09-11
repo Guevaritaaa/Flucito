@@ -7,7 +7,8 @@ const BACKEND_URL = host.endsWith("onrender.com")
 
 const API_URL = `${BACKEND_URL}/api/v1/chat`;
 const API_DRIVE_UPLOAD_URL = `${BACKEND_URL}/api/v1/almacen/upload`;
-const sessionId = crypto.randomUUID();
+const sessionId = globalThis.crypto?.randomUUID?.()
+    ?? `session-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 const formulario = document.getElementById("formulario-chat");
 const entrada = document.getElementById("entrada-mensaje");
