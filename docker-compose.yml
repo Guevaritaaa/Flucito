@@ -22,3 +22,26 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: flucito-frontend
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      flucito:
+        condition: service_healthy
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      flucito:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    restart: unless-stopped
