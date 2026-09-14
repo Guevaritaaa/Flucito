@@ -49,7 +49,28 @@ def generar_entradas_almacen() -> str:
                 ensure_ascii=False,
             )
         if sincronizacion.get("carpetas_nuevas", 0) == 0:
-            logger.info("Drive: No hay documentos nuevos que reportar.")
+            logger.info("Drive: Sin documentos nuevos. Verificando si existe base previa...")
+            ruta_resumen = Path(CARPETA_DATOS) / NOMBRE_ARCHIVO_RESUMEN
+            ruta_base = Path(CARPETA_DATOS) / "BASE_ENTRADAS_ALMACEN.xlsx"
+            if ruta_base.is_file() and ruta_resumen.is_file():
+                try:
+                    resumen = json.loads(ruta_resumen.read_text(encoding="utf-8"))
+                    resumen["origen"] = "google_drive"
+                    resumen["documentos_nuevos"] = 0
+                    return json.dumps(
+                        {
+                            "ok": True,
+                            "reporte_generado": True,
+                            "documentos_nuevos": 0,
+                            "mensaje": "No hay documentos nuevos en Google Drive. La base acumulada ya está al día.",
+                            "resumen": resumen,
+                        },
+                        ensure_ascii=False,
+                    )
+                except (OSError, ValueError):
+                    pass
+
+            logger.info("Drive: No hay documentos nuevos ni base previa generada.")
             return json.dumps(
                 {
                     "ok": True,
