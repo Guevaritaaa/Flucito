@@ -1,5 +1,5 @@
 """
-Datos que el CFDI no trae (Línea/familia, y la Clave Artículo "real" de Aspel)
+Datos que el CFDI no trae (Línea/familia, número de proveedor y Clave Artículo de Aspel)
 se sacan del PDF o TXT que Compras manda junto al XML.
 
 El emparejamiento NO es por nombre de archivo (cada sistema nombra distinto,
@@ -51,6 +51,25 @@ def _extraer_year_folio(nombre_archivo: str):
 PATRON_LINEA = re.compile(r"^[A-Z]{2,6}$")  # solo letras (ADC, UF...) -> distingue de "H87" (trae dígito)
 
 
+def extraer_numero_proveedor(texto: str) -> str | None:
+    """Extrae la clave/número de proveedor (ej: 463, 472) asociada a la etiqueta Proveedor."""
+    if not texto:
+        return None
+    # Caso 1: Proveedor: ... ( 463 )
+    m = re.search(r"Proveedor:?[\s\S]{0,50}?\(\s*(\d{1,6})\s*\)", texto, re.IGNORECASE)
+    if m:
+        return m.group(1)
+    # Caso 2: ( 463 ) ... Proveedor
+    m = re.search(r"\(\s*(\d{1,6})\s*\)[\s\S]{0,50}?Proveedor", texto, re.IGNORECASE)
+    if m:
+        return m.group(1)
+    # Caso 3: Proveedor: 463 (sin paréntesis)
+    m = re.search(r"Proveedor:?\s*(\d{1,6})\b", texto, re.IGNORECASE)
+    if m:
+        return m.group(1)
+    return None
+
+
 def _procesar_fila(fila) -> dict | None:
     """
     Extrae {codigo_norm, clave_articulo, linea, descripcion_corta} de una fila
@@ -97,8 +116,11 @@ def _procesar_fila(fila) -> dict | None:
 def _leer_desde_pdf(ruta_pdf: str) -> list:
     """Lista ordenada (mismo orden que la tabla del pdf), ver _procesar_fila."""
     datos = []
+    num_proveedor = None
     with pdfplumber.open(ruta_pdf) as pdf:
         for page in pdf.pages:
+            if not num_proveedor:
+                num_proveedor = extraer_numero_proveedor(page.extract_text() or "")
             for tabla in page.extract_tables():
                 for fila in tabla:
                     if not fila:
@@ -106,6 +128,10 @@ def _leer_desde_pdf(ruta_pdf: str) -> list:
                     dato = _procesar_fila(fila)
                     if dato:
                         datos.append(dato)
+
+    if num_proveedor:
+        for d in datos:
+            d["numero_proveedor"] = num_proveedor
     return datos
 
 
@@ -113,7 +139,9 @@ def _leer_desde_txt(ruta_txt: str) -> list:
     """Fallback si no hay PDF. Menos confiable por saltos de línea del export."""
     datos = []
     with open(ruta_txt, encoding="utf-8", errors="ignore") as f:
-        for linea_txt in f:
+        lineas = f.readlines()
+        contenido_completo = "".join(lineas)
+        for linea_txt in lineas:
             m = re.match(r"\s*(\d+\.\d{2})(\S{6,})", linea_txt)
             if not m:
                 continue
@@ -128,6 +156,11 @@ def _leer_desde_txt(ruta_txt: str) -> list:
                 "linea": linea,
                 "descripcion_corta": descripcion_corta or None,
             })
+
+    num_proveedor = extraer_numero_proveedor(contenido_completo)
+    if num_proveedor:
+        for d in datos:
+            d["numero_proveedor"] = num_proveedor
     return datos
 
 
@@ -162,4 +195,4 @@ def buscar_dato(apoyo: list, codigo_concepto: str) -> dict | None:
     return None
 
 
-__all__ = ["obtener_apoyo_por_folio", "buscar_dato"]
+__all__ = ["obtener_apoyo_por_folio", "buscar_dato", "extraer_numero_proveedor"]
