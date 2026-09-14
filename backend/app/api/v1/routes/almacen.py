@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import shutil
 import tempfile
 from pathlib import Path
@@ -13,6 +14,7 @@ from fastapi.responses import FileResponse
 from app.services.almacen.excel import CARPETA_DATOS, NOMBRE_ARCHIVO_BASE
 from app.services.almacen.fuentes.subidor import subir_documentos_drive
 
+logger = logging.getLogger(__name__)
 
 MAX_ARCHIVOS = 150
 MAX_BYTES = 20 * 1024 * 1024
@@ -26,11 +28,13 @@ def descargar_base_almacen() -> FileResponse:
     """Entrega la base generada desde la carpeta configurada."""
     ruta = CARPETA_DATOS / NOMBRE_ARCHIVO_BASE
     if not ruta.is_file():
+        logger.warning("Intento de descarga de base inexistente en: %s", ruta)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-        detail="Base de entradas de almacén no encontrada",
+            detail="Base de entradas de almacén no encontrada",
         )
 
+    logger.info("Descargando base de entradas: %s", ruta)
     return FileResponse(
         path=ruta,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -51,12 +55,14 @@ async def cargar_documentos_almacen(
             detail=f"Máximo {MAX_ARCHIVOS} archivos",
         )
 
+    logger.info("Recibidos %d archivo(s) para carga a Google Drive", len(archivos))
     directorio = Path(tempfile.mkdtemp(prefix="flucito_almacen_upload_"))
     rutas: list[Path] = []
     try:
         for indice, archivo in enumerate(archivos, start=1):
             nombre = Path(archivo.filename or f"archivo_{indice}").name
             if Path(nombre).suffix.lower() not in {".xml", ".pdf", ".txt"}:
+                logger.warning("Tipo de archivo no soportado rechazado: %s", nombre)
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"{nombre}: tipo no soportado",
@@ -76,10 +82,12 @@ async def cargar_documentos_almacen(
             rutas.append(destino)
 
         resultado = await run_in_threadpool(subir_documentos_drive, rutas)
+        logger.info("Carga a Drive completada exitosamente: %s", resultado)
         return {"ok": True, **resultado}
     except HTTPException:
         raise
     except (OSError, RuntimeError, ValueError) as error:
+        logger.exception("Error al subir documentos a Drive: %s", error)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(error),
