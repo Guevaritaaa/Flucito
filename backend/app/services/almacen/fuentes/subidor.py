@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -58,19 +57,13 @@ def agrupar_documentos(rutas: Iterable[Path]) -> list[GrupoCarga]:
     return grupos
 
 
-def _nombre_carpeta(xml: Path) -> str:
-    """Obtiene fecha CFDI para nombrar carpeta; usa fecha actual como fallback."""
-    try:
-        raiz = ET.parse(xml).getroot()
-        fecha = raiz.attrib.get("Fecha", "")
-        fecha = datetime.fromisoformat(fecha.replace("Z", "+00:00"))
-    except (ET.ParseError, OSError, TypeError, ValueError):
-        fecha = datetime.now()
-    return fecha.strftime("%d-%m-%Y")
+def _nombre_carpeta_carga(fecha: datetime | None = None) -> str:
+    """Nombra la carpeta usando la fecha de carga de los documentos (DD-MM-YYYY)."""
+    return (fecha or datetime.now()).strftime("%d-%m-%Y")
 
 
 def subir_documentos_drive(rutas: Iterable[Path]) -> dict[str, int]:
-    """Crea carpetas por factura y sube solo archivos no existentes."""
+    """Crea carpeta por fecha actual de carga y sube solo archivos no existentes."""
     if not settings.google_drive_folder_id:
         raise RuntimeError("Falta GOOGLE_DRIVE_FOLDER_ID")
 
@@ -79,30 +72,32 @@ def subir_documentos_drive(rutas: Iterable[Path]) -> dict[str, int]:
         raise ValueError("Se requiere al menos un XML")
 
     cliente = crear_cliente_drive()
-    carpetas = 0
+    nombre_carpeta = _nombre_carpeta_carga()
+    carpeta_id = buscar_o_crear_carpeta(
+        cliente,
+        nombre_carpeta,
+        settings.google_drive_folder_id,
+    )
+
+    existentes = {
+        archivo["name"]
+        for archivo in listar_archivos_carpeta(cliente, carpeta_id)
+    }
+
     subidos = 0
     omitidos = 0
     for grupo in grupos:
-        carpeta_id = buscar_o_crear_carpeta(
-            cliente,
-            _nombre_carpeta(grupo.xml),
-            settings.google_drive_folder_id,
-        )
-        carpetas += 1
-        existentes = {
-            archivo["name"]
-            for archivo in listar_archivos_carpeta(cliente, carpeta_id)
-        }
         for ruta in (grupo.xml, *grupo.apoyo):
             if ruta.name in existentes:
                 omitidos += 1
                 continue
             subir_archivo(cliente, ruta, carpeta_id)
+            existentes.add(ruta.name)
             subidos += 1
 
     return {
         "facturas": len(grupos),
-        "carpetas": carpetas,
+        "carpetas": 1,
         "subidos": subidos,
         "omitidos": omitidos,
     }
