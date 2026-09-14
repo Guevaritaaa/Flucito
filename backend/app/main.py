@@ -1,14 +1,21 @@
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.routes.chat import router as chat_router
 from app.api.v1.routes.almacen import router as almacen_router
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] [%(name)s]: %(message)s",
+)
+
 app = FastAPI(title="Flucito API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://flucito-1.onrender.com"], 
+    allow_origins=["https://flucito-1.onrender.com", "*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
