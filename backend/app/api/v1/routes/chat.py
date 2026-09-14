@@ -5,6 +5,7 @@ from langchain_core.messages import HumanMessage
 
 from app.agents.graph import grafo
 from app.schemas.chat import ChatRequest, ChatResponse
+from app.services.almacen.excel import CARPETA_DATOS, NOMBRE_ARCHIVO_BASE
 
 
 router = APIRouter()
@@ -39,6 +40,12 @@ def chat(request: ChatRequest) -> ChatResponse:
         if datos.get("ok") and datos.get("reporte_generado") and datos.get("resumen"):
             archivo_almacen_url = "/api/v1/almacen/download"
             break
+
+    # Si la base física existe y el asistente la menciona o el usuario la pidió
+    if archivo_almacen_url is None and (CARPETA_DATOS / NOMBRE_ARCHIVO_BASE).is_file():
+        palabras_clave = ("descarg", "botón", "boton", "archivo excel", "plataforma", "portal")
+        if any(p in respuesta.lower() for p in palabras_clave):
+            archivo_almacen_url = "/api/v1/almacen/download"
 
     return ChatResponse(
         respuesta=respuesta,
