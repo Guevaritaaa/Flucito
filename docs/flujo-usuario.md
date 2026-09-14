@@ -10,7 +10,7 @@ Para cada factura, reúne los documentos disponibles:
 - PDF de la factura: apoyo visual y validación.
 - TXT: alternativa cuando no existe PDF.
 
-No es obligatorio tener los tres archivos. El XML sí es el documento principal. PDF y TXT ayudan a completar o revisar información.
+No es obligatorio tener los tres archivos. El XML sí, es el documento principal. PDF y TXT ayudan a completar o revisar información.
 
 ## 1. Abrir Flucito
 

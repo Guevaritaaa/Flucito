@@ -2,6 +2,7 @@ Flucitoenv/
 __pycache__/
 **/.pytest_tmp*/
 **/.pytest_cache/
+pytest-temp/
 *.pyc
 .env
 .env.*
