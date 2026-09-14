@@ -29,7 +29,6 @@ COLUMNAS_ASPEL = [
     "cero", "Existencias", "Fecha de última compra",
 ]
 
-TITULO = "ENTRADAS DE ALMACÉN"
 COLOR_HEADER = "1F3864"  # azul marino, como tu plantilla
 NOMBRE_ARCHIVO_BASE = "BASE_ENTRADAS_ALMACEN.xlsx"
 NOMBRE_ARCHIVO_RESUMEN = "RESUMEN_ENTRADAS_ALMACEN.json"
@@ -53,11 +52,16 @@ def _formatea_fecha(fecha_iso: str) -> str | None:
     return f"{dia}-{mes}-{anio}"
 
 
-def _fila_desde_concepto(c: dict, dato: dict | None) -> dict:
+def _fila_desde_concepto(c: dict, dato: dict | None, num_proveedor: str | None = None) -> dict:
     clave_articulo = dato["clave_articulo"] if dato else c["no_identificacion"]
     linea = dato["linea"] if dato else None
     # descripción corta: la del pdf/txt si la encontramos, si no, cae a la del XML
     descripcion_corta = (dato.get("descripcion_corta") if dato else None) or c["descripcion"]
+    proveedor = (
+        (dato.get("numero_proveedor") if dato else None)
+        or num_proveedor
+        or c["proveedor_nombre"]
+    )
 
     return {
         "ESTATUS": "A",
@@ -76,7 +80,7 @@ def _fila_desde_concepto(c: dict, dato: dict | None) -> dict:
         "Con pedimento": "N",
         "Tipo de costeo": "P",
         "CLAVE ESQUEMA": 1,
-        "PROVEEDOR": c["proveedor_nombre"],
+        "PROVEEDOR": proveedor,
         "MONEDA": "1",
         "PRECIO COMPRA": c["valor_unitario"],
         "PUBLICO": None,
@@ -118,13 +122,19 @@ def procesar_xml(ruta_xml: str, carpeta: str) -> pd.DataFrame:
         )
         datos = apoyo
 
-    filas = [_fila_desde_concepto(c, d) for c, d in zip(conceptos, datos)]
+    num_proveedor = next(
+        (d.get("numero_proveedor") for d in apoyo if isinstance(d, dict) and d.get("numero_proveedor")),
+        None,
+    )
+
+    filas = [_fila_desde_concepto(c, d, num_proveedor) for c, d in zip(conceptos, datos)]
     df = pd.DataFrame(filas, columns=COLUMNAS_ASPEL)
     logger.info(
-        "[%s] %s productos (apoyo %s)",
+        "[%s] %s productos (apoyo %s, proveedor: %s)",
         os.path.basename(ruta_xml),
         len(df),
         "encontrado" if apoyo else "NO encontrado",
+        num_proveedor or "por nombre",
     )
     return df
 
@@ -132,36 +142,29 @@ def procesar_xml(ruta_xml: str, carpeta: str) -> pd.DataFrame:
 def _cargar_base_existente(ruta: str) -> pd.DataFrame:
     if not os.path.exists(ruta):
         return pd.DataFrame(columns=COLUMNAS_ASPEL)
-    # fila 1 = título (merged), fila 2 = encabezados, datos desde fila 3
-    return pd.read_excel(ruta, header=1)
+    # encabezados en fila 1, datos desde fila 2 (formato Aspel SAE)
+    return pd.read_excel(ruta, header=0)
 
 
 def _aplicar_estilo(ruta: str, n_columnas: int) -> None:
     wb = openpyxl.load_workbook(ruta)
     ws = wb.active
-    ws.insert_rows(1)  # deja espacio para el título arriba de los encabezados
-
-    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_columnas)
-    celda_titulo = ws.cell(row=1, column=1, value=TITULO)
-    celda_titulo.font = Font(bold=True, color="FFFFFF", size=14)
-    celda_titulo.fill = PatternFill("solid", fgColor=COLOR_HEADER)
-    celda_titulo.alignment = Alignment(horizontal="center", vertical="center")
-    ws.row_dimensions[1].height = 22
 
     for col in range(1, n_columnas + 1):
-        celda = ws.cell(row=2, column=col)
+        celda = ws.cell(row=1, column=col)
         celda.font = Font(bold=True, color="FFFFFF")
         celda.fill = PatternFill("solid", fgColor=COLOR_HEADER)
         celda.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 22
 
-    ws.freeze_panes = "A3"
+    ws.freeze_panes = "A2"
 
     for col_idx in range(1, n_columnas + 1):
-        letra = ws.cell(row=2, column=col_idx).column_letter
+        letra = ws.cell(row=1, column=col_idx).column_letter
         max_len = max(
-            len(str(ws.cell(row=2, column=col_idx).value or "")),
+            len(str(ws.cell(row=1, column=col_idx).value or "")),
             max((len(str(ws.cell(row=r, column=col_idx).value or ""))
-                 for r in range(3, ws.max_row + 1)), default=0),
+                 for r in range(2, ws.max_row + 1)), default=0),
         )
         ws.column_dimensions[letra].width = min(max(max_len + 2, 10), 40)
 

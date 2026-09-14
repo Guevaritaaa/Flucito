@@ -57,5 +57,16 @@ def test_formatea_fecha_y_deduplica_base(tmp_path: Path) -> None:
     )
     ruta = excel.guardar_en_base_acumulada(pd.DataFrame([fila, fila]), str(tmp_path))
 
-    base = pd.read_excel(ruta, header=1)
+    base = pd.read_excel(ruta, header=0)
     assert len(base) == 1
+
+
+def test_extraer_numero_proveedor() -> None:
+    texto_makronix = "Proveedor:    (     463    )\nMAKRONIX"
+    texto_universal = "Proveedor:    (     472    )\nUNIVERSAL FITTINGS"
+    texto_scrambled = "MAKRONIX\n( 463 )\nProveedor: COMPRA"
+
+    assert apoyo.extraer_numero_proveedor(texto_makronix) == "463"
+    assert apoyo.extraer_numero_proveedor(texto_universal) == "472"
+    assert apoyo.extraer_numero_proveedor(texto_scrambled) == "463"
+
