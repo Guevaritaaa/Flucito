@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse
 
 from app.services.almacen.excel import CARPETA_DATOS, NOMBRE_ARCHIVO_BASE
 from app.services.almacen.fuentes.subidor import subir_documentos_drive
+from app.services.almacen.txt_aspel import NOMBRE_TXT_COMAS, NOMBRE_TXT_TABS
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,30 @@ def descargar_base_almacen() -> FileResponse:
         path=ruta,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         filename=NOMBRE_ARCHIVO_BASE,
+    )
+
+
+@router.get("/download/txt", summary="Descarga TXT de entradas (comas por defecto)")
+def descargar_txt_almacen(separador: str = "comas") -> FileResponse:
+    """Entrega TXT con comas o tabulaciones según parámetro `separador`."""
+    if separador == "tabs":
+        nombre = NOMBRE_TXT_TABS
+    else:
+        nombre = NOMBRE_TXT_COMAS
+
+    ruta = CARPETA_DATOS / nombre
+    if not ruta.is_file():
+        logger.warning("TXT no encontrado: %s", ruta)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Archivo TXT de entradas no encontrado. Genera el reporte primero.",
+        )
+
+    logger.info("Descargando TXT: %s", ruta)
+    return FileResponse(
+        path=ruta,
+        media_type="text/plain",
+        filename=nombre,
     )
 
 

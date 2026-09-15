@@ -6,6 +6,7 @@ from langchain_core.messages import HumanMessage
 from app.agents.graph import grafo
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.services.almacen.excel import CARPETA_DATOS, NOMBRE_ARCHIVO_BASE
+from app.services.almacen.txt_aspel import NOMBRE_TXT_COMAS, NOMBRE_TXT_TABS
 
 
 router = APIRouter()
@@ -47,7 +48,18 @@ def chat(request: ChatRequest) -> ChatResponse:
         if any(p in respuesta.lower() for p in palabras_clave):
             archivo_almacen_url = "/api/v1/almacen/download"
 
+    # Detectar si el asistente ofrece/menciona TXT y agregar URLs de descarga
+    archivo_txt_url = None
+    resp_lower = respuesta.lower()
+    txt_detectado = any(p in resp_lower for p in ("txt", "tabulacion", "comas", "aspel"))
+    if txt_detectado:
+        if "tabulacion" in resp_lower and (CARPETA_DATOS / NOMBRE_TXT_TABS).is_file():
+            archivo_txt_url = "/api/v1/almacen/download/txt?separador=tabs"
+        elif (CARPETA_DATOS / NOMBRE_TXT_COMAS).is_file():
+            archivo_txt_url = "/api/v1/almacen/download/txt?separador=comas"
+
     return ChatResponse(
         respuesta=respuesta,
         archivo_almacen_url=archivo_almacen_url,
+        archivo_txt_url=archivo_txt_url,
     )

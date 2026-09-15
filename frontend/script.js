@@ -109,14 +109,28 @@ formulario.addEventListener("submit", async (evento) => {
         const datos = await enviarMensaje(mensaje);
         mensajeCargando.remove();
         agregarMensaje(datos.respuesta, "flucito");
+
         const archivoUrl = datos.archivo_almacen_url;
         if (archivoUrl) {
             const enlace = document.createElement("a");
             enlace.href = new URL(archivoUrl, BACKEND_URL || window.location.origin);
             enlace.download = "BASE_ENTRADAS_ALMACEN.xlsx";
-            enlace.textContent = "Descargar base de almacén";
+            enlace.textContent = "\ud83d\udcca Descargar Excel de almacén";
             enlace.className = "enlace-descarga";
             contenedorMensajes.appendChild(enlace);
+            contenedorMensajes.scrollTop = contenedorMensajes.scrollHeight;
+        }
+
+        const archivoTxtUrl = datos.archivo_txt_url;
+        if (archivoTxtUrl) {
+            const enlaceTxt = document.createElement("a");
+            enlaceTxt.href = new URL(archivoTxtUrl, BACKEND_URL || window.location.origin);
+            enlaceTxt.download = archivoTxtUrl.includes("tabs")
+                ? "BASE_ENTRADAS_ALMACEN_TABS.txt"
+                : "BASE_ENTRADAS_ALMACEN_COMAS.txt";
+            enlaceTxt.textContent = "\ud83d\udcc4 Descargar TXT para Aspel";
+            enlaceTxt.className = "enlace-descarga";
+            contenedorMensajes.appendChild(enlaceTxt);
             contenedorMensajes.scrollTop = contenedorMensajes.scrollHeight;
         }
     } catch (error) {

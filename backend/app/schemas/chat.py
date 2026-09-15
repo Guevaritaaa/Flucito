@@ -9,3 +9,4 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     respuesta: str
     archivo_almacen_url: str | None = None
+    archivo_txt_url: str | None = None
