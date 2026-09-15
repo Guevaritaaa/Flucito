@@ -35,8 +35,9 @@ NOMBRE_ARCHIVO_BASE = "BASE_ENTRADAS_ALMACEN.xlsx"
 NOMBRE_ARCHIVO_RESUMEN = "RESUMEN_ENTRADAS_ALMACEN.json"
 
 # clave para no duplicar el mismo producto si vuelves a correr el script
-# sobre los mismos XML (borrador: puede afinarse cuando haya UUID/folio por fila)
-CLAVES_DEDUPE = ["Clave Artículo", "Fecha de última compra", "PROVEEDOR"]
+# Al ser catálogo de inventario, la Clave Artículo debe ser estrictamente única.
+# Si se vuelve a procesar el mismo producto, se actualiza costo y fecha (keep='last').
+CLAVES_DEDUPE = ["Clave Artículo"]
 
 PATRON_FECHA_CFDI = re.compile(r"^(\d{4})-(\d{2})-(\d{2})")
 logger = logging.getLogger(__name__)
