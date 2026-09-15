@@ -18,6 +18,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from app.services.almacen.apoyo import buscar_dato, obtener_apoyo_por_folio
 from app.services.almacen.extractor import CARPETA_DATOS, extraer_conceptos, leer_meta
 from app.services.almacen.resumen import construir_resumen, guardar_resumen_json
+from app.services.almacen.txt_aspel import generar_ambos_txt
 
 
 COLUMNAS_ASPEL = [
@@ -54,7 +55,7 @@ def _formatea_fecha(fecha_iso: str) -> str | None:
 
 def _fila_desde_concepto(c: dict, dato: dict | None, num_proveedor: str | None = None) -> dict:
     clave_articulo = dato["clave_articulo"] if dato else c["no_identificacion"]
-    linea = dato["linea"] if dato else None
+    linea = (dato["linea"] if dato else None) or ""
     # descripción corta: la del pdf/txt si la encontramos, si no, cae a la del XML
     descripcion_corta = (dato.get("descripcion_corta") if dato else None) or c["descripcion"]
     proveedor = (
@@ -71,7 +72,7 @@ def _fila_desde_concepto(c: dict, dato: dict | None, num_proveedor: str | None =
         "Descripción CFDI": c["descripcion"],
         "Unidad de entrada": "pza",
         "Unidad de salida": "pza",
-        "Peso nc": None,
+        "Peso nc": 0,
         "Línea": linea,
         "Clave SAT": c["clave_prod_serv"],
         "Clave unidad": c["clave_unidad"],
@@ -83,14 +84,14 @@ def _fila_desde_concepto(c: dict, dato: dict | None, num_proveedor: str | None =
         "PROVEEDOR": proveedor,
         "MONEDA": "1",
         "PRECIO COMPRA": c["valor_unitario"],
-        "PUBLICO": None,
-        "MINIMO": None,
-        "LIQUIDACION": None,
-        "MOSTRADOR": None,
-        "MAYOREO": None,
-        "DISTRIBUIDOR": None,
-        "cero": "0",
-        "Existencias": None,
+        "PUBLICO": 0,
+        "MINIMO": 0,
+        "LIQUIDACION": 0,
+        "MOSTRADOR": 0,
+        "MAYOREO": 0,
+        "DISTRIBUIDOR": 0,
+        "cero": 0,
+        "Existencias": 0,
         "Fecha de última compra": _formatea_fecha(c["fecha_compra"]),
     }
 
@@ -197,6 +198,10 @@ def guardar_en_base_acumulada(df_nuevo: pd.DataFrame, carpeta: str = CARPETA_DAT
         ruta_json,
     )
     logger.info("Reporte guardado en %s (%s productos en total)", ruta, len(combinado))
+
+    # Generar TXT para importación Aspel SAE (comas y tabulaciones)
+    generar_ambos_txt(combinado, carpeta)
+
     return ruta
 
 
