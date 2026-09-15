@@ -31,6 +31,12 @@ def generar_txt(df: pd.DataFrame, carpeta: str, separador: str, nombre: str) -> 
     # para evitar que pandas envuelva todo el texto en comillas
     df_export = df_export.replace('"', "'", regex=True)
     
+    # 3. Eliminar comas de las descripciones para que no rompan las columnas del TXT separado por comas
+    df_export = df_export.replace(',', '', regex=True)
+
+    # 4. Eliminar saltos de línea por si acaso
+    df_export = df_export.replace('\n', ' ', regex=True)
+    
     df_export.to_csv(ruta, sep=separador, index=False, encoding="utf-8", quoting=csv.QUOTE_NONE, escapechar="\\")
     logger.info("TXT generado: %s (%d filas, separador: %s)", ruta, len(df_export), repr(separador))
     return ruta
