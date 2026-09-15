@@ -45,7 +45,7 @@ def test_procesar_carpeta_detecta_xml_en_mayusculas(
 
 
 def test_formatea_fecha_y_deduplica_base(tmp_path: Path) -> None:
-    assert excel._formatea_fecha("2026-08-04T00:00:00") == "04-08-2026"
+    assert excel._formatea_fecha("2026-08-04T00:00:00") == "04/08/2026"
 
     fila = {columna: None for columna in excel.COLUMNAS_ASPEL}
     fila.update(

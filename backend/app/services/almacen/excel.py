@@ -50,7 +50,7 @@ def _formatea_fecha(fecha_iso: str) -> str | None:
     if not m:
         return fecha_iso  # no debería pasar en un CFDI válido, pero no truena
     anio, mes, dia = m.groups()
-    return f"{dia}-{mes}-{anio}"
+    return f"{dia}/{mes}/{anio}"
 
 
 def _fila_desde_concepto(c: dict, dato: dict | None, num_proveedor: str | None = None) -> dict:
