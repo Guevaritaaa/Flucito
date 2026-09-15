@@ -27,15 +27,14 @@ def generar_txt(df: pd.DataFrame, carpeta: str, separador: str, nombre: str) -> 
     # 1. Rellenar campos vacíos (NaN) de bases viejas con 0
     df_export = df_export.fillna(0)
     
-    # 2. Reemplazar comillas dobles por simples (ej: 1/2" -> 1/2') 
-    # para evitar que pandas envuelva todo el texto en comillas
-    df_export = df_export.replace('"', "'", regex=True)
-    
-    # 3. Eliminar comas de las descripciones para que no rompan las columnas del TXT separado por comas
-    df_export = df_export.replace(',', '', regex=True)
+    # 2. Reemplazar comillas dobles, comas y saltos de línea explícitamente en todas las columnas de texto
+    for col in df_export.columns:
+        if df_export[col].dtype == 'object' or df_export[col].dtype == 'string':
+            df_export[col] = df_export[col].astype(str)
+            df_export[col] = df_export[col].str.replace('"', "'", regex=False)
+            df_export[col] = df_export[col].str.replace(',', '', regex=False)
+            df_export[col] = df_export[col].str.replace('\n', ' ', regex=False)
 
-    # 4. Eliminar saltos de línea por si acaso
-    df_export = df_export.replace('\n', ' ', regex=True)
     
     df_export.to_csv(ruta, sep=separador, index=False, encoding="utf-8", quoting=csv.QUOTE_NONE, escapechar="\\")
     logger.info("TXT generado: %s (%d filas, separador: %s)", ruta, len(df_export), repr(separador))
