@@ -1,0 +1,181 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Flucito · Arquitectura de la V1",
+    "output": "flucito-architecture.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/Guevaritaaa/Flucito",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "eb69f9a86a0aa40ee35c735af991231d3fe04b98"
+    },
+    "views": [
+      {
+        "id": "conversation",
+        "label": "Conversación",
+        "focus": ["usuario", "frontend", "api", "grafo", "groq", "openai"],
+        "note": "Sigue un mensaje desde la interfaz hasta el proveedor LLM y su fallback."
+      },
+      {
+        "id": "warehouse",
+        "label": "Almacén",
+        "focus": ["frontend", "api", "grafo", "tool", "drive", "procesador", "excel"],
+        "note": "Muestra cómo los documentos terminan convertidos en un reporte Excel."
+      },
+      {
+        "id": "availability",
+        "label": "Disponibilidad",
+        "focus": ["cron", "api", "render"],
+        "note": "El cron consulta health para mantener despierta la instancia durante la jornada."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "usuario",
+      "type": "external",
+      "label": "Usuario",
+      "sublabel": "Interflu",
+      "pos": [40, 300],
+      "size": [130, 64]
+    },
+    {
+      "id": "frontend",
+      "type": "frontend",
+      "label": "Frontend V1",
+      "sublabel": "HTML · CSS · JS",
+      "pos": [230, 300],
+      "size": [150, 64],
+      "sources": [{ "path": "frontend/index.html" }]
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "FastAPI",
+      "sublabel": "API /api/v1",
+      "pos": [450, 300],
+      "size": [150, 64],
+      "sources": [{ "path": "backend/app/main.py" }]
+    },
+    {
+      "id": "grafo",
+      "type": "backend",
+      "label": "LangGraph",
+      "sublabel": "Agente + MemorySaver",
+      "pos": [670, 300],
+      "size": [170, 64],
+      "sources": [{ "path": "backend/app/agents/graph.py" }]
+    },
+    {
+      "id": "tool",
+      "type": "backend",
+      "label": "Tool de almacén",
+      "sublabel": "generar_entradas_almacen",
+      "pos": [900, 300],
+      "size": [190, 64],
+      "sources": [{ "path": "backend/app/agents/tools.py" }]
+    },
+    {
+      "id": "groq",
+      "type": "cloud",
+      "label": "Groq",
+      "sublabel": "Proveedor principal",
+      "pos": [670, 140],
+      "size": [150, 64],
+      "sources": [{ "path": "backend/app/agents/llm_router.py" }]
+    },
+    {
+      "id": "openai",
+      "type": "cloud",
+      "label": "OpenAI",
+      "sublabel": "Fallback",
+      "pos": [870, 140],
+      "size": [150, 64],
+      "sources": [{ "path": "backend/app/agents/llm_router.py" }]
+    },
+    {
+      "id": "drive",
+      "type": "cloud",
+      "label": "Google Drive",
+      "sublabel": "XML · PDF · TXT",
+      "pos": [1120, 300],
+      "size": [160, 64],
+      "sources": [{ "path": "backend/app/services/almacen/fuentes/google_drive_client.py" }]
+    },
+    {
+      "id": "procesador",
+      "type": "backend",
+      "label": "Procesador almacén",
+      "sublabel": "CFDI + apoyo PDF/TXT",
+      "pos": [1120, 470],
+      "size": [180, 64],
+      "sources": [{ "path": "backend/app/services/almacen/excel.py" }]
+    },
+    {
+      "id": "excel",
+      "type": "database",
+      "label": "Excel acumulativo",
+      "sublabel": "Entradas de almacén",
+      "pos": [890, 470],
+      "size": [170, 64],
+      "sources": [{ "path": "backend/app/services/almacen/excel.py" }]
+    },
+    {
+      "id": "render",
+      "type": "cloud",
+      "label": "Render",
+      "sublabel": "Backend desplegado",
+      "pos": [450, 500],
+      "size": [150, 64],
+      "sources": [{ "path": "backend/app/main.py" }]
+    },
+    {
+      "id": "cron",
+      "type": "external",
+      "label": "Cron job",
+      "sublabel": "Consulta /health",
+      "pos": [230, 500],
+      "size": [150, 64]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Aplicación Flucito",
+      "wraps": ["frontend", "api", "grafo", "tool", "procesador", "excel"]
+    }
+  ],
+  "connections": [
+    { "id": "usuario-frontend", "from": "usuario", "to": "frontend", "label": "usa", "variant": "emphasis" },
+    { "id": "frontend-api", "from": "frontend", "to": "api", "label": "HTTP" },
+    { "id": "api-grafo", "from": "api", "to": "grafo", "label": "chat + session_id", "labelDy": 70 },
+    { "id": "grafo-groq", "from": "grafo", "to": "groq", "label": "modelo principal", "fromSide": "top", "toSide": "bottom", "labelDx": -54 },
+    { "id": "grafo-openai", "from": "grafo", "to": "openai", "label": "fallback", "variant": "dashed", "fromSide": "top", "toSide": "bottom", "labelDx": 54 },
+    { "id": "grafo-tool", "from": "grafo", "to": "tool", "label": "solicita tool", "variant": "emphasis", "labelDy": 70 },
+    { "id": "tool-drive", "from": "tool", "to": "drive", "label": "sincroniza documentos", "labelDy": 70 },
+    { "id": "drive-procesador", "from": "drive", "to": "procesador", "label": "XML / PDF / TXT", "fromSide": "bottom", "toSide": "top" },
+    { "id": "tool-procesador", "from": "tool", "to": "procesador", "label": "procesa nuevos", "fromSide": "bottom", "toSide": "top" },
+    { "id": "procesador-excel", "from": "procesador", "to": "excel", "label": "actualiza" },
+    { "id": "cron-render", "from": "cron", "to": "render", "label": "cada 14 min", "variant": "dashed" },
+    { "id": "render-health", "from": "render", "to": "api", "label": "/health", "variant": "dashed", "fromSide": "top", "toSide": "bottom" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Conversación",
+      "items": ["FastAPI recibe el mensaje", "LangGraph decide si necesita una tool", "Groq tiene respaldo en OpenAI"]
+    },
+    {
+      "dot": "emerald",
+      "title": "Almacén",
+      "items": ["Drive conserva los documentos originales", "El procesador extrae CFDI y apoyo", "Excel concentra las entradas"]
+    },
+    {
+      "dot": "violet",
+      "title": "V1",
+      "items": ["Memoria conversacional temporal", "Una tool empresarial automatizada", "Arquitectura lista para nuevas tools"]
+    }
+  ]
+}
