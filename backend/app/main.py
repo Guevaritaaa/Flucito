@@ -15,7 +15,7 @@ app = FastAPI(title="Flucito API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://flucito-1.onrender.com", "*"],
+    allow_origins=["https://flucito.xroberthz.com", "http://localhost:8080", "http://127.0.0.1:8080", "*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
