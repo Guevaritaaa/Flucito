@@ -1,11 +1,9 @@
 const host = window.location.hostname;
-const BACKEND_URL = host.endsWith("xroberthz.com")
-    ? "https://flucito-api.xroberthz.com"
-    : host.endsWith("onrender.com")
-        ? "https://flucito.onrender.com"
-        : host === "localhost" || host === "127.0.0.1"
-            ? "http://127.0.0.1:8000"
-            : "";
+const BACKEND_URL = host.endsWith("flucito.com")
+    ? "https://api.flucito.com"
+    : host === "localhost" || host === "127.0.0.1"
+        ? "http://127.0.0.1:8000"
+        : "";
 
 const API_URL = `${BACKEND_URL}/api/v1/chat`;
 const API_DRIVE_UPLOAD_URL = `${BACKEND_URL}/api/v1/almacen/upload`;
