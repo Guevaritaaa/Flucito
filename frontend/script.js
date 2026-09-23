@@ -48,7 +48,7 @@ function agregarMensaje(texto, clase) {
         html = `
         <div class="flex items-start space-x-3" data-role="assistant-message">
             <div class="w-8 h-8 rounded-full overflow-hidden flex items-center justify-center flex-shrink-0 ring-2 ring-cobalt-100 shadow-sm mt-0.5 bg-white">
-                <img src="Recursos/FlucitoPerfil.jpeg" alt="Flucito" class="w-full h-full object-cover" />
+                <img src="Recursos/FlucitoPerfil.jpeg?v=1" alt="Flucito" class="w-full h-full object-cover" />
             </div>
             <div class="max-w-2xl bg-cobalt-700 rounded-2xl rounded-tl-sm p-5 text-white shadow-elevation space-y-3.5">
                 <div class="text-sm font-normal leading-relaxed text-blue-50">
