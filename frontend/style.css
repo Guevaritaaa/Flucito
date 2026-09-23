@@ -12,3 +12,13 @@
 .custom-scroll::-webkit-scrollbar-thumb:hover {
     background-color: #94a3b8;
 }
+
+/* Sidebar toggle */
+#sidebar {
+    position: relative;
+    overflow: visible;
+    transition: margin-left 0.3s ease;
+}
+#sidebar.sidebar-closed {
+    margin-left: -15rem;
+}
