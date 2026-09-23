@@ -48,7 +48,7 @@
   class="h-full bg-[#f4f6fa] text-slate-800 font-sans antialiased flex overflow-hidden selection:bg-cobalt-600 selection:text-white">
   <!-- BEGIN: Left Sidebar -->
   <aside id="sidebar"
-    class="w-60 bg-[#0018CC] text-white flex-shrink-0 flex flex-col justify-between h-full border-r border-[#0014a8] select-none z-40">
+    class="relative w-60 bg-[#0018CC] text-white flex-shrink-0 flex flex-col justify-between h-full border-r border-[#0014a8] select-none z-40 transition-all duration-300">
     <div class="p-5 flex flex-col space-y-7">
       <!-- Logotipo Interflu / Flucito -->
       <div class="flex items-center space-x-3 pt-1">
@@ -386,10 +386,10 @@
       const icon = document.getElementById('sidebar-toggle-icon');
       sidebarOpen = !sidebarOpen;
       if (sidebarOpen) {
-        sidebar.classList.remove('sidebar-closed');
+        sidebar.style.marginLeft = '0';
         icon.innerHTML = '<path d="M15 19l-7-7 7-7" stroke-linecap="round" stroke-linejoin="round"></path>';
       } else {
-        sidebar.classList.add('sidebar-closed');
+        sidebar.style.marginLeft = '-15rem';
         icon.innerHTML = '<path d="M9 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round"></path>';
       }
     }
