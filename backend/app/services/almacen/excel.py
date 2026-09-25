@@ -104,7 +104,7 @@ def procesar_xml(ruta_xml: str, carpeta: str) -> pd.DataFrame:
 
     apoyo = []
     if meta["folio"] is not None and meta["year"]:
-        apoyo = obtener_apoyo_por_folio(carpeta, meta["year"], meta["folio"])
+        apoyo = obtener_apoyo_por_folio(carpeta, meta["year"], meta["folio"], rfc_proveedor=meta.get("rfc"))
 
     datos = [
         buscar_dato(apoyo, c["no_identificacion"]) or buscar_dato(apoyo, c["codigo_secundario"])
@@ -173,10 +173,16 @@ def _aplicar_estilo(ruta: str, n_columnas: int) -> None:
     wb.save(ruta)
 
 
-def guardar_en_base_acumulada(df_nuevo: pd.DataFrame, carpeta: str = CARPETA_DATOS) -> str:
+def guardar_en_base_acumulada(df_nuevo: pd.DataFrame, carpeta: str = CARPETA_DATOS, limpiar_previos: bool = True, prefijo: str = "BASE_ENTRADAS_ALMACEN") -> str:
     os.makedirs(carpeta, exist_ok=True)
-    ruta = os.path.join(carpeta, NOMBRE_ARCHIVO_BASE)
-    existente = _cargar_base_existente(ruta)
+    nombre_excel = f"{prefijo}.xlsx"
+    ruta = os.path.join(carpeta, nombre_excel)
+    
+    if limpiar_previos:
+        existente = pd.DataFrame(columns=COLUMNAS_ASPEL)
+        logger.info("Modo limpio: ignorando base anterior. Se generará un archivo nuevo.")
+    else:
+        existente = _cargar_base_existente(ruta)
 
     combinado = pd.concat([existente, df_nuevo], ignore_index=True)
     antes = len(combinado)
@@ -187,21 +193,23 @@ def guardar_en_base_acumulada(df_nuevo: pd.DataFrame, carpeta: str = CARPETA_DAT
 
     combinado.to_excel(ruta, index=False)
     _aplicar_estilo(ruta, len(COLUMNAS_ASPEL))
-    ruta_json = os.path.join(carpeta, NOMBRE_ARCHIVO_RESUMEN)
+    
+    nombre_json = f"{prefijo}_RESUMEN.json"
+    ruta_json = os.path.join(carpeta, nombre_json)
     guardar_resumen_json(
         construir_resumen(
             filas_nuevas=df_nuevo,
             filas_acumuladas=combinado,
             duplicados_ignorados=duplicados_ignorados,
-            nombre_excel=NOMBRE_ARCHIVO_BASE,
-            nombre_json=NOMBRE_ARCHIVO_RESUMEN,
+            nombre_excel=nombre_excel,
+            nombre_json=nombre_json,
         ),
         ruta_json,
     )
     logger.info("Reporte guardado en %s (%s productos en total)", ruta, len(combinado))
 
     # Generar TXT para importación Aspel SAE (comas y tabulaciones)
-    generar_ambos_txt(combinado, carpeta)
+    generar_ambos_txt(combinado, carpeta, prefijo)
 
     return ruta
 
