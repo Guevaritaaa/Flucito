@@ -66,6 +66,14 @@ def sincronizar_drive(cliente: Any | None = None, forzar: bool = False) -> dict:
 
     logger.info("Drive: %d carpeta(s) con archivos nuevos o modificados.", len(carpetas_nuevas))
 
+    from app.services.almacen.fuentes.google_drive_client import (
+        buscar_o_crear_carpeta,
+        mover_archivo,
+        subir_archivo,
+    )
+    from app.services.almacen.extractor import leer_meta
+    from app.services.almacen.apoyo import _folio_coincide_con_archivo
+
     dataframes: list[pd.DataFrame] = []
     archivos_descargados = 0
     with tempfile.TemporaryDirectory(prefix="flucito_drive_almacen_") as temporal:
@@ -75,6 +83,7 @@ def sincronizar_drive(cliente: Any | None = None, forzar: bool = False) -> dict:
             destino = raiz / carpeta.id
             destino.mkdir(parents=True, exist_ok=True)
             rutas_xml: list[Path] = []
+            archivo_by_name = {}
             for archivo in carpeta.archivos:
                 ruta = destino / Path(archivo.nombre).name
                 logger.info("  Descargando archivo: %s", archivo.nombre)
@@ -82,10 +91,67 @@ def sincronizar_drive(cliente: Any | None = None, forzar: bool = False) -> dict:
                 archivos_descargados += 1
                 if archivo.extension == ".xml":
                     rutas_xml.append(ruta)
+                archivo_by_name[archivo.nombre] = archivo
 
+            df_carpeta = []
             for ruta_xml in rutas_xml:
                 logger.info("  Extrayendo datos de XML: %s", ruta_xml.name)
-                dataframes.append(procesar_xml(str(ruta_xml), str(destino)))
+                df_xml = procesar_xml(str(ruta_xml), str(destino))
+                if df_xml.empty:
+                    continue
+                df_carpeta.append(df_xml)
+
+                # Obtener Proveedor y Fecha
+                proveedor = str(df_xml["PROVEEDOR"].iloc[0]) if not df_xml["PROVEEDOR"].isna().all() else "Desconocido"
+                fecha = str(df_xml["Fecha de última compra"].iloc[0]) if not df_xml["Fecha de última compra"].isna().all() else "SinFecha"
+                nombre_subcarpeta = f"{proveedor} - {fecha}".replace("/", "-").replace("\\", "-")
+
+                # Crear/buscar subcarpeta en Drive
+                subcarpeta_id = buscar_o_crear_carpeta(cliente, nombre_subcarpeta, carpeta.id)
+
+                # Determinar archivos a mover (XML + PDF/TXT asociados)
+                archivos_a_mover = [ruta_xml.name]
+                meta = leer_meta(str(ruta_xml))
+                if meta["folio"] is not None and meta["year"]:
+                    for arch_name in list(archivo_by_name.keys()):
+                        ext = Path(arch_name).suffix.lower()
+                        if ext in (".pdf", ".txt"):
+                            ruta_apoyo = destino / Path(arch_name).name
+                            if ruta_apoyo.exists() and _folio_coincide_con_archivo(str(ruta_apoyo), meta["folio"], rfc_proveedor=meta.get("rfc")):
+                                archivos_a_mover.append(arch_name)
+
+                # Mover archivos en Drive
+                for nombre_arch in archivos_a_mover:
+                    if nombre_arch in archivo_by_name:
+                        arch_drive = archivo_by_name[nombre_arch]
+                        mover_archivo(cliente, arch_drive.id, subcarpeta_id)
+                        del archivo_by_name[nombre_arch]
+
+                # Generar y subir Excel individual
+                carpeta_mini = destino / "mini"
+                carpeta_mini.mkdir(exist_ok=True)
+                prefijo_mini = f"ENTRADAS_ALMACEN_{proveedor}_{carpeta.nombre}"
+                guardar_en_base_acumulada(df_xml, str(carpeta_mini), limpiar_previos=True, prefijo=prefijo_mini)
+                
+                for f in carpeta_mini.iterdir():
+                    if f.is_file():
+                        subir_archivo(cliente, f, subcarpeta_id)
+                        f.unlink()
+
+            if df_carpeta:
+                df_batch = pd.concat(df_carpeta, ignore_index=True)
+                dataframes.append(df_batch)
+                
+                # Generar y subir Excel batch a la carpeta padre (ej. 25-09-2026)
+                carpeta_batch = destino / "batch"
+                carpeta_batch.mkdir(exist_ok=True)
+                prefijo_batch = f"ENTRADAS_ALMACEN_{carpeta.nombre}"
+                guardar_en_base_acumulada(df_batch, str(carpeta_batch), limpiar_previos=True, prefijo=prefijo_batch)
+                
+                for f in carpeta_batch.iterdir():
+                    if f.is_file():
+                        subir_archivo(cliente, f, carpeta.id)
+                        f.unlink()
 
     if not dataframes:
         logger.warning("No se obtuvieron productos de las carpetas nuevas.")
@@ -97,7 +163,7 @@ def sincronizar_drive(cliente: Any | None = None, forzar: bool = False) -> dict:
         }
 
     df_nuevo = pd.concat(dataframes, ignore_index=True)
-    guardar_en_base_acumulada(df_nuevo, CARPETA_DATOS)
+    guardar_en_base_acumulada(df_nuevo, CARPETA_DATOS, limpiar_previos=True)
     marcar_procesadas(carpetas_nuevas, estado)
     guardar_estado(ruta_estado, estado)
     logger.info(
