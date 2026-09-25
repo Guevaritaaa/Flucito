@@ -101,7 +101,7 @@ def generar_entradas_almacen() -> str:
     try:
         if not usar_drive:
             logger.info("Procesando carpeta local: %s", carpeta)
-            procesar_carpeta(carpeta)
+            procesar_carpeta(str(carpeta))
         ruta_resumen = carpeta / NOMBRE_ARCHIVO_RESUMEN
         if not ruta_resumen.is_file():
             logger.error("No se encontró el archivo de resumen esperado en %s", ruta_resumen)

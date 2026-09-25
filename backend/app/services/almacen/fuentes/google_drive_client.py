@@ -235,6 +235,18 @@ def listar_archivos_carpeta(cliente: Any, carpeta_id: str) -> list[dict]:
     return respuesta.get("files", [])
 
 
+def mover_archivo(cliente: Any, archivo_id: str, nueva_carpeta_id: str) -> None:
+    """Mueve un archivo en Google Drive a una nueva carpeta."""
+    archivo = cliente.files().get(fileId=archivo_id, fields="parents").execute()
+    padres_previos = ",".join(archivo.get("parents", []))
+    cliente.files().update(
+        fileId=archivo_id,
+        addParents=nueva_carpeta_id,
+        removeParents=padres_previos,
+        fields="id, parents"
+    ).execute()
+
+
 __all__ = [
     "GoogleDriveConfigError",
     "crear_cliente_drive",
@@ -243,4 +255,5 @@ __all__ = [
     "listar_archivos_carpeta",
     "listar_carpetas_factura",
     "subir_archivo",
+    "mover_archivo",
 ]
