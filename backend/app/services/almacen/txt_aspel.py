@@ -41,10 +41,10 @@ def generar_txt(df: pd.DataFrame, carpeta: str, separador: str, nombre: str) -> 
     return ruta
 
 
-def generar_ambos_txt(df: pd.DataFrame, carpeta: str) -> dict[str, str]:
+def generar_ambos_txt(df: pd.DataFrame, carpeta: str, prefijo: str = "BASE_ENTRADAS_ALMACEN") -> dict[str, str]:
     """Genera versión con comas y con tabulaciones. Devuelve rutas."""
-    ruta_comas = generar_txt(df, carpeta, ",", NOMBRE_TXT_COMAS)
-    ruta_tabs = generar_txt(df, carpeta, "\t", NOMBRE_TXT_TABS)
+    ruta_comas = generar_txt(df, carpeta, ",", f"{prefijo}_COMAS.txt")
+    ruta_tabs = generar_txt(df, carpeta, "\t", f"{prefijo}_TABS.txt")
     return {"comas": ruta_comas, "tabs": ruta_tabs}
 
 
