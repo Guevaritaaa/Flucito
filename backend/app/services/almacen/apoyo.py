@@ -2,13 +2,14 @@
 Datos que el CFDI no trae (Línea/familia, número de proveedor y Clave Artículo de Aspel)
 se sacan del PDF o TXT que Compras manda junto al XML.
 
-El emparejamiento NO es por nombre de archivo (cada sistema nombra distinto,
-con distinto padding de folio: "FAC20261827" vs "INV-FAC2026001827-...").
-Se hace por el folio real que trae el propio XML (atributo Folio + año de Fecha).
+El emparejamiento se hace por el folio real del XML contra:
+  1. El número de COMPRA que aparece en el encabezado del TXT/PDF
+  2. Si no hay encabezado, por folio como substring de los dígitos del nombre del archivo
 """
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 
@@ -16,6 +17,7 @@ import pdfplumber
 
 
 PATRON_CANTIDAD = re.compile(r"^\d+\.\d{2}$")
+logger = logging.getLogger(__name__)
 
 
 def _normaliza(codigo: str) -> str:
@@ -31,21 +33,16 @@ def _coinciden(cod_a: str, cod_b: str) -> bool:
     return a == b or a.startswith(b) or b.startswith(a)
 
 
-def _extraer_year_folio(nombre_archivo: str):
+def extraer_numero_compra(texto: str) -> str | None:
     """
-    De un nombre de archivo saca (año, folio_int) a partir de la primera
-    corrida larga de dígitos, sin importar el padding del folio.
-    "FAC20261827.pdf"                 -> ("2026", 1827)
-    "INV-FAC2026001827-MX-..."        -> ("2026", 1827)
+    Extrae el número de COMPRA del encabezado del TXT/PDF de Aspel SAE.
+    Ej: "COMPRA      A33320"       -> "A33320"
+        "COMPRA               23822375292"  -> "23822375292"
     """
-    m = re.search(r"(\d{6,})", nombre_archivo)
-    if not m:
+    if not texto:
         return None
-    digitos = m.group(1)
-    year, folio_str = digitos[:4], digitos[4:]
-    if not folio_str:
-        return None
-    return year, int(folio_str)
+    m = re.search(r"COMPRA\s+(\S+)", texto, re.IGNORECASE)
+    return m.group(1).strip() if m else None
 
 
 PATRON_LINEA = re.compile(r"^[A-Z]{2,6}$")  # solo letras (ADC, UF...) -> distingue de "H87" (trae dígito)
@@ -135,49 +132,191 @@ def _leer_desde_pdf(ruta_pdf: str) -> list:
     return datos
 
 
+# ─── Regex para el formato de columnas fijas de Aspel SAE ───────────────
+# Formato de línea de producto en TXT de Aspel SAE:
+#   "    10.00 CPLL04-1/8                        CYB     CODO GIRATORIO ...  3.00   13.1870   131.87"
+#   "      2.009261                              FEST    HORQUILLA SGS-...   0.00  379.2000   758.40"
+#   "      5.00CBPL10-1/2                        CYB     CODO BANJO ...      3.00   43.9950   219.97"
+#
+# Patrón:  cantidad(dd.dd) + espacio_opcional + clave_articulo + espacios + linea(2-6 letras) + descripcion + numeros_finales
+PATRON_LINEA_PRODUCTO = re.compile(
+    r"^\s*"
+    r"(\d+\.\d{2})"          # Grupo 1: Cantidad (ej: 10.00, 2.00, 5.00)
+    r"\s*"                   # Espacio opcional (a veces está pegado)
+    r"(\S{3,})"              # Grupo 2: Clave artículo (ej: CPLL04-1/8, 9261, CBPL10-1/2)
+    r"\s+"                   # Espacios obligatorios
+    r"([A-Z]{2,6})"          # Grupo 3: Línea/familia (ej: CYB, FEST, UF)
+    r"\s+"                   # Espacios obligatorios
+    r"(.+?)"                 # Grupo 4: Descripción (captura lazy)
+    r"\s+"                   # Espacios antes de los números finales
+    r"(\d+\.\d{2})"          # Grupo 5: % Descuento
+    r"\s+"
+    r"([\d,.]+)"             # Grupo 6: Costo unitario
+    r"\s+"
+    r"([\d,.]+)"             # Grupo 7: Importe
+    r"\s*$"                  # Fin de línea
+)
+
+# Patrón alternativo: sin números finales (línea cortada o formato reducido)
+PATRON_LINEA_PRODUCTO_SIMPLE = re.compile(
+    r"^\s*"
+    r"(\d+\.\d{2})"          # Grupo 1: Cantidad
+    r"\s*"                   # Espacio opcional
+    r"(\S{3,})"              # Grupo 2: Clave artículo
+    r"\s+"                   # Espacios obligatorios
+    r"([A-Z]{2,6})"          # Grupo 3: Línea/familia
+    r"\s+"                   # Espacios obligatorios
+    r"(.+\S)"                # Grupo 4: Descripción (hasta último no-espacio)
+)
+
+
 def _leer_desde_txt(ruta_txt: str) -> list:
-    """Fallback si no hay PDF. Menos confiable por saltos de línea del export."""
+    """
+    Lee productos de un TXT exportado desde Aspel SAE (formato columnas fijas).
+    Soporta:
+    - Espacio opcional entre cantidad y clave (10.00 CPLL04 vs 5.00CBPL10)
+    - Claves cortas (9261, 4 chars) y largas (CPLL04-1/8)
+    - Limpieza automática de % descuento, costo unitario e importe del final
+    - Ignora líneas de clave SAT (27131702  H87) y saltos de página
+    """
     datos = []
     with open(ruta_txt, encoding="utf-8", errors="ignore") as f:
         lineas = f.readlines()
         contenido_completo = "".join(lineas)
+
         for linea_txt in lineas:
-            m = re.match(r"\s*(\d+\.\d{2})(\S{6,})", linea_txt)
-            if not m:
+            # Intentar primero el patrón completo (con números al final)
+            m = PATRON_LINEA_PRODUCTO.match(linea_txt)
+            if m:
+                cve_art = m.group(2)
+                linea = m.group(3)
+                descripcion_corta = m.group(4).strip()
+                datos.append({
+                    "codigo_norm": _normaliza(cve_art),
+                    "clave_articulo": cve_art,
+                    "linea": linea,
+                    "descripcion_corta": descripcion_corta or None,
+                })
                 continue
-            cve_art = m.group(2)
-            resto = linea_txt[m.end():]
-            m2 = re.search(r"\b([A-Z]{2,6})\b", resto)
-            linea = m2.group(1) if m2 else None
-            descripcion_corta = resto[m2.end():].strip() if m2 else resto.strip()
-            datos.append({
-                "codigo_norm": _normaliza(cve_art),
-                "clave_articulo": cve_art,
-                "linea": linea,
-                "descripcion_corta": descripcion_corta or None,
-            })
+
+            # Intentar patrón simple (sin números al final)
+            m2 = PATRON_LINEA_PRODUCTO_SIMPLE.match(linea_txt)
+            if m2:
+                cve_art = m2.group(2)
+                linea = m2.group(3)
+                desc_raw = m2.group(4).strip()
+                # Limpiar posibles números sueltos al final
+                desc_raw = re.sub(r"\s+[\d,.]+\s+[\d,.]+\s*$", "", desc_raw).strip()
+                datos.append({
+                    "codigo_norm": _normaliza(cve_art),
+                    "clave_articulo": cve_art,
+                    "linea": linea,
+                    "descripcion_corta": desc_raw or None,
+                })
 
     num_proveedor = extraer_numero_proveedor(contenido_completo)
     if num_proveedor:
         for d in datos:
             d["numero_proveedor"] = num_proveedor
+
+    logger.debug("TXT %s: %d productos extraídos, proveedor: %s",
+                 os.path.basename(ruta_txt), len(datos), num_proveedor)
     return datos
 
 
-def obtener_apoyo_por_folio(carpeta: str, year: str, folio: int) -> list:
+def _extraer_rfcs_de_texto(texto: str) -> list[str]:
+    """Extrae TODOS los RFCs que aparecen en el texto del TXT/PDF de apoyo."""
+    if not texto:
+        return []
+    # Busca todas las ocurrencias de "RFC: XXXXXXX" o "RFC:XXXXXXX"
+    return re.findall(r"RFC:\s*([A-ZÑ&]{3,4}\d{6}[A-Z\d]{3})", texto)
+
+
+def _folio_coincide_con_archivo(ruta_archivo: str, folio: int, rfc_proveedor: str | None = None) -> bool:
     """
-    Busca en carpeta un pdf o txt cuyo nombre corresponda al mismo (year, folio)
-    del XML y devuelve la lista ordenada de productos (ver _leer_desde_pdf).
-    Prioriza PDF sobre TXT si ambos existen.
+    Verifica si un archivo TXT/PDF de apoyo corresponde al XML.
+    Estrategia en tres pasos:
+    1. RFC del proveedor: lee el archivo y compara el RFC del emisor del XML
+       con el que aparece en el TXT/PDF. Es la más robusta.
+    2. Número COMPRA: busca 'COMPRA  XXXXX' en el encabezado — match por contención.
+    3. Fallback: busca el folio en los dígitos del nombre del archivo.
+    """
+    folio_str = str(folio)
+
+    try:
+        ext = os.path.splitext(ruta_archivo)[1].lower()
+        
+        if ext == ".txt":
+            with open(ruta_archivo, encoding="utf-8", errors="ignore") as f:
+                contenido = f.read()
+            
+            # Paso 1: Match por RFC del proveedor
+            if rfc_proveedor:
+                rfcs_en_archivo = _extraer_rfcs_de_texto(contenido)
+                if rfcs_en_archivo:
+                    if rfc_proveedor in rfcs_en_archivo:
+                        logger.debug("Match por RFC proveedor: %s en %s", rfc_proveedor, os.path.basename(ruta_archivo))
+                        return True
+                    else:
+                        # Ningún RFC coincide -> definitivamente no es este archivo
+                        return False
+            
+            # Paso 2: Match por número COMPRA
+            num_compra = extraer_numero_compra(contenido)
+            if num_compra:
+                digitos_compra = "".join(c for c in num_compra if c.isdigit())
+                if folio_str in digitos_compra or digitos_compra in folio_str:
+                    logger.debug("Match por encabezado COMPRA: %s <-> folio %s", num_compra, folio_str)
+                    return True
+                    
+        elif ext == ".pdf":
+            with pdfplumber.open(ruta_archivo) as pdf:
+                if pdf.pages:
+                    texto_pagina1 = pdf.pages[0].extract_text() or ""
+                    
+                    # Paso 1: Match por RFC
+                    if rfc_proveedor:
+                        rfcs_en_archivo = _extraer_rfcs_de_texto(texto_pagina1)
+                        if rfcs_en_archivo:
+                            if rfc_proveedor in rfcs_en_archivo:
+                                return True
+                            else:
+                                return False
+                    
+                    # Paso 2: Match por COMPRA
+                    num_compra = extraer_numero_compra(texto_pagina1)
+                    if num_compra:
+                        digitos_compra = "".join(c for c in num_compra if c.isdigit())
+                        if folio_str in digitos_compra or digitos_compra in folio_str:
+                            return True
+    except Exception:
+        logger.debug("Error leyendo archivo %s, usando fallback por nombre", ruta_archivo)
+
+    # Paso 3: Fallback por nombre de archivo (contención bidireccional)
+    nombre = os.path.basename(ruta_archivo)
+    digitos_nombre = "".join(c for c in os.path.splitext(nombre)[0] if c.isdigit())
+    if not digitos_nombre:
+        return False
+
+    return folio_str in digitos_nombre or digitos_nombre in folio_str
+
+
+def obtener_apoyo_por_folio(carpeta: str, year: str, folio: int, rfc_proveedor: str | None = None) -> list:
+    """
+    Busca en carpeta un pdf o txt que corresponda al XML usando:
+    1. RFC del proveedor (más confiable)
+    2. Número COMPRA del encabezado
+    3. Nombre del archivo
+    Devuelve la lista ordenada de productos. Prioriza PDF sobre TXT si ambos existen.
     """
     candidatos = []
     for nombre in os.listdir(carpeta):
         ext = os.path.splitext(nombre)[1].lower()
         if ext not in (".pdf", ".txt"):
             continue
-        yf = _extraer_year_folio(nombre)
-        if yf == (year, folio):
-            candidatos.append(os.path.join(carpeta, nombre))
+        ruta_completa = os.path.join(carpeta, nombre)
+        if _folio_coincide_con_archivo(ruta_completa, folio, rfc_proveedor):
+            candidatos.append(ruta_completa)
     candidatos.sort(key=lambda p: 0 if p.lower().endswith(".pdf") else 1)
 
     for ruta in candidatos:
@@ -195,4 +334,18 @@ def buscar_dato(apoyo: list, codigo_concepto: str) -> dict | None:
     return None
 
 
-__all__ = ["obtener_apoyo_por_folio", "buscar_dato", "extraer_numero_proveedor"]
+# Mantener es_apoyo_de_folio como wrapper para sincronizador.py
+def es_apoyo_de_folio(nombre_archivo: str, year: str, folio: int) -> bool:
+    """
+    Verifica si el nombre de archivo (PDF/TXT) corresponde al folio del XML.
+    Compara usando contención bidireccional los dígitos del nombre vs el folio.
+    """
+    nombre_sin_ext = os.path.splitext(nombre_archivo)[0]
+    digitos_nombre = "".join(c for c in nombre_sin_ext if c.isdigit())
+    if not digitos_nombre:
+        return False
+    folio_str = str(folio)
+    return folio_str in digitos_nombre or digitos_nombre in folio_str
+
+
+__all__ = ["obtener_apoyo_por_folio", "buscar_dato", "extraer_numero_proveedor", "es_apoyo_de_folio"]
