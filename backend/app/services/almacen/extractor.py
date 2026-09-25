@@ -41,12 +41,14 @@ def _codigo_desde_descripcion(descripcion: str) -> str | None:
 
 
 def leer_meta(ruta_xml: str | Path) -> dict:
-    """Folio y año del comprobante, para emparejar con el pdf/txt de apoyo por folio real."""
+    """Folio, año y RFC del emisor, para emparejar con el pdf/txt de apoyo."""
     root = ET.parse(ruta_xml).getroot()
     folio = root.get("Folio")
     fecha = root.get("Fecha") or ""
     year = fecha[:4] if fecha else None
-    return {"folio": int(folio) if folio else None, "year": year}
+    emisor = root.find("cfdi:Emisor", NS)
+    rfc = emisor.get("Rfc") if emisor is not None else None
+    return {"folio": int(folio) if folio else None, "year": year, "rfc": rfc}
 
 
 def extraer_conceptos(ruta_xml: str | Path) -> list[dict]:
