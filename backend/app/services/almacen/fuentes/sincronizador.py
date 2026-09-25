@@ -163,7 +163,7 @@ def sincronizar_drive(cliente: Any | None = None, forzar: bool = False) -> dict:
         }
 
     df_nuevo = pd.concat(dataframes, ignore_index=True)
-    guardar_en_base_acumulada(df_nuevo, CARPETA_DATOS, limpiar_previos=True)
+    guardar_en_base_acumulada(df_nuevo, str(CARPETA_DATOS), limpiar_previos=True)
     marcar_procesadas(carpetas_nuevas, estado)
     guardar_estado(ruta_estado, estado)
     logger.info(

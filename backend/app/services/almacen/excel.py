@@ -151,6 +151,8 @@ def _cargar_base_existente(ruta: str) -> pd.DataFrame:
 def _aplicar_estilo(ruta: str, n_columnas: int) -> None:
     wb = openpyxl.load_workbook(ruta)
     ws = wb.active
+    if ws is None:
+        return
 
     for col in range(1, n_columnas + 1):
         celda = ws.cell(row=1, column=col)
@@ -173,7 +175,7 @@ def _aplicar_estilo(ruta: str, n_columnas: int) -> None:
     wb.save(ruta)
 
 
-def guardar_en_base_acumulada(df_nuevo: pd.DataFrame, carpeta: str = CARPETA_DATOS, limpiar_previos: bool = True, prefijo: str = "BASE_ENTRADAS_ALMACEN") -> str:
+def guardar_en_base_acumulada(df_nuevo: pd.DataFrame, carpeta: str = str(CARPETA_DATOS), limpiar_previos: bool = True, prefijo: str = "BASE_ENTRADAS_ALMACEN") -> str:
     os.makedirs(carpeta, exist_ok=True)
     nombre_excel = f"{prefijo}.xlsx"
     ruta = os.path.join(carpeta, nombre_excel)
@@ -214,7 +216,7 @@ def guardar_en_base_acumulada(df_nuevo: pd.DataFrame, carpeta: str = CARPETA_DAT
     return ruta
 
 
-def procesar_carpeta(carpeta: str = CARPETA_DATOS) -> None:
+def procesar_carpeta(carpeta: str = str(CARPETA_DATOS)) -> None:
     xmls = [
         os.path.join(carpeta, nombre)
         for nombre in os.listdir(carpeta)

@@ -83,7 +83,7 @@ def _procesar_fila(fila) -> dict | None:
         if fila[i] and str(fila[i]).strip():
             cve_art, idx_cve = str(fila[i]).strip(), i
             break
-    if not cve_art:
+    if not cve_art or idx_cve is None:
         return None
 
     linea, idx_linea = None, idx_cve
