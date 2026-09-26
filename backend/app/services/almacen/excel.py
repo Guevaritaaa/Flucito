@@ -32,7 +32,7 @@ COLUMNAS_ASPEL = [
 
 COLOR_HEADER = "1F3864"  # azul marino, como tu plantilla
 NOMBRE_ARCHIVO_BASE = "BASE_ENTRADAS_ALMACEN.xlsx"
-NOMBRE_ARCHIVO_RESUMEN = "RESUMEN_ENTRADAS_ALMACEN.json"
+NOMBRE_ARCHIVO_RESUMEN = "BASE_ENTRADAS_ALMACEN_RESUMEN.json"
 
 # clave para no duplicar el mismo producto si vuelves a correr el script
 # Al ser catálogo de inventario, la Clave Artículo debe ser estrictamente única.
