@@ -42,14 +42,8 @@ def generar_entradas_almacen() -> str:
                 {"ok": False, "error": str(error)},
                 ensure_ascii=False,
             )
-        if sincronizacion["carpetas"] == 0:
-            logger.warning("Drive: No se encontraron subcarpetas con documentos.")
-            return json.dumps(
-                {"ok": False, "error": "No hay subcarpetas con documentos en Google Drive"},
-                ensure_ascii=False,
-            )
-        if sincronizacion.get("carpetas_nuevas", 0) == 0:
-            logger.info("Drive: Sin documentos nuevos. Verificando si existe base previa...")
+        if sincronizacion["carpetas"] == 0 or sincronizacion.get("carpetas_nuevas", 0) == 0:
+            logger.info("Drive: Sin documentos nuevos o carpetas. Verificando si existe base previa...")
             ruta_resumen = Path(CARPETA_DATOS) / NOMBRE_ARCHIVO_RESUMEN
             ruta_base = Path(CARPETA_DATOS) / "BASE_ENTRADAS_ALMACEN.xlsx"
             if ruta_base.is_file() and ruta_resumen.is_file():
@@ -71,6 +65,12 @@ def generar_entradas_almacen() -> str:
                     pass
 
             logger.info("Drive: No hay documentos nuevos ni base previa generada.")
+            if sincronizacion["carpetas"] == 0:
+                return json.dumps(
+                    {"ok": False, "error": "No hay subcarpetas con documentos en Google Drive y no hay base generada."},
+                    ensure_ascii=False,
+                )
+            
             return json.dumps(
                 {
                     "ok": True,
