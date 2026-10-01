@@ -165,8 +165,8 @@ def _leer_desde_txt(ruta_txt: str) -> list:
             # Limpiar posibles números sueltos al final
             resto = PATRON_MONTOS_FINALES.sub("", resto).strip()
             
-            # Extraer línea (2 a 6 letras mayúsculas) y descripción
-            m_linea = re.match(r"^([A-Z]{2,6})(?:\s+(.+))?$", resto)
+            # Extraer línea (2 a 6 letras/números) y descripción
+            m_linea = re.match(r"^([A-Z0-9]{2,6})(?:\s+(.+))?$", resto)
             if m_linea:
                 linea = m_linea.group(1)
                 desc_raw = m_linea.group(2)
