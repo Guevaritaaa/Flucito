@@ -133,41 +133,11 @@ def _leer_desde_pdf(ruta_pdf: str) -> list:
 
 
 # ─── Regex para el formato de columnas fijas de Aspel SAE ───────────────
-# Formato de línea de producto en TXT de Aspel SAE:
-#   "    10.00 CPLL04-1/8                        CYB     CODO GIRATORIO ...  3.00   13.1870   131.87"
-#   "      2.009261                              FEST    HORQUILLA SGS-...   0.00  379.2000   758.40"
-#   "      5.00CBPL10-1/2                        CYB     CODO BANJO ...      3.00   43.9950   219.97"
-#
-# Patrón:  cantidad(dd.dd) + espacio_opcional + clave_articulo + espacios + linea(2-6 letras) + descripcion + numeros_finales
-PATRON_LINEA_PRODUCTO = re.compile(
-    r"^\s*"
-    r"(\d+\.\d{2})"          # Grupo 1: Cantidad (ej: 10.00, 2.00, 5.00)
-    r"\s*"                   # Espacio opcional (a veces está pegado)
-    r"(\S{3,})"              # Grupo 2: Clave artículo (ej: CPLL04-1/8, 9261, CBPL10-1/2)
-    r"\s+"                   # Espacios obligatorios
-    r"([A-Z]{2,6})"          # Grupo 3: Línea/familia (ej: CYB, FEST, UF)
-    r"\s+"                   # Espacios obligatorios
-    r"(.+?)"                 # Grupo 4: Descripción (captura lazy)
-    r"\s+"                   # Espacios antes de los números finales
-    r"(\d+\.\d{2})"          # Grupo 5: % Descuento
-    r"\s+"
-    r"([\d,.]+)"             # Grupo 6: Costo unitario
-    r"\s+"
-    r"([\d,.]+)"             # Grupo 7: Importe
-    r"\s*$"                  # Fin de línea
-)
+# Acepta opcionalmente la Clave SAT y Unidad (ej. "27131701 H87") antes de la línea
+PATRON_FILA_TXT = re.compile(r"^\s*(\d+\.\d{2})\s*(\S{3,})\s+(?:[0-9]{8}\s+[A-Z0-9]{2,3}\s+)?(.*)$")
 
-# Patrón alternativo: sin números finales (línea cortada o formato reducido)
-PATRON_LINEA_PRODUCTO_SIMPLE = re.compile(
-    r"^\s*"
-    r"(\d+\.\d{2})"          # Grupo 1: Cantidad
-    r"\s*"                   # Espacio opcional
-    r"(\S{3,})"              # Grupo 2: Clave artículo
-    r"\s+"                   # Espacios obligatorios
-    r"([A-Z]{2,6})"          # Grupo 3: Línea/familia
-    r"\s+"                   # Espacios obligatorios
-    r"(.+\S)"                # Grupo 4: Descripción (hasta último no-espacio)
-)
+# Soporta comas en los miles de los montos finales (ej. "17,102.38")
+PATRON_MONTOS_FINALES = re.compile(r"\s+[\d,]*\.\d+\s+[\d,]*\.\d+\s+[\d,]*\.\d+\s*$")
 
 
 def _leer_desde_txt(ruta_txt: str) -> list:
@@ -185,33 +155,26 @@ def _leer_desde_txt(ruta_txt: str) -> list:
         contenido_completo = "".join(lineas)
 
         for linea_txt in lineas:
-            # Intentar primero el patrón completo (con números al final)
-            m = PATRON_LINEA_PRODUCTO.match(linea_txt)
-            if m:
-                cve_art = m.group(2)
-                linea = m.group(3)
-                descripcion_corta = m.group(4).strip()
-                datos.append({
-                    "codigo_norm": _normaliza(cve_art),
-                    "clave_articulo": cve_art,
-                    "linea": linea,
-                    "descripcion_corta": descripcion_corta or None,
-                })
+            m = PATRON_FILA_TXT.match(linea_txt)
+            if not m:
                 continue
 
-            # Intentar patrón simple (sin números al final)
-            m2 = PATRON_LINEA_PRODUCTO_SIMPLE.match(linea_txt)
-            if m2:
-                cve_art = m2.group(2)
-                linea = m2.group(3)
-                desc_raw = m2.group(4).strip()
-                # Limpiar posibles números sueltos al final
-                desc_raw = re.sub(r"\s+[\d,.]+\s+[\d,.]+\s*$", "", desc_raw).strip()
+            cve_art = m.group(2)
+            resto = m.group(3)
+
+            # Limpiar posibles números sueltos al final
+            resto = PATRON_MONTOS_FINALES.sub("", resto).strip()
+            
+            # Extraer línea (2 a 6 letras mayúsculas) y descripción
+            m_linea = re.match(r"^([A-Z]{2,6})(?:\s+(.+))?$", resto)
+            if m_linea:
+                linea = m_linea.group(1)
+                desc_raw = m_linea.group(2)
                 datos.append({
                     "codigo_norm": _normaliza(cve_art),
                     "clave_articulo": cve_art,
                     "linea": linea,
-                    "descripcion_corta": desc_raw or None,
+                    "descripcion_corta": desc_raw.strip() if desc_raw else None,
                 })
 
     num_proveedor = extraer_numero_proveedor(contenido_completo)
