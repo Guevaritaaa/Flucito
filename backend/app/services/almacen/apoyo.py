@@ -213,16 +213,14 @@ def _folio_coincide_con_archivo(ruta_archivo: str, folio: int, rfc_proveedor: st
             with open(ruta_archivo, encoding="utf-8", errors="ignore") as f:
                 contenido = f.read()
             
-            # Paso 1: Match por RFC del proveedor
+            # Paso 1: Match por RFC del proveedor (solo señal positiva)
+            # Los TXT de Aspel traen el RFC del comprador, no del proveedor;
+            # si no coincide, seguimos a los demás criterios.
             if rfc_proveedor:
                 rfcs_en_archivo = _extraer_rfcs_de_texto(contenido)
-                if rfcs_en_archivo:
-                    if rfc_proveedor in rfcs_en_archivo:
-                        logger.debug("Match por RFC proveedor: %s en %s", rfc_proveedor, os.path.basename(ruta_archivo))
-                        return True
-                    else:
-                        # Ningún RFC coincide -> definitivamente no es este archivo
-                        return False
+                if rfcs_en_archivo and rfc_proveedor in rfcs_en_archivo:
+                    logger.debug("Match por RFC proveedor: %s en %s", rfc_proveedor, os.path.basename(ruta_archivo))
+                    return True
             
             # Paso 2: Match por número COMPRA
             num_compra = extraer_numero_compra(contenido)
@@ -237,14 +235,11 @@ def _folio_coincide_con_archivo(ruta_archivo: str, folio: int, rfc_proveedor: st
                 if pdf.pages:
                     texto_pagina1 = pdf.pages[0].extract_text() or ""
                     
-                    # Paso 1: Match por RFC
+                    # Paso 1: Match por RFC (solo señal positiva)
                     if rfc_proveedor:
                         rfcs_en_archivo = _extraer_rfcs_de_texto(texto_pagina1)
-                        if rfcs_en_archivo:
-                            if rfc_proveedor in rfcs_en_archivo:
-                                return True
-                            else:
-                                return False
+                        if rfcs_en_archivo and rfc_proveedor in rfcs_en_archivo:
+                            return True
                     
                     # Paso 2: Match por COMPRA
                     num_compra = extraer_numero_compra(texto_pagina1)
