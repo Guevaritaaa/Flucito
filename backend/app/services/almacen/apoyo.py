@@ -176,7 +176,10 @@ def _leer_desde_txt(ruta_txt: str) -> list:
                     "linea": linea,
                     "descripcion_corta": desc_raw.strip() if desc_raw else None,
                 })
+            else:
+                logger.warning(f"TXT parse match failed para articulo {cve_art}. Resto: '{resto}'")
 
+    logger.info(f"TXT {os.path.basename(ruta_txt)}: {len(datos)} productos extraídos.")
     num_proveedor = extraer_numero_proveedor(contenido_completo)
     if num_proveedor:
         for d in datos:
