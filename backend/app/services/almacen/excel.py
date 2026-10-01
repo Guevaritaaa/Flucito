@@ -54,6 +54,20 @@ def _formatea_fecha(fecha_iso: str) -> str | None:
     return f"{dia}/{mes}/{anio}"
 
 
+def _precio_con_descuento(c: dict) -> float:
+    """
+    En el CFDI, Descuento es el monto total de descuento del concepto (no porcentaje).
+    Precio neto unitario = ValorUnitario - (Descuento / Cantidad)
+    Si no hay Descuento, retorna ValorUnitario tal cual.
+    """
+    valor = c["valor_unitario"]
+    descuento = c.get("descuento", 0) or 0
+    cantidad = c.get("cantidad", 1) or 1
+    if descuento > 0:
+        valor = valor - (descuento / cantidad)
+    return round(valor, 4)
+
+
 def _fila_desde_concepto(c: dict, dato: dict | None, num_proveedor: str | None = None) -> dict:
     clave_articulo = dato["clave_articulo"] if dato else c["no_identificacion"]
     linea = (dato["linea"] if dato else None) or ""
@@ -84,7 +98,7 @@ def _fila_desde_concepto(c: dict, dato: dict | None, num_proveedor: str | None =
         "CLAVE ESQUEMA": 1,
         "PROVEEDOR": proveedor,
         "MONEDA": "1",
-        "PRECIO COMPRA": c["valor_unitario"],
+        "PRECIO COMPRA": _precio_con_descuento(c),
         "PUBLICO": 0,
         "MINIMO": 0,
         "LIQUIDACION": 0,
@@ -95,6 +109,7 @@ def _fila_desde_concepto(c: dict, dato: dict | None, num_proveedor: str | None =
         "Existencias": 0,
         "Fecha de última compra": _formatea_fecha(c["fecha_compra"]),
     }
+
 
 
 def procesar_xml(ruta_xml: str, carpeta: str) -> pd.DataFrame:

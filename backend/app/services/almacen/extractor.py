@@ -79,8 +79,9 @@ def extraer_conceptos(ruta_xml: str | Path) -> list[dict]:
             "descripcion": descripcion,
             "clave_prod_serv": c.get("ClaveProdServ"),
             "clave_unidad": c.get("ClaveUnidad"),
-            "cantidad": float(c.get("Cantidad", 0)),
+            "cantidad": float(c.get("Cantidad", 1) or 1),
             "valor_unitario": float(c.get("ValorUnitario", 0)),
+            "descuento": float(c.get("Descuento", 0) or 0),  # monto total de descuento en el concepto
             "proveedor_nombre": proveedor_nombre,
             "proveedor_rfc": proveedor_rfc,
             "fecha_compra": fecha_factura,
