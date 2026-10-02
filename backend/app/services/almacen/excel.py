@@ -147,10 +147,10 @@ def procesar_xml(ruta_xml: str, carpeta: str) -> pd.DataFrame:
     filas = [_fila_desde_concepto(c, d, num_proveedor) for c, d in zip(conceptos, datos)]
     df = pd.DataFrame(filas, columns=COLUMNAS_ASPEL)
     logger.info(
-        "[%s] %s productos (apoyo %s, proveedor: %s)",
+        "[%s] %s productos XML (apoyo: %s items, proveedor: %s)",
         os.path.basename(ruta_xml),
         len(df),
-        "encontrado" if apoyo else "NO encontrado",
+        len(apoyo) if apoyo else "NO encontrado",
         num_proveedor or "por nombre",
     )
     return df

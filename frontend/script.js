@@ -88,7 +88,7 @@ async function enviarMensaje(mensaje) {
 }
 
 agregarMensaje(
-    "¡Hola! Soy Flucito, el asistente virtual de Interflu. Ya tengo integrada mi primera herramienta funcional: puedo recibir XML, PDF y TXT, guardarlos en Google Drive por factura, detectar documentos nuevos y generar la base acumulativa de entradas al almacén con un resumen. ¿En qué puedo ayudarte?",
+    "¡Hola! Soy Flucito :), tu asistente en Interflu. Estoy listo para ayudarte a procesar tus facturas (XML, PDF o TXT) y generar tus reportes de almacén actualizados automáticamente. ¿En qué te puedo ayudar hoy?",
     "flucito"
 );
 
