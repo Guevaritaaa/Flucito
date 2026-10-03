@@ -19,6 +19,7 @@ from app.services.almacen.fuentes.google_drive import (
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 ARCHIVOS_FIELDS = "nextPageToken,files(id,name,mimeType,modifiedTime,parents)"
 PREFIJO_REPORTE = "ENTRADAS_ALMACEN_"
+CARPETA_ENTRADAS_AL_INVENTARIO = "ENTRADAS AL INVENTARIO"
 CARPETA_REPORTES_HISTORICOS = "DOCUMENTOS ENTRADA"
 
 
@@ -139,10 +140,13 @@ def _listar_hijos(cliente: Any, carpeta_id: str) -> list[dict]:
             return archivos
 
 
-def listar_carpetas_factura(cliente: Any | None = None) -> list[CarpetaFactura]:
+def listar_carpetas_factura(
+    cliente: Any | None = None,
+    carpeta_raiz_id: str | None = None,
+) -> list[CarpetaFactura]:
     """Lista subcarpetas y agrupa sus XML/PDF/TXT asociados."""
     cliente = cliente or crear_cliente_drive()
-    root_id = settings.google_drive_folder_id
+    root_id = carpeta_raiz_id or settings.google_drive_folder_id
     if not root_id:
         raise GoogleDriveConfigError("Falta GOOGLE_DRIVE_FOLDER_ID")
 
@@ -153,6 +157,14 @@ def listar_carpetas_factura(cliente: Any | None = None) -> list[CarpetaFactura]:
         archivos.extend(_listar_hijos(cliente, carpeta["id"]))
 
     return agrupar_por_carpeta(carpetas, archivos)
+
+
+def buscar_carpeta_hija(cliente: Any, nombre: str, carpeta_padre: str) -> str | None:
+    """Busca una carpeta directa con el nombre indicado y devuelve su ID."""
+    for elemento in _listar_hijos(cliente, carpeta_padre):
+        if elemento.get("mimeType") == MIME_CARPETA and elemento.get("name") == nombre:
+            return elemento["id"]
+    return None
 
 
 def normalizar_fecha_reporte(fecha: str) -> str:
@@ -316,8 +328,11 @@ __all__ = [
     "crear_cliente_drive",
     "descargar_archivo",
     "buscar_o_crear_carpeta",
+    "buscar_carpeta_hija",
     "buscar_reportes_historicos",
     "normalizar_fecha_reporte",
+    "CARPETA_ENTRADAS_AL_INVENTARIO",
+    "CARPETA_REPORTES_HISTORICOS",
     "listar_archivos_carpeta",
     "listar_carpetas_factura",
     "subir_archivo",

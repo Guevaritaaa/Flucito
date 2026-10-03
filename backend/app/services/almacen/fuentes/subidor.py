@@ -10,6 +10,7 @@ from typing import Iterable
 
 from app.core.config import settings
 from app.services.almacen.fuentes.google_drive_client import (
+    CARPETA_ENTRADAS_AL_INVENTARIO,
     buscar_o_crear_carpeta,
     crear_cliente_drive,
     listar_archivos_carpeta,
@@ -73,10 +74,15 @@ def subir_documentos_drive(rutas: Iterable[Path]) -> dict[str, int]:
 
     cliente = crear_cliente_drive()
     nombre_carpeta = _nombre_carpeta_carga()
+    carpeta_entrada_id = buscar_o_crear_carpeta(
+        cliente,
+        CARPETA_ENTRADAS_AL_INVENTARIO,
+        settings.google_drive_folder_id,
+    )
     carpeta_id = buscar_o_crear_carpeta(
         cliente,
         nombre_carpeta,
-        settings.google_drive_folder_id,
+        carpeta_entrada_id,
     )
 
     existentes = {

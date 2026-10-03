@@ -48,7 +48,13 @@ def leer_meta(ruta_xml: str | Path) -> dict:
     year = fecha[:4] if fecha else None
     emisor = root.find("cfdi:Emisor", NS)
     rfc = emisor.get("Rfc") if emisor is not None else None
-    return {"folio": int(folio) if folio else None, "year": year, "rfc": rfc}
+    proveedor_nombre = emisor.get("Nombre") if emisor is not None else None
+    return {
+        "folio": int(folio) if folio else None,
+        "year": year,
+        "rfc": rfc,
+        "proveedor_nombre": proveedor_nombre,
+    }
 
 
 def extraer_conceptos(ruta_xml: str | Path) -> list[dict]:

@@ -82,12 +82,12 @@ GOOGLE_OAUTH_TOKEN_JSON=...
 
 ### `GOOGLE_DRIVE_FOLDER_ID`
 
-Es el ID de una carpeta real de Google Drive. Esa carpeta funciona como raíz: Flucito la usa como punto de partida para crear subcarpetas, subir XML/PDF/TXT y buscar documentos pendientes.
+Es el ID de la carpeta `docs` de Google Drive. Dentro de ella, Flucito recibe cargas en `ENTRADAS AL INVENTARIO` y archiva documentos procesados y reportes en `DOCUMENTOS ENTRADA`.
 
 Para obtenerlo:
 
 1. Abre Google Drive con la cuenta que autorizaste para Flucito.
-2. Crea o localiza la carpeta que se usará para los documentos.
+2. Crea o localiza la carpeta `docs` que contendrá las carpetas de entrada y archivo.
 3. Entra a esa carpeta.
 4. Copia el texto que aparece en la URL después de `/folders/`.
 
@@ -103,7 +103,7 @@ El valor sería:
 GOOGLE_DRIVE_FOLDER_ID=1AbC_defGHIjKlmNop
 ```
 
-No copies la URL completa, solo el identificador. La cuenta autenticada debe tener permiso para ver, crear y subir archivos dentro de esa carpeta.
+No copies la URL completa, solo el identificador. La cuenta autenticada debe tener permiso para ver, crear y subir archivos dentro de esa carpeta. La carga desde la interfaz crea `ENTRADAS AL INVENTARIO` si hace falta; la sincronización crea `DOCUMENTOS ENTRADA` cuando procesa la primera carga.
 
 ### `GOOGLE_OAUTH_CLIENT_JSON`
 

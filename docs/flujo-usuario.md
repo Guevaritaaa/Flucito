@@ -40,7 +40,7 @@ El backend agrupa archivos usando la información disponible en su nombre y cont
 
 ## 3. Subir archivos a Google Drive
 
-Pulsa el botón para cargar los documentos. Flucito los guarda en la carpeta raíz de Google Drive configurada para el proyecto y crea la estructura necesaria por fecha o factura.
+Pulsa el botón para cargar los documentos. Flucito los guarda en `docs/ENTRADAS AL INVENTARIO/{DD-MM-AAAA}`. Al subir desde la interfaz, usa la fecha actual para nombrar la carpeta de carga. Si el asesor carga los documentos directamente en Drive, debe colocarlos en una subcarpeta con la fecha que se usará durante todo el proceso.
 
 La interfaz debe mostrar una confirmación cuando la carga termina. Si aparece un error:
 
@@ -49,7 +49,7 @@ La interfaz debe mostrar una confirmación cuando la carga termina. Si aparece u
 - confirma que la cuenta autenticada tenga permiso para subir archivos;
 - revisa los logs de Render si el problema continúa.
 
-La carga a Drive y la generación del reporte son pasos distintos. Subir los archivos no actualiza necesariamente el Excel en ese instante.
+La carga a Drive y la generación del reporte son pasos distintos. Subir los archivos no actualiza necesariamente el Excel en ese instante. Los archivos colocados directamente en la raíz `docs` o en otra carpeta no se procesan como cargas nuevas.
 
 ## 4. Pedir el reporte
 
@@ -71,9 +71,21 @@ El agente reconoce la intención y puede invocar la herramienta `generar_entrada
 
 ## 5. Qué procesa Flucito
 
+Durante el procesamiento, Flucito revisa las carpetas de fecha dentro de `docs/ENTRADAS AL INVENTARIO`. Al terminar, organiza cada carga en `docs/DOCUMENTOS ENTRADA`:
+
+```text
+docs/
+├── ENTRADAS AL INVENTARIO/{fecha de carga}/          # XML, PDF y TXT pendientes
+└── DOCUMENTOS ENTRADA/{misma fecha}/
+    ├── {nombre del proveedor} - {fecha de carga}/   # factura y Excel individual
+    └── ENTRADAS_ALMACEN_{fecha de carga}.xlsx       # Excel de la carga
+```
+
+La fecha de la carpeta de entrada se conserva en el archivo. El nombre de la subcarpeta del proveedor se obtiene del XML; dentro se agrupan la factura, sus documentos de apoyo y su Excel individual.
+
 Durante el procesamiento:
 
-1. Busca carpetas y documentos nuevos en Google Drive.
+1. Busca carpetas por fecha y documentos nuevos dentro de `ENTRADAS AL INVENTARIO`.
 2. Ignora documentos que ya aparecen como procesados.
 3. Lee los datos fiscales del XML.
 4. Extrae conceptos, cantidades, precios y códigos disponibles.
