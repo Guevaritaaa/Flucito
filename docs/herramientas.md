@@ -2,7 +2,7 @@
 
 Una herramienta, o *tool*, es una función que el modelo puede solicitar cuando necesita realizar una acción concreta del sistema. En Flucito, cada tool representa un proceso específico de Interflu que fue automatizado para reducir tiempos, evitar trabajo repetitivo, disminuir errores y aprovechar mejor la información disponible.
 
-En la V1 existe una herramienta principal: `generar_entradas_almacen`. La arquitectura está preparada para agregar nuevas tools conforme se identifiquen más procesos que convenga automatizar, por ejemplo facturación, consultas de inventario, reportes comerciales o apoyo para compras. Cada nueva herramienta debe tener un propósito claro, límites definidos y pruebas que demuestren que realmente aporta valor al proceso.
+El agente dispone de `generar_entradas_almacen` y `buscar_reporte_historico`. Cada herramienta tiene un propósito delimitado: una actualiza el reporte actual y la otra localiza reportes anteriores guardados en Drive.
 
 ## `generar_entradas_almacen`
 
@@ -97,6 +97,22 @@ La herramienta sí modifica información del entorno:
 - registra errores del procesamiento.
 
 Por eso no debe invocarse para preguntas que no pidan consultar o actualizar el almacén.
+
+## `buscar_reporte_historico`
+
+### Para qué sirve
+
+Busca reportes Excel individuales de almacén en `docs/DOCUMENTOS ENTRADA/{fecha}` y sus subcarpetas. La fecha es la que aparece en el nombre de la carpeta de carga archivada.
+
+### Cuándo se usa
+
+Se invoca cuando el usuario pide un reporte anterior por fecha. Si no indica fecha, el agente debe preguntarla. Para actualizar el reporte actual se usa `generar_entradas_almacen` y no se solicita fecha.
+
+### Entrada y resultado
+
+Acepta una fecha `DD-MM-AAAA`, `DD/MM/AAAA` o `AAAA-MM-DD`. Devuelve los nombres de reportes encontrados y el chat agrega un botón para descargar cada Excel. La descarga vuelve a validar que el archivo pertenezca a la carpeta de Drive configurada y a la fecha solicitada.
+
+Si no hay coincidencias, la herramienta devuelve una lista vacía y el agente informa que no encontró reportes para esa fecha.
 
 ## Qué no hace todavía
 

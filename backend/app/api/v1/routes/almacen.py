@@ -10,9 +10,16 @@ from pathlib import Path
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 
 from app.services.almacen.excel import CARPETA_DATOS, NOMBRE_ARCHIVO_BASE
 from app.services.almacen.fuentes.subidor import subir_documentos_drive
+from app.services.almacen.fuentes.google_drive_client import (
+    buscar_reportes_historicos,
+    crear_cliente_drive,
+    descargar_archivo,
+)
+from app.services.almacen.fuentes.google_drive import DriveArchivo
 from app.services.almacen.txt_aspel import NOMBRE_TXT_COMAS, NOMBRE_TXT_TABS
 
 logger = logging.getLogger(__name__)
@@ -64,6 +71,48 @@ def descargar_txt_almacen(separador: str = "comas") -> FileResponse:
         path=ruta,
         media_type="text/plain",
         filename=nombre,
+    )
+
+
+@router.get("/download/historico", summary="Descarga un reporte histórico de Google Drive")
+def descargar_reporte_historico(fecha: str, archivo_id: str) -> FileResponse:
+    """Verifica que el reporte pertenezca a la fecha y carpeta configuradas antes de descargarlo."""
+    try:
+        cliente = crear_cliente_drive()
+        reportes = buscar_reportes_historicos(fecha, cliente)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
+
+    reporte = next((item for item in reportes if item["id"] == archivo_id), None)
+    if reporte is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No se encontró ese reporte para la fecha indicada",
+        )
+
+    directorio = Path(tempfile.mkdtemp(prefix="flucito_reporte_historico_"))
+    destino = directorio / Path(reporte["nombre"]).name
+    try:
+        descargar_archivo(
+            cliente,
+            DriveArchivo(
+                id=reporte["id"],
+                nombre=reporte["nombre"],
+                mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                modificado=None,
+                carpeta_id="",
+            ),
+            destino,
+        )
+    except Exception:
+        shutil.rmtree(directorio, ignore_errors=True)
+        raise
+
+    return FileResponse(
+        path=destino,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename=destino.name,
+        background=BackgroundTask(shutil.rmtree, directorio, ignore_errors=True),
     )
 
 

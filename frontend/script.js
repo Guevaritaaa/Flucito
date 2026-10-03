@@ -44,6 +44,21 @@ function agregarMensaje(texto, clase) {
             </div>
             <span class="text-[11px] text-slate-400 mt-1 mr-1">${time}</span>
         </div>`;
+    } else if (clase === "cargando") {
+        html = `
+        <div class="flex items-start space-x-3" data-role="assistant-message">
+            <div class="w-8 h-8 rounded-full overflow-hidden flex items-center justify-center flex-shrink-0 ring-2 ring-cobalt-100 shadow-sm mt-0.5 bg-white">
+                <img src="Recursos/FlucitoPerfil.jpeg?v=1" alt="Flucito" class="w-full h-full object-cover" />
+            </div>
+            <div class="flex items-center gap-3 rounded-2xl rounded-tl-sm border border-cobalt-100 bg-white px-4 py-3 shadow-subtle" role="status" aria-live="polite">
+                <span class="text-sm font-medium text-cobalt-800">Trabajando...</span>
+                <span class="flex items-center gap-1" aria-hidden="true">
+                    <span class="trabajando-punto"></span>
+                    <span class="trabajando-punto"></span>
+                    <span class="trabajando-punto"></span>
+                </span>
+            </div>
+        </div>`;
     } else {
         html = `
         <div class="flex items-start space-x-3" data-role="assistant-message">
@@ -145,7 +160,7 @@ formulario.addEventListener("submit", async (evento) => {
     entrada.value = "";
     entrada.disabled = true;
 
-    const mensajeCargando = agregarMensaje("Flucito está escribiendo...", "cargando");
+    const mensajeCargando = agregarMensaje("", "cargando");
 
     try {
         const datos = await enviarMensaje(mensaje);
@@ -177,6 +192,15 @@ formulario.addEventListener("submit", async (evento) => {
             enlaceTxt.innerHTML = "📄 Descargar TXT para Aspel";
             enlaceTxt.className = "inline-flex items-center px-3 py-1.5 mt-3 mr-2 text-xs font-semibold rounded-lg bg-emerald-100 text-emerald-800 hover:bg-emerald-50 transition-colors shadow-sm";
             container.appendChild(enlaceTxt);
+        }
+
+        for (const reporte of datos.reportes_historicos || []) {
+            const enlaceHistorico = document.createElement("a");
+            enlaceHistorico.href = new URL(reporte.url, BACKEND_URL || window.location.origin);
+            enlaceHistorico.download = reporte.nombre;
+            enlaceHistorico.textContent = `📊 Descargar ${reporte.nombre}`;
+            enlaceHistorico.className = "inline-flex items-center px-3 py-1.5 mt-3 mr-2 text-xs font-semibold rounded-lg bg-blue-100 text-cobalt-800 hover:bg-white hover:text-cobalt-900 transition-colors shadow-sm";
+            container.appendChild(enlaceHistorico);
         }
         
         contenedorMensajes.scrollTop = contenedorMensajes.scrollHeight;

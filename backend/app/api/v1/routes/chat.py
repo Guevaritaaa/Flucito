@@ -1,4 +1,5 @@
 import json
+from urllib.parse import urlencode
 
 from fastapi import APIRouter
 from langchain_core.messages import HumanMessage
@@ -31,6 +32,7 @@ def chat(request: ChatRequest) -> ChatResponse:
     respuesta = contenido_a_texto(resultado["messages"][-1])
 
     archivo_almacen_url = None
+    reportes_historicos: list[dict[str, str]] = []
     for mensaje in reversed(resultado["messages"]):
         if getattr(mensaje, "type", None) != "tool":
             continue
@@ -38,6 +40,17 @@ def chat(request: ChatRequest) -> ChatResponse:
             datos = json.loads(mensaje.content)
         except (TypeError, json.JSONDecodeError):
             continue
+        if datos.get("ok") and datos.get("tipo") == "busqueda_historica":
+            reportes_historicos = [
+                {
+                    "nombre": reporte["nombre"],
+                    "fecha": reporte["fecha"],
+                    "url": "/api/v1/almacen/download/historico?"
+                    + urlencode({"fecha": reporte["fecha"], "archivo_id": reporte["id"]}),
+                }
+                for reporte in datos.get("reportes", [])
+            ]
+            break
         if datos.get("ok") and datos.get("reporte_generado") and datos.get("resumen"):
             archivo_almacen_url = "/api/v1/almacen/download"
             break
@@ -62,4 +75,5 @@ def chat(request: ChatRequest) -> ChatResponse:
         respuesta=respuesta,
         archivo_almacen_url=archivo_almacen_url,
         archivo_txt_url=archivo_txt_url,
+        reportes_historicos=reportes_historicos,
     )

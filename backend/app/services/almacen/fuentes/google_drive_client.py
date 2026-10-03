@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,8 @@ from app.services.almacen.fuentes.google_drive import (
 
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 ARCHIVOS_FIELDS = "nextPageToken,files(id,name,mimeType,modifiedTime,parents)"
+PREFIJO_REPORTE = "ENTRADAS_ALMACEN_"
+CARPETA_REPORTES_HISTORICOS = "DOCUMENTOS ENTRADA"
 
 
 class GoogleDriveConfigError(RuntimeError):
@@ -152,6 +155,67 @@ def listar_carpetas_factura(cliente: Any | None = None) -> list[CarpetaFactura]:
     return agrupar_por_carpeta(carpetas, archivos)
 
 
+def normalizar_fecha_reporte(fecha: str) -> str:
+    """Normaliza fechas aceptadas a DD-MM-AAAA, el formato de las carpetas de carga."""
+    for formato in ("%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(fecha.strip(), formato).strftime("%d-%m-%Y")
+        except ValueError:
+            continue
+    raise ValueError("Usa una fecha válida en formato DD-MM-AAAA o AAAA-MM-DD")
+
+
+def buscar_reportes_historicos(fecha: str, cliente: Any | None = None) -> list[dict[str, str]]:
+    """Busca Excel históricos dentro de DOCUMENTOS ENTRADA/{fecha} en la raíz configurada."""
+    cliente = cliente or crear_cliente_drive()
+    root_id = settings.google_drive_folder_id
+    if not root_id:
+        raise GoogleDriveConfigError("Falta GOOGLE_DRIVE_FOLDER_ID")
+
+    fecha_normalizada = normalizar_fecha_reporte(fecha)
+    carpetas_archivo = [
+        elemento
+        for elemento in _listar_hijos(cliente, root_id)
+        if elemento.get("mimeType") == MIME_CARPETA
+        and elemento.get("name") == CARPETA_REPORTES_HISTORICOS
+    ]
+
+    reportes: list[dict[str, str]] = []
+    for carpeta_archivo in carpetas_archivo:
+        carpetas_fecha = [
+            elemento
+            for elemento in _listar_hijos(cliente, carpeta_archivo["id"])
+            if elemento.get("mimeType") == MIME_CARPETA
+            and elemento.get("name") == fecha_normalizada
+        ]
+        for carpeta_fecha in carpetas_fecha:
+            pendientes = [carpeta_fecha["id"]]
+            visitadas: set[str] = set()
+            while pendientes:
+                carpeta_id = pendientes.pop()
+                if carpeta_id in visitadas:
+                    continue
+                visitadas.add(carpeta_id)
+                for elemento in _listar_hijos(cliente, carpeta_id):
+                    if elemento.get("mimeType") == MIME_CARPETA:
+                        pendientes.append(elemento["id"])
+                        continue
+                    nombre = elemento.get("name", "")
+                    if (
+                        Path(nombre).suffix.lower() == ".xlsx"
+                        and nombre.upper().startswith(PREFIJO_REPORTE)
+                    ):
+                        reportes.append(
+                            {
+                                "id": elemento["id"],
+                                "nombre": nombre,
+                                "fecha": fecha_normalizada,
+                            }
+                        )
+
+    return sorted(reportes, key=lambda reporte: reporte["nombre"].casefold())
+
+
 def descargar_archivo(cliente: Any, archivo: DriveArchivo, destino: Path) -> Path:
     """Descarga un archivo Drive a ruta temporal controlada por el proceso."""
     try:
@@ -252,6 +316,8 @@ __all__ = [
     "crear_cliente_drive",
     "descargar_archivo",
     "buscar_o_crear_carpeta",
+    "buscar_reportes_historicos",
+    "normalizar_fecha_reporte",
     "listar_archivos_carpeta",
     "listar_carpetas_factura",
     "subir_archivo",

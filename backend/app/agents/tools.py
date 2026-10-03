@@ -15,8 +15,51 @@ from app.services.almacen.excel import (
     procesar_carpeta,
 )
 from app.services.almacen.fuentes.sincronizador import sincronizar_drive
+from app.services.almacen.fuentes.google_drive_client import (
+    buscar_reportes_historicos,
+    normalizar_fecha_reporte,
+)
 
 logger = logging.getLogger(__name__)
+
+
+@tool
+def buscar_reporte_historico(fecha: str) -> str:
+    """Busca reportes Excel de almacén guardados en Google Drive para una fecha de carga.
+
+    Acepta DD-MM-AAAA, DD/MM/AAAA o AAAA-MM-DD. Úsala cuando pidan consultar o
+    descargar un reporte anterior, no para generar el reporte actual.
+    """
+    try:
+        fecha_normalizada = normalizar_fecha_reporte(fecha)
+        reportes = buscar_reportes_historicos(fecha)
+    except ValueError as error:
+        return json.dumps(
+            {"ok": False, "tipo": "busqueda_historica", "error": str(error)},
+            ensure_ascii=False,
+        )
+    except (OSError, RuntimeError) as error:
+        logger.exception("Error al buscar reportes históricos en Drive: %s", error)
+        return json.dumps(
+            {"ok": False, "tipo": "busqueda_historica", "error": str(error)},
+            ensure_ascii=False,
+        )
+    except Exception as error:
+        logger.exception("Fallo inesperado al buscar reportes históricos en Drive")
+        return json.dumps(
+            {"ok": False, "tipo": "busqueda_historica", "error": str(error)},
+            ensure_ascii=False,
+        )
+
+    return json.dumps(
+        {
+            "ok": True,
+            "tipo": "busqueda_historica",
+            "fecha": fecha_normalizada,
+            "reportes": reportes,
+        },
+        ensure_ascii=False,
+    )
 
 
 @tool
