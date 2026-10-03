@@ -91,7 +91,7 @@ def sincronizar_drive(cliente: Any | None = None, forzar: bool = False) -> dict:
 
     logger.info("Drive: %d carpeta(s) con archivos nuevos o modificados.", len(carpetas_nuevas))
 
-    from app.services.almacen.fuentes.google_drive_client import mover_archivo, subir_archivo
+    from app.services.almacen.fuentes.google_drive_client import mover_archivo, subir_archivo, eliminar_archivo
     from app.services.almacen.extractor import leer_meta
     from app.services.almacen.apoyo import _folio_coincide_con_archivo
 
@@ -125,6 +125,12 @@ def sincronizar_drive(cliente: Any | None = None, forzar: bool = False) -> dict:
                 archivo_by_name[archivo.nombre] = archivo
 
             df_carpeta = []
+            fecha_carga = _nombre_drive_seguro(carpeta.nombre)
+            
+            # Agrupar por proveedor
+            dfs_por_proveedor = {}
+            archivos_por_proveedor = {}
+            
             for ruta_xml in rutas_xml:
                 logger.info("  Extrayendo datos de XML: %s", ruta_xml.name)
                 df_xml = procesar_xml(str(ruta_xml), str(destino))
@@ -134,15 +140,12 @@ def sincronizar_drive(cliente: Any | None = None, forzar: bool = False) -> dict:
 
                 meta = leer_meta(str(ruta_xml))
                 proveedor = _nombre_drive_seguro(meta.get("proveedor_nombre") or "Proveedor desconocido")
-                fecha_carga = _nombre_drive_seguro(carpeta.nombre)
-                nombre_subcarpeta = f"{proveedor} - {fecha_carga}"
-
-                # Archiva cada factura bajo proveedor + fecha original de la carga.
-                subcarpeta_id = buscar_o_crear_carpeta(
-                    cliente,
-                    nombre_subcarpeta,
-                    carpeta_fecha_archivo_id,
-                )
+                
+                if proveedor not in dfs_por_proveedor:
+                    dfs_por_proveedor[proveedor] = []
+                    archivos_por_proveedor[proveedor] = []
+                
+                dfs_por_proveedor[proveedor].append(df_xml)
 
                 # Determinar archivos a mover (XML + PDF/TXT asociados)
                 archivos_a_mover = [ruta_xml.name]
@@ -154,21 +157,31 @@ def sincronizar_drive(cliente: Any | None = None, forzar: bool = False) -> dict:
                             if ruta_apoyo.exists() and _folio_coincide_con_archivo(str(ruta_apoyo), meta["folio"], rfc_proveedor=meta.get("rfc")):
                                 archivos_a_mover.append(arch_name)
 
+                archivos_por_proveedor[proveedor].extend(archivos_a_mover)
+
+            # Procesar por proveedor
+            for proveedor, dfs_prov in dfs_por_proveedor.items():
+                nombre_subcarpeta = f"{proveedor} - {fecha_carga}"
+                subcarpeta_id = buscar_o_crear_carpeta(
+                    cliente,
+                    nombre_subcarpeta,
+                    carpeta_fecha_archivo_id,
+                )
+
                 # Mover archivos en Drive
-                for nombre_arch in archivos_a_mover:
+                for nombre_arch in archivos_por_proveedor[proveedor]:
                     if nombre_arch in archivo_by_name:
                         arch_drive = archivo_by_name[nombre_arch]
                         mover_archivo(cliente, arch_drive.id, subcarpeta_id)
                         del archivo_by_name[nombre_arch]
 
-                # Generar y subir Excel individual
+                # Generar y subir Excel unificado por proveedor (sin JSON)
+                df_prov_concat = pd.concat(dfs_prov, ignore_index=True)
                 carpeta_mini = destino / "mini"
                 carpeta_mini.mkdir(exist_ok=True)
-                prefijo_mini = (
-                    f"ENTRADAS_ALMACEN_{proveedor}_{fecha_carga}_"
-                    f"{_nombre_drive_seguro(ruta_xml.stem)}"
-                )
-                guardar_en_base_acumulada(df_xml, str(carpeta_mini), limpiar_previos=True, prefijo=prefijo_mini)
+                prefijo_mini = f"ENTRADAS_ALMACEN_{proveedor}_{fecha_carga}"
+                
+                guardar_en_base_acumulada(df_prov_concat, str(carpeta_mini), limpiar_previos=True, prefijo=prefijo_mini, guardar_resumen=False)
                 
                 for f in carpeta_mini.iterdir():
                     if f.is_file():
@@ -182,13 +195,21 @@ def sincronizar_drive(cliente: Any | None = None, forzar: bool = False) -> dict:
                 # Guarda el Excel acumulado de la carga en la carpeta de archivo por fecha.
                 carpeta_batch = destino / "batch"
                 carpeta_batch.mkdir(exist_ok=True)
-                prefijo_batch = f"ENTRADAS_ALMACEN_{_nombre_drive_seguro(carpeta.nombre)}"
-                guardar_en_base_acumulada(df_batch, str(carpeta_batch), limpiar_previos=True, prefijo=prefijo_batch)
+                prefijo_batch = f"ENTRADAS_ALMACEN_{fecha_carga}"
+                # Sin JSON tampoco para el reporte batch de drive
+                guardar_en_base_acumulada(df_batch, str(carpeta_batch), limpiar_previos=True, prefijo=prefijo_batch, guardar_resumen=False)
                 
                 for f in carpeta_batch.iterdir():
                     if f.is_file():
                         subir_archivo(cliente, f, carpeta_fecha_archivo_id)
                         f.unlink()
+
+            # Eliminar la carpeta original procesada si ya terminamos
+            try:
+                eliminar_archivo(cliente, carpeta.id)
+                logger.info("Carpeta %s eliminada de ENTRADAS AL INVENTARIO tras procesar.", carpeta.nombre)
+            except Exception as e:
+                logger.warning("No se pudo eliminar la carpeta original %s: %s", carpeta.nombre, e)
 
     if not dataframes:
         logger.warning("No se obtuvieron productos de las carpetas nuevas.")

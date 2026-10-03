@@ -190,7 +190,7 @@ def _aplicar_estilo(ruta: str, n_columnas: int) -> None:
     wb.save(ruta)
 
 
-def guardar_en_base_acumulada(df_nuevo: pd.DataFrame, carpeta: str = str(CARPETA_DATOS), limpiar_previos: bool = True, prefijo: str = "BASE_ENTRADAS_ALMACEN") -> str:
+def guardar_en_base_acumulada(df_nuevo: pd.DataFrame, carpeta: str = str(CARPETA_DATOS), limpiar_previos: bool = True, prefijo: str = "BASE_ENTRADAS_ALMACEN", guardar_resumen: bool = True) -> str:
     os.makedirs(carpeta, exist_ok=True)
     nombre_excel = f"{prefijo}.xlsx"
     ruta = os.path.join(carpeta, nombre_excel)
@@ -211,18 +211,19 @@ def guardar_en_base_acumulada(df_nuevo: pd.DataFrame, carpeta: str = str(CARPETA
     combinado.to_excel(ruta, index=False)
     _aplicar_estilo(ruta, len(COLUMNAS_ASPEL))
     
-    nombre_json = f"{prefijo}_RESUMEN.json"
-    ruta_json = os.path.join(carpeta, nombre_json)
-    guardar_resumen_json(
-        construir_resumen(
-            filas_nuevas=df_nuevo,
-            filas_acumuladas=combinado,
-            duplicados_ignorados=duplicados_ignorados,
-            nombre_excel=nombre_excel,
-            nombre_json=nombre_json,
-        ),
-        ruta_json,
-    )
+    if guardar_resumen:
+        nombre_json = f"{prefijo}_RESUMEN.json"
+        ruta_json = os.path.join(carpeta, nombre_json)
+        guardar_resumen_json(
+            construir_resumen(
+                filas_nuevas=df_nuevo,
+                filas_acumuladas=combinado,
+                duplicados_ignorados=duplicados_ignorados,
+                nombre_excel=nombre_excel,
+                nombre_json=nombre_json,
+            ),
+            ruta_json,
+        )
     logger.info("Reporte guardado en %s (%s productos en total)", ruta, len(combinado))
 
     # Generar TXT para importación Aspel SAE (comas y tabulaciones)

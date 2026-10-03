@@ -175,3 +175,18 @@ def generar_entradas_almacen() -> str:
         },
         ensure_ascii=False,
     )
+
+@tool
+def preparar_entorno_pruebas() -> str:
+    """Prepara y restaura el entorno de pruebas en Google Drive.
+    
+    Usa esta herramienta cuando el usuario pida limpiar los resultados, borrar los reportes generados 
+    y mover todos los archivos originales de regreso a 'ENTRADAS AL INVENTARIO' para poder correr las pruebas de nuevo.
+    """
+    try:
+        from app.services.almacen.fuentes.limpieza import restaurar_entorno_pruebas
+        res = restaurar_entorno_pruebas()
+        return json.dumps(res, ensure_ascii=False)
+    except Exception as e:
+        logger.exception("Error al restaurar entorno de pruebas: %s", e)
+        return json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False)

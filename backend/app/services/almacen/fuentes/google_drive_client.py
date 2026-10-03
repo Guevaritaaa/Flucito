@@ -323,6 +323,18 @@ def mover_archivo(cliente: Any, archivo_id: str, nueva_carpeta_id: str) -> None:
     ).execute()
 
 
+def eliminar_archivo(cliente: Any, archivo_id: str) -> None:
+    """Elimina un archivo o carpeta en Google Drive."""
+    try:
+        cliente.files().delete(fileId=archivo_id).execute()
+    except Exception as error:
+        status_code = getattr(getattr(error, "resp", None), "status", None)
+        if status_code == 404:
+            pass  # Ya estaba eliminado
+        else:
+            raise
+
+
 __all__ = [
     "GoogleDriveConfigError",
     "crear_cliente_drive",
@@ -337,4 +349,5 @@ __all__ = [
     "listar_carpetas_factura",
     "subir_archivo",
     "mover_archivo",
+    "eliminar_archivo",
 ]
