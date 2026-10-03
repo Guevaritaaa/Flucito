@@ -204,12 +204,15 @@ def sincronizar_drive(cliente: Any | None = None, forzar: bool = False) -> dict:
                         subir_archivo(cliente, f, carpeta_fecha_archivo_id)
                         f.unlink()
 
-            # Eliminar la carpeta original procesada si ya terminamos
-            try:
-                eliminar_archivo(cliente, carpeta.id)
-                logger.info("Carpeta %s eliminada de ENTRADAS AL INVENTARIO tras procesar.", carpeta.nombre)
-            except Exception as e:
-                logger.warning("No se pudo eliminar la carpeta original %s: %s", carpeta.nombre, e)
+            # Eliminar la carpeta original procesada si ya terminamos y no quedaron archivos huérfanos
+            if not archivo_by_name:
+                try:
+                    eliminar_archivo(cliente, carpeta.id)
+                    logger.info("Carpeta %s eliminada de ENTRADAS AL INVENTARIO tras procesar todos sus archivos.", carpeta.nombre)
+                except Exception as e:
+                    logger.warning("No se pudo eliminar la carpeta original %s: %s", carpeta.nombre, e)
+            else:
+                logger.warning("La carpeta %s no se eliminó porque quedaron %d archivos sin emparejar: %s", carpeta.nombre, len(archivo_by_name), list(archivo_by_name.keys()))
 
     if not dataframes:
         logger.warning("No se obtuvieron productos de las carpetas nuevas.")

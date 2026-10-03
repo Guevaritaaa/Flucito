@@ -58,6 +58,7 @@ def restaurar_entorno_pruebas() -> dict:
 
     archivos_movidos = 0
     archivos_eliminados = 0
+    advertencias = []
 
     for c_fecha in carpetas_fecha:
         fecha_nombre = c_fecha.get("name")
@@ -75,12 +76,16 @@ def restaurar_entorno_pruebas() -> dict:
             # Es el reporte batch?
             if not item.get("mimeType") == MIME_CARPETA:
                 if item_name.startswith("ENTRADAS_ALMACEN_"):
-                    eliminar_archivo(cliente, item_id)
-                    archivos_eliminados += 1
+                    try:
+                        eliminar_archivo(cliente, item_id)
+                        archivos_eliminados += 1
+                    except Exception as e:
+                        advertencias.append(f"No se pudo eliminar el reporte {item_name}: {e}")
                 continue
                 
             # Es una carpeta de proveedor
             c_prov_id = item_id
+            c_prov_name = item_name
             archivos_prov = _listar_hijos(cliente, c_prov_id)
             
             for a_prov in archivos_prov:
@@ -88,24 +93,31 @@ def restaurar_entorno_pruebas() -> dict:
                 a_prov_id = a_prov.get("id")
                 
                 if a_prov_name.startswith("ENTRADAS_ALMACEN_"):
-                    eliminar_archivo(cliente, a_prov_id)
-                    archivos_eliminados += 1
+                    try:
+                        eliminar_archivo(cliente, a_prov_id)
+                        archivos_eliminados += 1
+                    except Exception as e:
+                        advertencias.append(f"No se pudo eliminar el reporte {a_prov_name}: {e}")
                 else:
                     # Mover a ENTRADAS AL INVENTARIO/{fecha}
                     mover_archivo(cliente, a_prov_id, entrada_fecha_id)
                     archivos_movidos += 1
                     
             # Eliminar la carpeta del proveedor
-            eliminar_archivo(cliente, c_prov_id)
+            try:
+                eliminar_archivo(cliente, c_prov_id)
+            except Exception as e:
+                advertencias.append(f"No se pudo eliminar la carpeta del proveedor '{c_prov_name}': {e}")
             
-        # Eliminar carpeta de fecha si quedó vacía (o eliminarla siempre asumiendo que movimos todo)
+        # Eliminar carpeta de fecha si quedó vacía
         try:
             eliminar_archivo(cliente, c_fecha_id)
-        except Exception:
-            pass
+        except Exception as e:
+            advertencias.append(f"No se pudo eliminar la carpeta de fecha '{fecha_nombre}': {e}")
 
     return {
         "ok": True,
         "movidos": archivos_movidos,
-        "eliminados": archivos_eliminados
+        "eliminados": archivos_eliminados,
+        "advertencias": advertencias
     }

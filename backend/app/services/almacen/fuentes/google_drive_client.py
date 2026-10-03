@@ -324,13 +324,13 @@ def mover_archivo(cliente: Any, archivo_id: str, nueva_carpeta_id: str) -> None:
 
 
 def eliminar_archivo(cliente: Any, archivo_id: str) -> None:
-    """Elimina un archivo o carpeta en Google Drive."""
+    """Mueve un archivo o carpeta a la papelera en Google Drive."""
     try:
-        cliente.files().delete(fileId=archivo_id).execute()
+        cliente.files().update(fileId=archivo_id, body={"trashed": True}).execute()
     except Exception as error:
         status_code = getattr(getattr(error, "resp", None), "status", None)
         if status_code == 404:
-            pass  # Ya estaba eliminado
+            pass  # Ya estaba eliminado/no encontrado
         else:
             raise
 
