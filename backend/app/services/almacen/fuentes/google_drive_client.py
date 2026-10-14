@@ -125,7 +125,7 @@ def _listar_hijos(cliente: Any, carpeta_id: str) -> list[dict]:
                     includeItemsFromAllDrives=True,
                     supportsAllDrives=True,
                 )
-                .execute()
+                .execute(num_retries=3)
             )
         except Exception as error:
             status_code = getattr(getattr(error, "resp", None), "status", None)
@@ -243,7 +243,7 @@ def descargar_archivo(cliente: Any, archivo: DriveArchivo, destino: Path) -> Pat
         descarga = MediaIoBaseDownload(salida, solicitud)
         terminado = False
         while not terminado:
-            _, terminado = descarga.next_chunk()
+            _, terminado = descarga.next_chunk(num_retries=3)
     return destino
 
 
@@ -258,7 +258,7 @@ def buscar_o_crear_carpeta(cliente: Any, nombre: str, carpeta_padre: str) -> str
     respuesta = (
         cliente.files()
         .list(q=consulta, spaces="drive", fields="files(id,name)", pageSize=10)
-        .execute()
+        .execute(num_retries=3)
     )
     carpetas = respuesta.get("files", [])
     if carpetas:
@@ -270,7 +270,7 @@ def buscar_o_crear_carpeta(cliente: Any, nombre: str, carpeta_padre: str) -> str
             body={"name": nombre, "mimeType": MIME_CARPETA, "parents": [carpeta_padre]},
             fields="id",
         )
-        .execute()
+        .execute(num_retries=3)
     )
     return carpeta["id"]
 
@@ -291,7 +291,7 @@ def subir_archivo(cliente: Any, ruta: Path, carpeta_id: str) -> str:
             media_body=MediaFileUpload(str(ruta), resumable=True),
             fields="id",
         )
-        .execute()
+        .execute(num_retries=3)
     )
     return archivo["id"]
 
@@ -306,27 +306,27 @@ def listar_archivos_carpeta(cliente: Any, carpeta_id: str) -> list[dict]:
             fields="files(id,name,modifiedTime)",
             pageSize=1000,
         )
-        .execute()
+        .execute(num_retries=3)
     )
     return respuesta.get("files", [])
 
 
 def mover_archivo(cliente: Any, archivo_id: str, nueva_carpeta_id: str) -> None:
     """Mueve un archivo en Google Drive a una nueva carpeta."""
-    archivo = cliente.files().get(fileId=archivo_id, fields="parents").execute()
+    archivo = cliente.files().get(fileId=archivo_id, fields="parents").execute(num_retries=3)
     padres_previos = ",".join(archivo.get("parents", []))
     cliente.files().update(
         fileId=archivo_id,
         addParents=nueva_carpeta_id,
         removeParents=padres_previos,
         fields="id, parents"
-    ).execute()
+    ).execute(num_retries=3)
 
 
 def eliminar_archivo(cliente: Any, archivo_id: str) -> None:
     """Mueve un archivo o carpeta a la papelera en Google Drive."""
     try:
-        cliente.files().update(fileId=archivo_id, body={"trashed": True}).execute()
+        cliente.files().update(fileId=archivo_id, body={"trashed": True}).execute(num_retries=3)
     except Exception as error:
         status_code = getattr(getattr(error, "resp", None), "status", None)
         if status_code == 404:

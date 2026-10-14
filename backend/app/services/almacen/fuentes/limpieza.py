@@ -83,8 +83,11 @@ def restaurar_entorno_pruebas() -> dict:
                     except Exception as e:
                         advertencias.append(f"No se pudo eliminar el reporte {item_name}: {e}")
                 elif not reutilizar_carpeta:
-                    mover_archivo(cliente, item_id, destino_archivos_id)
-                    archivos_movidos += 1
+                    try:
+                        mover_archivo(cliente, item_id, destino_archivos_id)
+                        archivos_movidos += 1
+                    except Exception as e:
+                        advertencias.append(f"No se pudo mover el archivo {item_name}: {e}")
                 continue
 
             # Es una carpeta de proveedor
@@ -103,8 +106,11 @@ def restaurar_entorno_pruebas() -> dict:
                     except Exception as e:
                         advertencias.append(f"No se pudo eliminar el reporte {a_prov_name}: {e}")
                 else:
-                    mover_archivo(cliente, a_prov_id, destino_archivos_id)
-                    archivos_movidos += 1
+                    try:
+                        mover_archivo(cliente, a_prov_id, destino_archivos_id)
+                        archivos_movidos += 1
+                    except Exception as e:
+                        advertencias.append(f"No se pudo mover el archivo {a_prov_name}: {e}")
 
             # Eliminar la carpeta del proveedor
             try:
