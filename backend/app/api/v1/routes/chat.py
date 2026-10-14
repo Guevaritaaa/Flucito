@@ -33,14 +33,19 @@ def chat(request: ChatRequest) -> ChatResponse:
 
     archivo_almacen_url = None
     reportes_historicos: list[dict[str, str]] = []
+    advertencia_ubicacion: str | None = None
+    advertencia_archivos_sueltos: str | None = None
     for mensaje in reversed(resultado["messages"]):
-        if getattr(mensaje, "type", None) != "tool":
+        tipo_mensaje = getattr(mensaje, "type", None)
+        if tipo_mensaje == "human":
+            break
+        if tipo_mensaje != "tool":
             continue
         try:
             datos = json.loads(mensaje.content)
         except (TypeError, json.JSONDecodeError):
             continue
-        if datos.get("ok") and datos.get("tipo") == "busqueda_historica":
+        if datos.get("ok") and datos.get("tipo") == "busqueda_historica" and not reportes_historicos:
             reportes_historicos = [
                 {
                     "nombre": reporte["nombre"],
@@ -50,10 +55,27 @@ def chat(request: ChatRequest) -> ChatResponse:
                 }
                 for reporte in datos.get("reportes", [])
             ]
-            break
+        if datos.get("ok") and datos.get("tipo") == "ordenar_todo":
+            if datos.get("advertencia_archivos_sueltos") and not advertencia_archivos_sueltos:
+                advertencia_archivos_sueltos = str(datos["advertencia_archivos_sueltos"])
         if datos.get("ok") and datos.get("reporte_generado") and datos.get("resumen"):
             archivo_almacen_url = "/api/v1/almacen/download"
-            break
+            if datos.get("advertencia_ubicacion") and not advertencia_ubicacion:
+                advertencia_ubicacion = str(datos["advertencia_ubicacion"])
+
+    if (
+        advertencia_ubicacion
+        and "mal ubicadas" not in respuesta.lower()
+        and "recuerda que para subir documentos a procesar" not in respuesta.lower()
+    ):
+        respuesta = f"{advertencia_ubicacion}\n\n{respuesta}"
+
+    if (
+        advertencia_archivos_sueltos
+        and "archivos sueltos" not in respuesta.lower()
+        and "organiza manualmente" not in respuesta.lower()
+    ):
+        respuesta = f"{respuesta}\n\n{advertencia_archivos_sueltos}"
 
     # Si la base física existe y el asistente la menciona o el usuario la pidió
     if archivo_almacen_url is None and (CARPETA_DATOS / NOMBRE_ARCHIVO_BASE).is_file():

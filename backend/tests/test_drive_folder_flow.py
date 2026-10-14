@@ -135,7 +135,7 @@ def test_sincronizacion_archiva_por_nombre_proveedor_y_fecha_de_carga(
         lambda ruta, carpeta: pd.DataFrame([{"producto": "válvula"}]),
     )
 
-    def guardar_excel(df, carpeta_local, limpiar_previos=True, prefijo="reporte"):
+    def guardar_excel(df, carpeta_local, limpiar_previos=True, prefijo="reporte", guardar_resumen=True):
         ruta = Path(carpeta_local) / f"{prefijo}.xlsx"
         ruta.parent.mkdir(parents=True, exist_ok=True)
         ruta.write_bytes(b"excel")
@@ -163,8 +163,145 @@ def test_sincronizacion_archiva_por_nombre_proveedor_y_fecha_de_carga(
     supplier_id = carpetas_creadas[("Proveedor Ejemplo, S.A. - 18-03-2026", date_id)]
     assert set(movimientos) == {("xml-id", supplier_id), ("pdf-id", supplier_id)}
     assert (
-        "ENTRADAS_ALMACEN_Proveedor Ejemplo, S.A._18-03-2026_factura-100.xlsx",
+        "ENTRADAS_ALMACEN_Proveedor Ejemplo, S.A._18-03-2026.xlsx",
         supplier_id,
     ) in subidas
     assert ("ENTRADAS_ALMACEN_18-03-2026.xlsx", date_id) in subidas
     assert resultado["productos"] == 1
+
+
+def test_deteccion_y_reubicacion_de_carpetas_sin_reporte_en_documentos_entrada(monkeypatch) -> None:
+    from app.services.almacen.fuentes import organizador
+
+    estructura = {
+        "docs-root": [
+            {"id": "hist-id", "name": "DOCUMENTOS ENTRADA", "mimeType": google_drive_client.MIME_CARPETA},
+            {"id": "in-id", "name": "ENTRADAS AL INVENTARIO", "mimeType": google_drive_client.MIME_CARPETA},
+        ],
+        "hist-id": [
+            {"id": "bad-folder", "name": "20-03-2026", "mimeType": google_drive_client.MIME_CARPETA},
+            {"id": "good-folder", "name": "18-03-2026", "mimeType": google_drive_client.MIME_CARPETA},
+        ],
+        "bad-folder": [
+            {"id": "xml-200", "name": "factura-200.xml", "mimeType": "text/xml"},
+            {"id": "txt-200", "name": "factura-200.txt", "mimeType": "text/plain"},
+        ],
+        "good-folder": [
+            {"id": "rep-18", "name": "ENTRADAS_ALMACEN_18-03-2026.xlsx", "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
+        ],
+        "in-id": [],
+    }
+
+    movimientos: list[tuple[str, str]] = []
+    monkeypatch.setattr(settings, "google_drive_folder_id", "docs-root")
+    monkeypatch.setattr(organizador, "_listar_hijos", lambda cliente, carpeta_id: estructura.get(carpeta_id, []))
+    monkeypatch.setattr(
+        organizador,
+        "buscar_carpeta_hija",
+        lambda cliente, nombre, padre: next(
+            (i["id"] for i in estructura.get(padre, []) if i.get("mimeType") == google_drive_client.MIME_CARPETA and i.get("name") == nombre),
+            None,
+        ),
+    )
+    monkeypatch.setattr(organizador, "buscar_o_crear_carpeta", lambda cliente, nombre, padre: "in-id")
+    monkeypatch.setattr(
+        organizador,
+        "mover_archivo",
+        lambda cliente, archivo_id, destino_id: movimientos.append((archivo_id, destino_id)),
+    )
+
+    res = organizador.reubicar_carpetas_mal_ubicadas(cliente=object(), carpeta_raiz_id="docs-root")
+
+    assert res["carpetas_reubicadas"] == ["20-03-2026"]
+    assert ("bad-folder", "in-id") in movimientos
+    advertencia = organizador.construir_advertencia_ubicacion(res["carpetas_reubicadas"])
+    assert "20-03-2026" in advertencia
+    assert "DOCUMENTOS ENTRADA" in advertencia
+    assert "ENTRADAS AL INVENTARIO" in advertencia
+
+
+def test_comandos_conversacionales_revisar_mover_y_ordenar(monkeypatch) -> None:
+    from app.services.almacen.fuentes import organizador
+
+    estructura = {
+        "docs-root": [
+            {"id": "hist-id", "name": "DOCUMENTOS ENTRADA", "mimeType": google_drive_client.MIME_CARPETA},
+            {"id": "in-id", "name": "ENTRADAS AL INVENTARIO", "mimeType": google_drive_client.MIME_CARPETA},
+        ],
+        "in-id": [
+            {"id": "pending-in", "name": "21-03-2026", "mimeType": google_drive_client.MIME_CARPETA},
+            {"id": "done-in", "name": "19-03-2026", "mimeType": google_drive_client.MIME_CARPETA},
+            {"id": "empty-in", "name": "Carpeta Vacia", "mimeType": google_drive_client.MIME_CARPETA},
+            {"id": "loose-xml", "name": "suelto_22-03-2026.xml", "mimeType": "text/xml"},
+        ],
+        "pending-in": [
+            {"id": "xml-21", "name": "fac21.xml", "mimeType": "text/xml"},
+        ],
+        "done-in": [
+            {"id": "xml-19", "name": "fac19.xml", "mimeType": "text/xml"},
+            {"id": "rep-19", "name": "ENTRADAS_ALMACEN_19-03-2026.xlsx", "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
+        ],
+        "empty-in": [],
+        "hist-id": [
+            {"id": "misplaced-hist", "name": "20-03-2026", "mimeType": google_drive_client.MIME_CARPETA},
+        ],
+        "misplaced-hist": [
+            {"id": "xml-20", "name": "fac20.xml", "mimeType": "text/xml"},
+        ],
+    }
+
+    monkeypatch.setattr(settings, "google_drive_folder_id", "docs-root")
+    monkeypatch.setattr(organizador, "_listar_hijos", lambda cliente, carpeta_id: estructura.get(carpeta_id, []))
+    monkeypatch.setattr(
+        organizador,
+        "buscar_carpeta_hija",
+        lambda cliente, nombre, padre: next(
+            (i["id"] for i in estructura.get(padre, []) if i.get("mimeType") == google_drive_client.MIME_CARPETA and i.get("name") == nombre),
+            None,
+        ),
+    )
+    monkeypatch.setattr(
+        organizador,
+        "buscar_o_crear_carpeta",
+        lambda cliente, nombre, padre: next(
+            (i["id"] for i in estructura.get(padre, []) if i.get("mimeType") == google_drive_client.MIME_CARPETA and i.get("name") == nombre),
+            f"created-{nombre}-{padre}",
+        ),
+    )
+
+    movimientos: list[tuple[str, str]] = []
+    eliminados: list[str] = []
+    monkeypatch.setattr(
+        organizador,
+        "mover_archivo",
+        lambda cliente, archivo_id, destino_id: movimientos.append((archivo_id, destino_id)),
+    )
+    monkeypatch.setattr(
+        organizador,
+        "eliminar_archivo",
+        lambda cliente, archivo_id: eliminados.append(archivo_id),
+    )
+
+    revision = organizador.revisar_carpetas_sin_reportes_drive(cliente=object(), carpeta_raiz_id="docs-root")
+    assert revision["en_entradas_al_inventario"] == ["21-03-2026"]
+    assert revision["en_documentos_entrada"] == ["20-03-2026"]
+    assert revision["total_pendientes"] == 2
+
+    orden = organizador.ordenar_todo_drive(
+        cliente=object(),
+        carpeta_raiz_id="docs-root",
+        fecha_actual="13-10-2026",
+    )
+    assert orden["carpetas_reubicadas"] == ["20-03-2026"]
+    assert orden["carpetas_con_reporte_movidas"] == ["19-03-2026"]
+    assert orden["archivos_sueltos_acomodados"] == ["suelto_22-03-2026.xml"]
+    assert orden["carpeta_archivos_sueltos"] == "ARCHIVOS_SUELTOS_13-10-2026"
+    assert (
+        "Por favor revisa la carpeta **ARCHIVOS_SUELTOS_13-10-2026** y organiza manualmente los archivos."
+        in orden["advertencia_archivos_sueltos"]
+    )
+    assert orden["carpetas_vacias_eliminadas"] == ["Carpeta Vacia"]
+    assert ("done-in", "hist-id") in movimientos
+    assert ("loose-xml", "created-ARCHIVOS_SUELTOS_13-10-2026-docs-root") in movimientos
+    assert ("empty-in" in eliminados)
+

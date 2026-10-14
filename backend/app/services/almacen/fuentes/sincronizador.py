@@ -34,6 +34,7 @@ from app.services.almacen.fuentes.estado_drive import (
     guardar_estado,
     marcar_procesadas,
 )
+from app.services.almacen.fuentes.organizador import reubicar_carpetas_mal_ubicadas
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,10 @@ def sincronizar_drive(cliente: Any | None = None, forzar: bool = False) -> dict:
     if not carpeta_raiz_id:
         raise GoogleDriveConfigError("Falta GOOGLE_DRIVE_FOLDER_ID")
 
+    reubicacion = reubicar_carpetas_mal_ubicadas(cliente, carpeta_raiz_id)
+    carpetas_reubicadas = reubicacion["carpetas_reubicadas"]
+    archivos_reubicados_ids = set(reubicacion["archivos_reubicados_ids"])
+
     carpeta_entrada_id = buscar_carpeta_hija(
         cliente,
         CARPETA_ENTRADAS_AL_INVENTARIO,
@@ -58,12 +63,22 @@ def sincronizar_drive(cliente: Any | None = None, forzar: bool = False) -> dict:
     )
     if not carpeta_entrada_id:
         logger.info("Drive: no existe la carpeta %s.", CARPETA_ENTRADAS_AL_INVENTARIO)
-        return {"carpetas": 0, "archivos": 0, "productos": 0}
+        return {
+            "carpetas": 0,
+            "archivos": 0,
+            "productos": 0,
+            "carpetas_reubicadas": carpetas_reubicadas,
+        }
 
     carpetas = listar_carpetas_factura(cliente, carpeta_entrada_id)
     if not carpetas:
         logger.info("Drive: 0 carpetas encontradas en la carpeta raíz.")
-        return {"carpetas": 0, "archivos": 0, "productos": 0}
+        return {
+            "carpetas": 0,
+            "archivos": 0,
+            "productos": 0,
+            "carpetas_reubicadas": carpetas_reubicadas,
+        }
 
     logger.info("Drive: %d carpeta(s) encontrada(s) en total.", len(carpetas))
 
@@ -79,6 +94,16 @@ def sincronizar_drive(cliente: Any | None = None, forzar: bool = False) -> dict:
     else:
         estado = cargar_estado(ruta_estado)
 
+    if carpetas_reubicadas or archivos_reubicados_ids:
+        procesados = estado.setdefault("archivos", {})
+        nombres_reubicados = {n.split("/")[0] for n in carpetas_reubicadas}
+        for arch_id in archivos_reubicados_ids:
+            procesados.pop(arch_id, None)
+        for carpeta in carpetas:
+            if carpeta.nombre in nombres_reubicados:
+                for arch in carpeta.archivos:
+                    procesados.pop(arch.id, None)
+
     carpetas_nuevas = carpetas_con_novedades(carpetas, estado)
     if not carpetas_nuevas:
         logger.info("Drive: Todas las carpetas están al día. 0 carpetas con novedades.")
@@ -87,6 +112,7 @@ def sincronizar_drive(cliente: Any | None = None, forzar: bool = False) -> dict:
             "carpetas_nuevas": 0,
             "archivos": 0,
             "productos": 0,
+            "carpetas_reubicadas": carpetas_reubicadas,
         }
 
     logger.info("Drive: %d carpeta(s) con archivos nuevos o modificados.", len(carpetas_nuevas))
@@ -221,6 +247,7 @@ def sincronizar_drive(cliente: Any | None = None, forzar: bool = False) -> dict:
             "carpetas_nuevas": len(carpetas_nuevas),
             "archivos": archivos_descargados,
             "productos": 0,
+            "carpetas_reubicadas": carpetas_reubicadas,
         }
 
     df_nuevo = pd.concat(dataframes, ignore_index=True)
@@ -238,6 +265,7 @@ def sincronizar_drive(cliente: Any | None = None, forzar: bool = False) -> dict:
         "carpetas_nuevas": len(carpetas_nuevas),
         "archivos": archivos_descargados,
         "productos": len(df_nuevo),
+        "carpetas_reubicadas": carpetas_reubicadas,
     }
 
 

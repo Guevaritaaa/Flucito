@@ -19,6 +19,12 @@ from app.services.almacen.fuentes.google_drive_client import (
     buscar_reportes_historicos,
     normalizar_fecha_reporte,
 )
+from app.services.almacen.fuentes.organizador import (
+    construir_advertencia_ubicacion,
+    mover_carpetas_con_reportes_drive,
+    ordenar_todo_drive,
+    revisar_carpetas_sin_reportes_drive,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +91,7 @@ def generar_entradas_almacen() -> str:
                 {"ok": False, "error": str(error)},
                 ensure_ascii=False,
             )
+        carpetas_reubicadas = sincronizacion.get("carpetas_reubicadas") or []
         if sincronizacion["carpetas"] == 0 or sincronizacion.get("carpetas_nuevas", 0) == 0:
             logger.info("Drive: Sin documentos nuevos o carpetas. Verificando si existe base previa...")
             ruta_resumen = Path(CARPETA_DATOS) / NOMBRE_ARCHIVO_RESUMEN
@@ -94,16 +101,19 @@ def generar_entradas_almacen() -> str:
                     resumen = json.loads(ruta_resumen.read_text(encoding="utf-8"))
                     resumen["origen"] = "google_drive"
                     resumen["documentos_nuevos"] = 0
-                    return json.dumps(
-                        {
-                            "ok": True,
-                            "reporte_generado": True,
-                            "documentos_nuevos": 0,
-                            "mensaje": "No hay documentos nuevos en Google Drive. La base acumulada ya está al día.",
-                            "resumen": resumen,
-                        },
-                        ensure_ascii=False,
-                    )
+                    respuesta_sin_nuevos: dict = {
+                        "ok": True,
+                        "reporte_generado": True,
+                        "documentos_nuevos": 0,
+                        "mensaje": "No hay documentos nuevos en Google Drive. La base acumulada ya está al día.",
+                        "resumen": resumen,
+                    }
+                    if carpetas_reubicadas:
+                        respuesta_sin_nuevos["carpetas_reubicadas"] = carpetas_reubicadas
+                        respuesta_sin_nuevos["advertencia_ubicacion"] = construir_advertencia_ubicacion(
+                            carpetas_reubicadas
+                        )
+                    return json.dumps(respuesta_sin_nuevos, ensure_ascii=False)
                 except (OSError, ValueError):
                     pass
 
@@ -126,6 +136,7 @@ def generar_entradas_almacen() -> str:
 
     else:
         sincronizacion = {"origen": "local"}
+        carpetas_reubicadas = []
     carpeta = Path(CARPETA_DATOS)
     if not usar_drive and not carpeta.is_dir():
         logger.warning("Carpeta local de almacén no encontrada: %s", carpeta)
@@ -165,23 +176,83 @@ def generar_entradas_almacen() -> str:
         resumen["documentos_nuevos"] = sincronizacion["archivos"]
         resumen["carpetas_drive"] = sincronizacion["carpetas"]
         resumen["archivos_drive"] = sincronizacion["archivos"]
+        if carpetas_reubicadas:
+            resumen["carpetas_reubicadas"] = carpetas_reubicadas
+
+    salida: dict = {
+        "ok": True,
+        "reporte_generado": True,
+        "resumen": resumen,
+    }
+    if carpetas_reubicadas:
+        salida["carpetas_reubicadas"] = carpetas_reubicadas
+        salida["advertencia_ubicacion"] = construir_advertencia_ubicacion(
+            carpetas_reubicadas
+        )
 
     logger.info("Tool 'generar_entradas_almacen' completada exitosamente.")
-    return json.dumps(
-        {
-            "ok": True,
-            "reporte_generado": True,
-            "resumen": resumen,
-        },
-        ensure_ascii=False,
-    )
+    return json.dumps(salida, ensure_ascii=False)
+
+
+@tool
+def revisar_carpetas_sin_reportes() -> str:
+    """Inspecciona y lista qué carpetas en Google Drive tienen XMLs o TXTs pendientes sin reporte Excel generado.
+
+    Úsala cuando el usuario pida 'Revisar carpetas sin reportes' o consultar qué carpetas faltan por procesar.
+    """
+    try:
+        resultado = revisar_carpetas_sin_reportes_drive()
+        return json.dumps(resultado, ensure_ascii=False)
+    except Exception as error:
+        logger.exception("Error al revisar carpetas sin reportes en Drive: %s", error)
+        return json.dumps(
+            {"ok": False, "tipo": "revisar_carpetas_sin_reportes", "error": str(error)},
+            ensure_ascii=False,
+        )
+
+
+@tool
+def ordenar_todo() -> str:
+    """Ordena todas las carpetas y archivos en Google Drive.
+
+    Reubica carpetas sin reporte mal puestas en DOCUMENTOS ENTRADA hacia ENTRADAS AL INVENTARIO,
+    mueve carpetas con reportes a su lugar, acomoda archivos sueltos y limpia carpetas vacías.
+    Úsala cuando el usuario pida 'Ordenar todo' u organizar las carpetas de Drive.
+    """
+    try:
+        resultado = ordenar_todo_drive()
+        return json.dumps(resultado, ensure_ascii=False)
+    except Exception as error:
+        logger.exception("Error al ordenar carpetas en Drive: %s", error)
+        return json.dumps(
+            {"ok": False, "tipo": "ordenar_todo", "error": str(error)},
+            ensure_ascii=False,
+        )
+
+
+@tool
+def mover_carpetas_con_reportes() -> str:
+    """Traslada al archivo (DOCUMENTOS ENTRADA) las carpetas de ENTRADAS AL INVENTARIO que ya fueron procesadas y tienen reporte Excel.
+
+    Úsala cuando el usuario pida 'Mover carpetas con reportes a su lugar' o archivar carpetas ya procesadas.
+    """
+    try:
+        resultado = mover_carpetas_con_reportes_drive()
+        return json.dumps(resultado, ensure_ascii=False)
+    except Exception as error:
+        logger.exception("Error al mover carpetas con reportes en Drive: %s", error)
+        return json.dumps(
+            {"ok": False, "tipo": "mover_carpetas_con_reportes", "error": str(error)},
+            ensure_ascii=False,
+        )
+
 
 @tool
 def preparar_entorno_pruebas() -> str:
     """Prepara y restaura el entorno de pruebas en Google Drive.
     
-    Usa esta herramienta cuando el usuario pida limpiar los resultados, borrar los reportes generados 
-    y mover todos los archivos originales de regreso a 'ENTRADAS AL INVENTARIO' para poder correr las pruebas de nuevo.
+    Usa esta herramienta ÚNICAMENTE cuando el usuario pida explícitamente restaurar el entorno de pruebas,
+    borrar los reportes generados y regresar todos los archivos originales a 'ENTRADAS AL INVENTARIO' para correr pruebas de nuevo.
     """
     try:
         from app.services.almacen.fuentes.limpieza import restaurar_entorno_pruebas
