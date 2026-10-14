@@ -11,3 +11,16 @@ class ChatResponse(BaseModel):
     archivo_almacen_url: str | None = None
     archivo_txt_url: str | None = None
     reportes_historicos: list[dict[str, str]] = Field(default_factory=list)
+
+
+class ChatJobCreateResponse(BaseModel):
+    job_id: str
+    status: str
+
+
+class ChatJobStatusResponse(BaseModel):
+    job_id: str
+    status: str
+    result: ChatResponse | None = None
+    error: str | None = None
+

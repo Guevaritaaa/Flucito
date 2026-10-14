@@ -91,16 +91,63 @@ function agregarMensaje(texto, clase) {
     return node;
 }
 
+function esperar(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function enviarMensaje(mensaje) {
     const cuerpo = { mensaje, session_id: sessionId };
-    const respuesta = await fetch(API_URL, {
+    const inicio = await fetch(`${API_URL}/async`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(cuerpo),
     });
-    if (!respuesta.ok) throw new Error(`Error del servidor: ${respuesta.status}`);
-    return await respuesta.json();
+
+    if (inicio.status === 404) {
+        const respuesta = await fetch(API_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(cuerpo),
+        });
+        if (!respuesta.ok) throw new Error(`Error del servidor: ${respuesta.status}`);
+        return await respuesta.json();
+    }
+
+    if (!inicio.ok) throw new Error(`Error del servidor: ${inicio.status}`);
+    const { job_id: jobId } = await inicio.json();
+
+    let intentos = 0;
+    let erroresRedConsecutivos = 0;
+    while (true) {
+        const pausaMs = intentos === 0 ? 600 : intentos === 1 ? 1200 : 2500;
+        intentos += 1;
+        await esperar(pausaMs);
+
+        try {
+            const estadoResp = await fetch(`${API_URL}/status/${encodeURIComponent(jobId)}`);
+            if (!estadoResp.ok) {
+                throw new Error(`Error consultando estado: ${estadoResp.status}`);
+            }
+            erroresRedConsecutivos = 0;
+            const estado = await estadoResp.json();
+            if (estado.status === "completed" && estado.result) {
+                return estado.result;
+            }
+            if (estado.status === "failed") {
+                throw new Error(estado.error || "Error procesando solicitud");
+            }
+        } catch (err) {
+            if (err.message && err.message.startsWith("Error procesando")) {
+                throw err;
+            }
+            erroresRedConsecutivos += 1;
+            if (erroresRedConsecutivos >= 4) {
+                throw err;
+            }
+        }
+    }
 }
+
 
 agregarMensaje(
     "¡Hola! Soy Flucito :), tu asistente en Interflu. Estoy listo para ayudarte a procesar tus facturas (XML, PDF o TXT) y generar tus reportes de almacén actualizados automáticamente. ¿En qué te puedo ayudar hoy?",
