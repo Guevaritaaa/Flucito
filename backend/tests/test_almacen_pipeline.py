@@ -70,3 +70,24 @@ def test_extraer_numero_proveedor() -> None:
     assert apoyo.extraer_numero_proveedor(texto_universal) == "472"
     assert apoyo.extraer_numero_proveedor(texto_scrambled) == "463"
 
+
+def test_apoyo_txt_columnas_fijas_clave_con_espacio(tmp_path: Path) -> None:
+    ruta = tmp_path / "1866.txt"
+    contenido = (
+        "Proveedor: ( 463 ) MAKRONIX\n"
+        "       1.00         2460N 1                           GEN     FILTRO Y INOX 316 PTFE 1\"               0.00      1,250.00      1,250.00\n"
+        "       2.00         3302N 1           40142505  H87   GEN     FILTRO Y LATON ROSCA NPT 1\"             0.00        450.00        900.00\n"
+    )
+    ruta.write_text(contenido, encoding="utf-8")
+
+    resultado = apoyo.obtener_apoyo_por_folio(str(tmp_path), "2026", 1866)
+
+    assert len(resultado) == 2
+    assert resultado[0]["clave_articulo"] == "2460N 1"
+    assert resultado[0]["linea"] == "GEN"
+    assert resultado[0]["numero_proveedor"] == "463"
+    assert resultado[1]["clave_articulo"] == "3302N 1"
+    assert resultado[1]["linea"] == "GEN"
+    assert resultado[1]["numero_proveedor"] == "463"
+
+

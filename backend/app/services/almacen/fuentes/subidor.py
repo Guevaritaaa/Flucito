@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -34,8 +35,35 @@ def _clave_folio(nombre: str) -> tuple[str, int] | None:
     return digitos[:4], int(digitos[4:])
 
 
+def _extraer_folio_str(ruta: Path) -> str | None:
+    """Extrae el folio normalizado (sin ceros a la izquierda) de un XML, PDF o TXT."""
+    if ruta.suffix.lower() == ".xml" and ruta.exists():
+        try:
+            root = ET.parse(ruta).getroot()
+            folio_attr = root.attrib.get("Folio") or root.attrib.get("folio")
+            if folio_attr:
+                digitos_xml = "".join(re.findall(r"\d+", folio_attr))
+                if digitos_xml:
+                    return str(int(digitos_xml))
+        except Exception:
+            pass
+
+    coincidencia = re.search(r"(\d{6,})", ruta.stem)
+    if coincidencia:
+        digitos = coincidencia.group(1)
+        anio = int(digitos[:4])
+        if 2020 <= anio <= 2035 and len(digitos) > 4:
+            return str(int(digitos[4:]))
+        return str(int(digitos))
+
+    digitos_cortos = "".join(re.findall(r"\d+", ruta.stem))
+    if digitos_cortos:
+        return str(int(digitos_cortos))
+    return None
+
+
 def agrupar_documentos(rutas: Iterable[Path]) -> list[GrupoCarga]:
-    """Agrupa XML con PDF/TXT por año y folio, tolerando distinto padding."""
+    """Agrupa XML con PDF/TXT por año y folio, tolerando distinto padding y nombres cortos."""
     archivos = [Path(ruta) for ruta in rutas]
     xmls = [ruta for ruta in archivos if ruta.suffix.lower() == ".xml"]
     apoyos = [ruta for ruta in archivos if ruta.suffix.lower() in {".pdf", ".txt"}]
@@ -44,17 +72,23 @@ def agrupar_documentos(rutas: Iterable[Path]) -> list[GrupoCarga]:
 
     for xml in xmls:
         clave = _clave_folio(xml.name)
+        folio_xml = _extraer_folio_str(xml)
         asociados = tuple(
             apoyo
             for apoyo in apoyos
-            if apoyo not in usados and _clave_folio(apoyo.name) == clave
+            if apoyo not in usados
+            and (
+                (clave is not None and _clave_folio(apoyo.name) == clave)
+                or (folio_xml is not None and _extraer_folio_str(apoyo) == folio_xml)
+            )
         )
         usados.update(asociados)
         grupos.append(GrupoCarga(xml=xml, apoyo=asociados))
 
-    if len(grupos) == 1:
+    if grupos:
         restantes = tuple(apoyo for apoyo in apoyos if apoyo not in usados)
-        grupos[0] = GrupoCarga(xml=grupos[0].xml, apoyo=grupos[0].apoyo + restantes)
+        if restantes:
+            grupos[0] = GrupoCarga(xml=grupos[0].xml, apoyo=grupos[0].apoyo + restantes)
     return grupos
 
 

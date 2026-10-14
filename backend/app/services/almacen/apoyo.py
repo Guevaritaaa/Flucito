@@ -155,6 +155,20 @@ def _leer_desde_txt(ruta_txt: str) -> list:
         contenido_completo = "".join(lineas)
 
         for linea_txt in lineas:
+            linea_sin_salto = linea_txt.rstrip("\r\n")
+            if len(linea_sin_salto) >= 70 and re.match(r"^\s*\d+\.\d{2}", linea_sin_salto[:22]):
+                cve_art = linea_sin_salto[20:38].strip()
+                linea = linea_sin_salto[54:62].strip() or None
+                resto_desc = PATRON_MONTOS_FINALES.sub("", linea_sin_salto[62:]).strip()
+                if cve_art and linea and re.match(r"^[A-Z0-9]{2,6}$", linea):
+                    datos.append({
+                        "codigo_norm": _normaliza(cve_art),
+                        "clave_articulo": cve_art,
+                        "linea": linea,
+                        "descripcion_corta": resto_desc or None,
+                    })
+                    continue
+
             m = PATRON_FILA_TXT.match(linea_txt)
             if not m:
                 continue
@@ -254,6 +268,8 @@ def obtener_apoyo_por_folio(carpeta: str, year: str, folio: int, rfc_proveedor: 
     """
     candidatos = []
     for nombre in os.listdir(carpeta):
+        if nombre.upper().startswith(("ENTRADAS_ALMACEN", "BASE_ENTRADAS_ALMACEN")):
+            continue
         ext = os.path.splitext(nombre)[1].lower()
         if ext not in (".pdf", ".txt"):
             continue
