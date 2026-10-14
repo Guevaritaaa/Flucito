@@ -305,3 +305,67 @@ def test_comandos_conversacionales_revisar_mover_y_ordenar(monkeypatch) -> None:
     assert ("loose-xml", "created-ARCHIVOS_SUELTOS_13-10-2026-docs-root") in movimientos
     assert ("empty-in" in eliminados)
 
+
+def test_restaurar_entorno_pruebas_reutiliza_carpeta_fecha_sin_borrar(monkeypatch, tmp_path: Path) -> None:
+    from app.services.almacen.fuentes import limpieza
+
+    estructura = {
+        "docs-root": [
+            {"id": "hist-id", "name": "DOCUMENTOS ENTRADA", "mimeType": google_drive_client.MIME_CARPETA},
+            {"id": "in-id", "name": "ENTRADAS AL INVENTARIO", "mimeType": google_drive_client.MIME_CARPETA},
+        ],
+        "in-id": [],
+        "hist-id": [
+            {"id": "date-28", "name": "28-09-2026", "mimeType": google_drive_client.MIME_CARPETA},
+        ],
+        "date-28": [
+            {"id": "batch-rep", "name": "ENTRADAS_ALMACEN_28-09-2026.xlsx", "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
+            {"id": "prov-folder", "name": "PROVEEDOR - 28-09-2026", "mimeType": google_drive_client.MIME_CARPETA},
+        ],
+        "prov-folder": [
+            {"id": "prov-rep", "name": "ENTRADAS_ALMACEN_PROVEEDOR_28-09-2026.xlsx", "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
+            {"id": "xml-1", "name": "factura.xml", "mimeType": "text/xml"},
+            {"id": "txt-1", "name": "factura.txt", "mimeType": "text/plain"},
+        ],
+    }
+
+    movimientos: list[tuple[str, str]] = []
+    eliminados: list[str] = []
+
+    monkeypatch.setattr(settings, "google_drive_folder_id", "docs-root")
+    monkeypatch.setattr(limpieza, "CARPETA_DATOS", str(tmp_path))
+    monkeypatch.setattr(limpieza, "crear_cliente_drive", lambda: object())
+    monkeypatch.setattr(limpieza, "_listar_hijos", lambda cliente, carpeta_id: estructura.get(carpeta_id, []))
+    monkeypatch.setattr(
+        limpieza,
+        "buscar_carpeta_hija",
+        lambda cliente, nombre, padre: next(
+            (i["id"] for i in estructura.get(padre, []) if i.get("mimeType") == google_drive_client.MIME_CARPETA and i.get("name") == nombre),
+            None,
+        ),
+    )
+    monkeypatch.setattr(limpieza, "buscar_o_crear_carpeta", lambda cliente, nombre, padre: "in-id")
+    monkeypatch.setattr(
+        limpieza,
+        "mover_archivo",
+        lambda cliente, archivo_id, destino_id: movimientos.append((archivo_id, destino_id)),
+    )
+    monkeypatch.setattr(
+        limpieza,
+        "eliminar_archivo",
+        lambda cliente, archivo_id: eliminados.append(archivo_id),
+    )
+
+    res = limpieza.restaurar_entorno_pruebas()
+
+    assert res["ok"] is True
+    assert res["movidos"] == 2
+    assert res["eliminados"] == 2
+    assert res["advertencias"] == []
+    assert ("xml-1", "date-28") in movimientos
+    assert ("txt-1", "date-28") in movimientos
+    assert ("date-28", "in-id") in movimientos
+    assert "date-28" not in eliminados
+    assert set(eliminados) == {"batch-rep", "prov-rep", "prov-folder"}
+
+

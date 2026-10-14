@@ -117,7 +117,7 @@ def sincronizar_drive(cliente: Any | None = None, forzar: bool = False) -> dict:
 
     logger.info("Drive: %d carpeta(s) con archivos nuevos o modificados.", len(carpetas_nuevas))
 
-    from app.services.almacen.fuentes.google_drive_client import mover_archivo, subir_archivo, eliminar_archivo
+    from app.services.almacen.fuentes.google_drive_client import _listar_hijos, mover_archivo, subir_archivo, eliminar_archivo
     from app.services.almacen.extractor import leer_meta
     from app.services.almacen.apoyo import _folio_coincide_con_archivo
 
@@ -236,7 +236,18 @@ def sincronizar_drive(cliente: Any | None = None, forzar: bool = False) -> dict:
                     eliminar_archivo(cliente, carpeta.id)
                     logger.info("Carpeta %s eliminada de ENTRADAS AL INVENTARIO tras procesar todos sus archivos.", carpeta.nombre)
                 except Exception as e:
-                    logger.warning("No se pudo eliminar la carpeta original %s: %s", carpeta.nombre, e)
+                    logger.warning(
+                        "No se pudo eliminar la carpeta original %s (%s); reutilizándola como carpeta histórica.",
+                        carpeta.nombre,
+                        e,
+                    )
+                    try:
+                        for item_arch in _listar_hijos(cliente, carpeta_fecha_archivo_id):
+                            mover_archivo(cliente, item_arch["id"], carpeta.id)
+                        eliminar_archivo(cliente, carpeta_fecha_archivo_id)
+                        mover_archivo(cliente, carpeta.id, carpeta_archivo_id)
+                    except Exception as e_fallback:
+                        logger.warning("No se pudo reubicar la carpeta original %s: %s", carpeta.nombre, e_fallback)
             else:
                 logger.warning("La carpeta %s no se eliminó porque quedaron %d archivos sin emparejar: %s", carpeta.nombre, len(archivo_by_name), list(archivo_by_name.keys()))
 

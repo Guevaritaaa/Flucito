@@ -63,35 +63,39 @@ def restaurar_entorno_pruebas() -> dict:
     for c_fecha in carpetas_fecha:
         fecha_nombre = c_fecha.get("name")
         c_fecha_id = c_fecha.get("id")
-        
-        # Buscar o crear la carpeta fecha correspondiente en ENTRADAS
-        entrada_fecha_id = buscar_o_crear_carpeta(cliente, fecha_nombre, carpeta_entrada_id)
+
+        entrada_fecha_id = buscar_carpeta_hija(cliente, fecha_nombre, carpeta_entrada_id)
+        reutilizar_carpeta = entrada_fecha_id is None
+        destino_archivos_id = c_fecha_id if reutilizar_carpeta else entrada_fecha_id
 
         elementos_fecha = _listar_hijos(cliente, c_fecha_id)
-        
+
         for item in elementos_fecha:
             item_name = item.get("name", "")
             item_id = item.get("id")
-            
-            # Es el reporte batch?
-            if not item.get("mimeType") == MIME_CARPETA:
+
+            # Es un archivo directo en la carpeta de fecha (ej. reporte batch)
+            if item.get("mimeType") != MIME_CARPETA:
                 if item_name.startswith("ENTRADAS_ALMACEN_"):
                     try:
                         eliminar_archivo(cliente, item_id)
                         archivos_eliminados += 1
                     except Exception as e:
                         advertencias.append(f"No se pudo eliminar el reporte {item_name}: {e}")
+                elif not reutilizar_carpeta:
+                    mover_archivo(cliente, item_id, destino_archivos_id)
+                    archivos_movidos += 1
                 continue
-                
+
             # Es una carpeta de proveedor
             c_prov_id = item_id
             c_prov_name = item_name
             archivos_prov = _listar_hijos(cliente, c_prov_id)
-            
+
             for a_prov in archivos_prov:
                 a_prov_name = a_prov.get("name", "")
                 a_prov_id = a_prov.get("id")
-                
+
                 if a_prov_name.startswith("ENTRADAS_ALMACEN_"):
                     try:
                         eliminar_archivo(cliente, a_prov_id)
@@ -99,21 +103,31 @@ def restaurar_entorno_pruebas() -> dict:
                     except Exception as e:
                         advertencias.append(f"No se pudo eliminar el reporte {a_prov_name}: {e}")
                 else:
-                    # Mover a ENTRADAS AL INVENTARIO/{fecha}
-                    mover_archivo(cliente, a_prov_id, entrada_fecha_id)
+                    mover_archivo(cliente, a_prov_id, destino_archivos_id)
                     archivos_movidos += 1
-                    
+
             # Eliminar la carpeta del proveedor
             try:
                 eliminar_archivo(cliente, c_prov_id)
             except Exception as e:
                 advertencias.append(f"No se pudo eliminar la carpeta del proveedor '{c_prov_name}': {e}")
-            
-        # Eliminar carpeta de fecha si quedó vacía
-        try:
-            eliminar_archivo(cliente, c_fecha_id)
-        except Exception as e:
-            advertencias.append(f"No se pudo eliminar la carpeta de fecha '{fecha_nombre}': {e}")
+
+        if reutilizar_carpeta:
+            try:
+                mover_archivo(cliente, c_fecha_id, carpeta_entrada_id)
+            except Exception as e:
+                advertencias.append(f"No se pudo mover la carpeta de fecha '{fecha_nombre}' a entradas: {e}")
+        else:
+            try:
+                eliminar_archivo(cliente, c_fecha_id)
+            except Exception:
+                try:
+                    for item_ent in _listar_hijos(cliente, entrada_fecha_id):
+                        mover_archivo(cliente, item_ent["id"], c_fecha_id)
+                    eliminar_archivo(cliente, entrada_fecha_id)
+                    mover_archivo(cliente, c_fecha_id, carpeta_entrada_id)
+                except Exception as e:
+                    advertencias.append(f"No se pudo eliminar la carpeta de fecha '{fecha_nombre}': {e}")
 
     return {
         "ok": True,
