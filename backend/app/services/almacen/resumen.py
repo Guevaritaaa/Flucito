@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from app.services.almacen.factores import resolver_linea
+
 
 def construir_resumen(
     filas_nuevas: pd.DataFrame,
@@ -23,6 +25,12 @@ def construir_resumen(
         if pd.notna(valor) and str(valor).strip()
     })
 
+    lineas = sorted({
+        str(resolver_linea(str(valor).strip())["linea_resuelta"] or "").strip()
+        for valor in filas_acumuladas.get("Línea", [])
+        if pd.notna(valor) and str(valor).strip()
+    } - {""})
+
     fechas = pd.to_datetime(
         filas_acumuladas.get("Fecha de última compra", pd.Series(dtype=str)),
         dayfirst=True,
@@ -37,6 +45,7 @@ def construir_resumen(
         "duplicados_ignorados": duplicados_ignorados,
         "proveedores": proveedores,
         "total_proveedores": len(proveedores),
+        "lineas": lineas,
         "periodo": {
             "desde": fechas.min().strftime("%Y-%m-%d") if not fechas.empty else None,
             "hasta": fechas.max().strftime("%Y-%m-%d") if not fechas.empty else None,

@@ -150,3 +150,74 @@ def test_calcular_precios_numericos_y_formulas_cybermatic() -> None:
         "MAYOREO": "=T6*.9",
         "DISTRIBUIDOR": "=T6*.8",
     }
+
+
+def test_excel_inyecta_formulas_dinamicas_y_txt_exporta_numeros(tmp_path: Path) -> None:
+    import openpyxl
+    import pandas as pd
+    from app.services.almacen import excel
+
+    concepto_rollo = {
+        "no_identificacion": "PU14TRANSBLUE",
+        "codigo_secundario": None,
+        "descripcion": "(100m) Manguera de Poliuretano en Carret",
+        "clave_prod_serv": "40142000",
+        "clave_unidad": "XRO",
+        "cantidad": 1.0,
+        "valor_unitario": 1796.3236,
+        "descuento": 0.0,
+        "proveedor_nombre": "CYBERMATICS",
+        "fecha_compra": "2026-08-04T12:00:00",
+    }
+    dato_txt_rollo = {
+        "clave_articulo": "PU14TRANSBLU",  # truncado a 12 chars por SAE
+        "linea": "CYB",
+        "descripcion_corta": "MANGUERA POLIURETANO 10X6.5 AZUL TR",
+        "numero_proveedor": "491",
+    }
+
+    meta_por_clave: dict[str, dict[str, object]] = {}
+    fila = excel._fila_desde_concepto(
+        concepto_rollo,
+        dato_txt_rollo,
+        decisiones_rollos={
+            "PU14TRANSBLUE": {
+                "cambiar_a_mtr": True,
+                "dividir_entre_metros": True,
+                "metros": 100.0,
+            }
+        },
+        meta_por_clave=meta_por_clave,
+    )
+
+    assert fila["Clave Artículo"] == "PU14TRANSBLUE"
+    assert fila["Clave unidad"] == "MTR"
+    assert fila["Línea"] == "CYB"
+    assert fila["PRECIO COMPRA"] == 17.9632
+    assert fila["PUBLICO"] == round(17.9632 / 0.9 * 2, 4)
+
+    df = pd.DataFrame([fila], columns=excel.COLUMNAS_ASPEL)
+    df.attrs["meta_por_clave"] = meta_por_clave
+
+    ruta_xlsx = excel.guardar_en_base_acumulada(df, str(tmp_path), prefijo="TEST_REPORTE")
+
+    # 1. Verificar fórmulas dinámicas en el .xlsx
+    wb = openpyxl.load_workbook(ruta_xlsx, data_only=False)
+    ws = wb.active
+    assert ws is not None
+    encabezados = {ws.cell(row=1, column=c).value: c for c in range(1, ws.max_column + 1)}
+    assert ws.cell(row=2, column=encabezados["PRECIO COMPRA"]).value == "=1796.3236/100"
+    assert ws.cell(row=2, column=encabezados["PUBLICO"]).value == "=S2/.9*2"
+    assert ws.cell(row=2, column=encabezados["MINIMO"]).value == "=T2*.8"
+    assert ws.cell(row=2, column=encabezados["MOSTRADOR"]).value == "=T2"
+    assert ws.cell(row=2, column=encabezados["MAYOREO"]).value == "=T2*.9"
+    assert ws.cell(row=2, column=encabezados["DISTRIBUIDOR"]).value == "=T2*.8"
+
+    # 2. Verificar valores numéricos en el TXT (sin fórmulas '=' ni NaN)
+    ruta_txt_comas = tmp_path / "TEST_REPORTE_COMAS.txt"
+    contenido_txt = ruta_txt_comas.read_text(encoding="utf-8")
+    assert "=S2" not in contenido_txt
+    assert "nan" not in contenido_txt.lower()
+    assert "17.9632" in contenido_txt
+    assert "39.9182" in contenido_txt
+
