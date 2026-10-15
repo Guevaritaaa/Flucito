@@ -14,7 +14,15 @@ from app.services.almacen.excel import (
     NOMBRE_ARCHIVO_RESUMEN,
     procesar_carpeta,
 )
-from app.services.almacen.fuentes.sincronizador import sincronizar_drive
+from app.services.almacen.factores import (
+    formatear_menu_factores,
+    guardar_factor_personalizado,
+)
+from app.services.almacen.fuentes.sincronizador import (
+    construir_pregunta_interactiva,
+    inspeccionar_pendientes_carpeta,
+    sincronizar_drive,
+)
 from app.services.almacen.fuentes.google_drive_client import (
     buscar_reportes_historicos,
     normalizar_fecha_reporte,
@@ -68,9 +76,44 @@ def buscar_reporte_historico(fecha: str) -> str:
     )
 
 
+def _normalizar_decisiones_rollos(
+    cambiar_xro_a_mtr: bool | None,
+    dividir_precio_entre_metros: bool | None,
+    decisiones_rollos: dict[str, dict[str, object]] | None,
+) -> dict[str, dict[str, object]] | None:
+    """Combina banderas globales de rollo/metros con decisiones por clave de artículo."""
+    combinadas: dict[str, dict[str, object]] = {
+        str(k): dict(v) for k, v in (decisiones_rollos or {}).items() if isinstance(v, dict)
+    }
+    if cambiar_xro_a_mtr is not None or dividir_precio_entre_metros is not None:
+        comodin = dict(combinadas.get("*", {}))
+        if cambiar_xro_a_mtr is not None:
+            comodin["cambiar_a_mtr"] = bool(cambiar_xro_a_mtr)
+        if dividir_precio_entre_metros is not None:
+            comodin["dividir_entre_metros"] = bool(dividir_precio_entre_metros)
+        combinadas["*"] = comodin
+    return combinadas or None
+
+
 @tool
-def generar_entradas_almacen() -> str:
-    """Genera Excel acumulativo y resumen JSON desde local o Google Drive."""
+def generar_entradas_almacen(
+    confirmar_solo_xml: bool | None = None,
+    factores_elegidos: dict[str, str] | None = None,
+    guardar_factores: bool | None = None,
+    cambiar_xro_a_mtr: bool | None = None,
+    dividir_precio_entre_metros: bool | None = None,
+    decisiones_rollos: dict[str, dict[str, object]] | None = None,
+) -> str:
+    """Genera Excel acumulativo y resumen JSON desde local o Google Drive.
+
+    Parámetros opcionales (úsalos cuando el usuario responda a una confirmación previa):
+    - confirmar_solo_xml: True ('y') si el usuario autoriza generar solo con XML; False ('n') si cancela.
+    - factores_elegidos: Diccionario {CODIGO_LINEA: NUMERO_O_NOMBRE_FACTOR} para líneas sin factor definido.
+    - guardar_factores: True ('y') si el usuario desea guardar los factores elegidos para futuras compras.
+    - cambiar_xro_a_mtr: True ('y') o False ('n') para cambiar la unidad XRO a MTR en rollos/carretes.
+    - dividir_precio_entre_metros: True ('y') o False ('n') para dividir el precio de compra entre los metros.
+    - decisiones_rollos: Diccionario opcional por clave de artículo {"CLAVE": {"cambiar_a_mtr": bool, "dividir_entre_metros": bool}}.
+    """
     usar_drive = bool(
         settings.google_drive_folder_id
         and (
@@ -82,15 +125,49 @@ def generar_entradas_almacen() -> str:
     )
     logger.info("Tool 'generar_entradas_almacen' invocada. Modo Google Drive: %s", usar_drive)
 
+    decisiones_rollos_norm = _normalizar_decisiones_rollos(
+        cambiar_xro_a_mtr,
+        dividir_precio_entre_metros,
+        decisiones_rollos,
+    )
+
     if usar_drive:
         try:
-            sincronizacion = sincronizar_drive()
+            sincronizacion = sincronizar_drive(
+                interactivo=True,
+                confirmar_solo_xml=confirmar_solo_xml,
+                factores_elegidos=factores_elegidos,
+                guardar_factores=guardar_factores,
+                decisiones_rollos=decisiones_rollos_norm,
+            )
         except (OSError, RuntimeError, ValueError) as error:
             logger.exception("Error durante sincronización con Drive: %s", error)
             return json.dumps(
                 {"ok": False, "error": str(error)},
                 ensure_ascii=False,
             )
+
+        if sincronizacion.get("cancelado_por_usuario"):
+            return json.dumps(
+                {
+                    "ok": True,
+                    "reporte_generado": False,
+                    "cancelado_por_usuario": True,
+                    "mensaje": sincronizacion["mensaje"],
+                },
+                ensure_ascii=False,
+            )
+
+        if sincronizacion.get("requiere_confirmacion"):
+            return json.dumps(
+                {
+                    "ok": True,
+                    "reporte_generado": False,
+                    **sincronizacion,
+                },
+                ensure_ascii=False,
+            )
+
         carpetas_reubicadas = sincronizacion.get("carpetas_reubicadas") or []
         if sincronizacion["carpetas"] == 0 or sincronizacion.get("carpetas_nuevas", 0) == 0:
             logger.info("Drive: Sin documentos nuevos o carpetas. Verificando si existe base previa...")
@@ -123,7 +200,7 @@ def generar_entradas_almacen() -> str:
                     {"ok": False, "error": "No hay subcarpetas con documentos en Google Drive y no hay base generada."},
                     ensure_ascii=False,
                 )
-            
+
             return json.dumps(
                 {
                     "ok": True,
@@ -145,17 +222,100 @@ def generar_entradas_almacen() -> str:
             ensure_ascii=False,
         )
 
-    if not usar_drive and not list(carpeta.glob("*.xml")):
+    rutas_xml_locales = (
+        [p for p in carpeta.iterdir() if p.is_file() and p.suffix.lower() == ".xml"]
+        if not usar_drive
+        else []
+    )
+    if not usar_drive and not rutas_xml_locales:
         logger.warning("No hay archivos XML en la carpeta local: %s", carpeta)
         return json.dumps(
             {"ok": False, "error": "No hay XML en la carpeta de almacén"},
             ensure_ascii=False,
         )
 
+    if not usar_drive:
+        tiene_apoyo_local = any(
+            p.is_file() and p.suffix.lower() in {".pdf", ".txt"} for p in carpeta.iterdir()
+        )
+        if not tiene_apoyo_local:
+            if confirmar_solo_xml is False:
+                return json.dumps(
+                    {
+                        "ok": True,
+                        "reporte_generado": False,
+                        "cancelado_por_usuario": True,
+                        "mensaje": (
+                            "Entendido, te sugiero revisar que hayas subido todos los documentos necesarios "
+                            "(XML obligatorio, acompañado de su TXT o PDF de apoyo)."
+                        ),
+                    },
+                    ensure_ascii=False,
+                )
+            if confirmar_solo_xml is None:
+                pregunta = (
+                    f"Oye, la entrada **{carpeta.name}** contiene solo archivos XML (sin TXT ni PDF de apoyo). "
+                    "¿Olvidaste subirlos o no los tienes? Esto implica que el reporte no contendrá líneas ni "
+                    "precios con factores. ¿Deseas generar el reporte solo con los XML proporcionados? (**y/n**)"
+                )
+                return json.dumps(
+                    {
+                        "ok": True,
+                        "reporte_generado": False,
+                        "requiere_confirmacion": True,
+                        "tipo_confirmacion": "solo_xml",
+                        "carpetas_solo_xml": [carpeta.name],
+                        "pregunta_usuario": pregunta,
+                        "pregunta_sugerida": pregunta,
+                    },
+                    ensure_ascii=False,
+                )
+
+        if guardar_factores and factores_elegidos:
+            for linea_cod, factor_val in factores_elegidos.items():
+                guardar_factor_personalizado(linea_cod, factor_val)
+
+        pendientes_local = inspeccionar_pendientes_carpeta(
+            rutas_xml_locales,
+            carpeta,
+            factores_elegidos=factores_elegidos,
+            decisiones_rollos=decisiones_rollos_norm,
+        )
+        if pendientes_local["lineas_sin_factor"] or pendientes_local["rollos_pendientes"]:
+            lista_lineas = pendientes_local["lineas_sin_factor"]
+            lista_rollos = pendientes_local["rollos_pendientes"]
+            if lista_lineas and lista_rollos:
+                tipo_conf = "factores_y_rollos"
+            elif lista_lineas:
+                tipo_conf = "lineas_sin_factor"
+            else:
+                tipo_conf = "rollos_pendientes"
+            pregunta = construir_pregunta_interactiva(lista_lineas, lista_rollos)
+            return json.dumps(
+                {
+                    "ok": True,
+                    "reporte_generado": False,
+                    "requiere_confirmacion": True,
+                    "tipo_confirmacion": tipo_conf,
+                    "lineas_sin_factor": lista_lineas,
+                    "rollos_pendientes": lista_rollos,
+                    "menu_factores": (
+                        formatear_menu_factores() if lista_lineas else None
+                    ),
+                    "pregunta_usuario": pregunta,
+                    "pregunta_sugerida": pregunta,
+                },
+                ensure_ascii=False,
+            )
+
     try:
         if not usar_drive:
             logger.info("Procesando carpeta local: %s", carpeta)
-            procesar_carpeta(str(carpeta))
+            procesar_carpeta(
+                str(carpeta),
+                factores_elegidos=factores_elegidos,
+                decisiones_rollos=decisiones_rollos_norm,
+            )
         ruta_resumen = carpeta / NOMBRE_ARCHIVO_RESUMEN
         if not ruta_resumen.is_file():
             logger.error("No se encontró el archivo de resumen esperado en %s", ruta_resumen)

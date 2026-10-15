@@ -11,11 +11,22 @@ from typing import Any
 import pandas as pd
 
 from app.core.config import settings
+from app.services.almacen.apoyo import buscar_dato, obtener_apoyo_por_folio
 from app.services.almacen.excel import (
     CARPETA_DATOS,
     NOMBRE_ARCHIVO_BASE,
+    _buscar_decision_rollo,
+    _precio_con_descuento,
     guardar_en_base_acumulada,
     procesar_xml,
+)
+from app.services.almacen import extractor
+from app.services.almacen.factores import (
+    detectar_rollo_metros,
+    formatear_menu_factores,
+    guardar_factor_personalizado,
+    recuperar_clave_truncada,
+    resolver_linea,
 )
 from app.services.almacen.fuentes.google_drive_client import (
     CARPETA_ENTRADAS_AL_INVENTARIO,
@@ -44,7 +55,166 @@ def _nombre_drive_seguro(nombre: str) -> str:
     return re.sub(r'[\\/:*?"<>|]+', "-", nombre).strip() or "Desconocido"
 
 
-def sincronizar_drive(cliente: Any | None = None, forzar: bool = False) -> dict:
+def _concatenar_con_meta(dfs: list[pd.DataFrame]) -> pd.DataFrame:
+    """Concatena DataFrames preservando el diccionario meta_por_clave en attrs."""
+    meta_combinada: dict[str, dict[str, object]] = {}
+    for df in dfs:
+        if isinstance(df.attrs.get("meta_por_clave"), dict):
+            meta_combinada.update(df.attrs["meta_por_clave"])
+    combinado = pd.concat(dfs, ignore_index=True)
+    combinado.attrs["meta_por_clave"] = meta_combinada
+    return combinado
+
+
+def inspeccionar_pendientes_carpeta(
+    rutas_xml: list[Path],
+    carpeta_local: Path,
+    factores_elegidos: dict[str, str | None] | None = None,
+    decisiones_rollos: dict[str, dict[str, object]] | None = None,
+) -> dict[str, list[dict[str, object]]]:
+    """Revisa qué líneas no tienen factor definido y qué rollos requieren confirmación."""
+    lineas_sin_factor: dict[str, dict[str, object]] = {}
+    rollos_pendientes: dict[str, dict[str, object]] = {}
+
+    for ruta_xml in rutas_xml:
+        try:
+            conceptos = extractor.extraer_conceptos(str(ruta_xml))
+            meta = extractor.leer_meta(str(ruta_xml))
+        except Exception as error:
+            logger.warning("No se pudo inspeccionar XML %s: %s", ruta_xml.name, error)
+            continue
+
+        apoyo = []
+        if meta["folio"] is not None and meta["year"]:
+            apoyo = obtener_apoyo_por_folio(
+                str(carpeta_local),
+                meta["year"],
+                meta["folio"],
+                rfc_proveedor=meta.get("rfc"),
+            )
+
+        datos = [
+            buscar_dato(apoyo, c["no_identificacion"]) or buscar_dato(apoyo, c["codigo_secundario"])
+            for c in conceptos
+        ]
+        if apoyo and all(d is None for d in datos) and len(apoyo) == len(conceptos):
+            datos = apoyo
+
+        for c, dato in zip(conceptos, datos):
+            clave_apoyo = dato["clave_articulo"] if dato else None
+            clave_xml = c.get("no_identificacion")
+            clave_articulo = recuperar_clave_truncada(clave_apoyo, clave_xml) or clave_xml or ""
+            descripcion_corta = (dato.get("descripcion_corta") if dato else None) or c["descripcion"]
+
+            linea_raw = (dato["linea"] if dato else None) or ""
+            if linea_raw:
+                info_linea = resolver_linea(
+                    linea_raw,
+                    proveedor=str(c.get("proveedor_nombre") or ""),
+                    descripcion=f"{c.get('descripcion') or ''} {descripcion_corta or ''}",
+                    factores_temporales=factores_elegidos,
+                )
+                codigo_linea = str(info_linea["linea_resuelta"] or "")
+                if codigo_linea and info_linea["factor"] is None:
+                    lineas_sin_factor.setdefault(
+                        codigo_linea,
+                        {
+                            "linea": codigo_linea,
+                            "descripcion": info_linea["descripcion_linea"] or codigo_linea,
+                        },
+                    )
+
+            info_rollo = detectar_rollo_metros(
+                clave_unidad=c.get("clave_unidad"),
+                descripcion_xml=str(c.get("descripcion") or ""),
+                descripcion_apoyo=str(descripcion_corta or ""),
+            )
+            if info_rollo["requiere_confirmacion"]:
+                decision = _buscar_decision_rollo(
+                    decisiones_rollos,
+                    clave_articulo,
+                    clave_apoyo,
+                    clave_xml,
+                )
+                falta_unidad = bool(info_rollo["es_xro"]) and "cambiar_a_mtr" not in decision
+                falta_metros = (
+                    info_rollo["metros"] is not None and "dividir_entre_metros" not in decision
+                )
+                if falta_unidad or falta_metros:
+                    rollos_pendientes.setdefault(
+                        clave_articulo,
+                        {
+                            "clave_articulo": clave_articulo,
+                            "descripcion": c.get("descripcion") or descripcion_corta,
+                            "clave_unidad": c.get("clave_unidad"),
+                            "es_xro": bool(info_rollo["es_xro"]),
+                            "metros": info_rollo["metros"],
+                            "precio_compra_bruto": _precio_con_descuento(c),
+                        },
+                    )
+
+    return {
+        "lineas_sin_factor": list(lineas_sin_factor.values()),
+        "rollos_pendientes": list(rollos_pendientes.values()),
+    }
+
+
+def construir_pregunta_interactiva(
+    lineas_sin_factor: list[dict[str, object]],
+    rollos_pendientes: list[dict[str, object]],
+) -> str:
+    """Construye el texto de pregunta para líneas sin factor y rollos/metros."""
+    bloques: list[str] = []
+
+    if lineas_sin_factor:
+        for item in lineas_sin_factor:
+            codigo = item["linea"]
+            desc = item.get("descripcion") or ""
+            etiqueta = f"{codigo} ({desc})" if desc and desc != codigo else str(codigo)
+            bloques.append(
+                f"La línea **{etiqueta}** no tiene factores de precios definidos. ¿Qué factor deseas aplicar?"
+            )
+        bloques.append(formatear_menu_factores())
+        bloques.append(
+            "¿Deseas guardar esta respuesta en el catálogo para futuras compras de esta línea? (**y/n**)"
+        )
+
+    if rollos_pendientes:
+        for rollo in rollos_pendientes:
+            clave = rollo["clave_articulo"]
+            desc = rollo["descripcion"]
+            es_xro = rollo["es_xro"]
+            metros = rollo["metros"]
+            precio = rollo["precio_compra_bruto"]
+            if es_xro and metros:
+                bloques.append(
+                    f"Para el artículo **{clave}** (`{desc}`):\n"
+                    f"- Viene con unidad **XRO** (rollo). ¿Deseas cambiar su `Clave unidad` de **XRO** a **MTR**? (**y/n**)\n"
+                    f"- Se detectaron **{metros:g} metros** en la descripción. ¿Deseas dividir el `PRECIO COMPRA` (${precio:,.4f}) entre **{metros:g}** (`={precio}/{metros:g}`)? (**y/n**)"
+                )
+            elif es_xro:
+                bloques.append(
+                    f"El artículo **{clave}** (`{desc}`) viene con unidad **XRO** (rollo). "
+                    "¿Deseas cambiar su `Clave unidad` de **XRO** a **MTR**? (**y/n**)"
+                )
+            elif metros:
+                bloques.append(
+                    f"Para el artículo **{clave}** (`{desc}`) se detectaron **{metros:g} metros**. "
+                    f"¿Deseas dividir el `PRECIO COMPRA` (${precio:,.4f}) entre **{metros:g}** (`={precio}/{metros:g}`)? (**y/n**)"
+                )
+
+    return "\n\n".join(bloques)
+
+
+def sincronizar_drive(
+    cliente: Any | None = None,
+    forzar: bool = False,
+    interactivo: bool = False,
+    confirmar_solo_xml: bool | None = None,
+    factores_elegidos: dict[str, str | None] | None = None,
+    guardar_factores: bool | None = None,
+    decisiones_rollos: dict[str, dict[str, object]] | None = None,
+) -> dict:
     """Descarga carpetas Drive temporalmente y actualiza base acumulada local."""
     logger.info("Iniciando sincronización con Google Drive...")
     cliente = cliente or crear_cliente_drive()
@@ -117,30 +287,69 @@ def sincronizar_drive(cliente: Any | None = None, forzar: bool = False) -> dict:
 
     logger.info("Drive: %d carpeta(s) con archivos nuevos o modificados.", len(carpetas_nuevas))
 
+    # 1. Verificar si alguna carpeta contiene únicamente archivos XML (sin TXT ni PDF de apoyo)
+    if interactivo:
+        carpetas_solo_xml = [
+            c.nombre
+            for c in carpetas_nuevas
+            if any(a.extension == ".xml" for a in c.archivos)
+            and not any(a.extension in (".pdf", ".txt") for a in c.archivos)
+        ]
+        if carpetas_solo_xml:
+            if confirmar_solo_xml is False:
+                return {
+                    "carpetas": len(carpetas_nuevas),
+                    "carpetas_nuevas": len(carpetas_nuevas),
+                    "archivos": 0,
+                    "productos": 0,
+                    "carpetas_reubicadas": carpetas_reubicadas,
+                    "cancelado_por_usuario": True,
+                    "mensaje": (
+                        "Entendido, te sugiero revisar que hayas subido todos los documentos necesarios "
+                        "(XML obligatorio, acompañado de su TXT o PDF de apoyo)."
+                    ),
+                }
+            if confirmar_solo_xml is None:
+                nombres_str = ", ".join(carpetas_solo_xml)
+                pregunta = (
+                    f"Oye, la entrada **{nombres_str}** contiene solo archivos XML (sin TXT ni PDF de apoyo). "
+                    "¿Olvidaste subirlos o no los tienes? Esto implica que el reporte no contendrá líneas ni "
+                    "precios con factores. ¿Deseas generar el reporte solo con los XML proporcionados? (**y/n**)"
+                )
+                return {
+                    "carpetas": len(carpetas_nuevas),
+                    "carpetas_nuevas": len(carpetas_nuevas),
+                    "archivos": 0,
+                    "productos": 0,
+                    "carpetas_reubicadas": carpetas_reubicadas,
+                    "requiere_confirmacion": True,
+                    "tipo_confirmacion": "solo_xml",
+                    "carpetas_solo_xml": carpetas_solo_xml,
+                    "pregunta_usuario": pregunta,
+                    "pregunta_sugerida": pregunta,
+                }
+
+    # Guardar factores personalizados si el usuario confirmó guardarlos
+    if guardar_factores and factores_elegidos:
+        for linea_cod, factor_val in factores_elegidos.items():
+            guardar_factor_personalizado(linea_cod, factor_val)
+
     from app.services.almacen.fuentes.google_drive_client import _listar_hijos, mover_archivo, subir_archivo, eliminar_archivo
-    from app.services.almacen.extractor import leer_meta
     from app.services.almacen.apoyo import _folio_coincide_con_archivo
 
     dataframes: list[pd.DataFrame] = []
     archivos_descargados = 0
-    carpeta_archivo_id = buscar_o_crear_carpeta(
-        cliente,
-        CARPETA_REPORTES_HISTORICOS,
-        carpeta_raiz_id,
-    )
     with tempfile.TemporaryDirectory(prefix="flucito_drive_almacen_") as temporal:
         raiz = Path(temporal)
+        descargas_por_carpeta: list[tuple[Any, Path, list[Path], dict[str, Any]]] = []
+
+        # Fase A: Descargar todo al directorio temporal e inspeccionar antes de tocar Drive
         for carpeta in carpetas_nuevas:
-            logger.info("Procesando carpeta Drive: %s (id: %s)", carpeta.nombre, carpeta.id)
-            carpeta_fecha_archivo_id = buscar_o_crear_carpeta(
-                cliente,
-                carpeta.nombre,
-                carpeta_archivo_id,
-            )
+            logger.info("Descargando carpeta Drive: %s (id: %s)", carpeta.nombre, carpeta.id)
             destino = raiz / carpeta.id
             destino.mkdir(parents=True, exist_ok=True)
             rutas_xml: list[Path] = []
-            archivo_by_name = {}
+            archivo_by_name: dict[str, Any] = {}
             for archivo in carpeta.archivos:
                 ruta = destino / Path(archivo.nombre).name
                 logger.info("  Descargando archivo: %s", archivo.nombre)
@@ -149,28 +358,89 @@ def sincronizar_drive(cliente: Any | None = None, forzar: bool = False) -> dict:
                 if archivo.extension == ".xml":
                     rutas_xml.append(ruta)
                 archivo_by_name[archivo.nombre] = archivo
+            descargas_por_carpeta.append((carpeta, destino, rutas_xml, archivo_by_name))
 
-            df_carpeta = []
+        if interactivo:
+            todas_lineas_sin_factor: dict[str, dict[str, object]] = {}
+            todos_rollos_pendientes: dict[str, dict[str, object]] = {}
+            for _carpeta, destino, rutas_xml, _archivo_by_name in descargas_por_carpeta:
+                pendientes = inspeccionar_pendientes_carpeta(
+                    rutas_xml,
+                    destino,
+                    factores_elegidos=factores_elegidos,
+                    decisiones_rollos=decisiones_rollos,
+                )
+                for item_linea in pendientes["lineas_sin_factor"]:
+                    todas_lineas_sin_factor.setdefault(str(item_linea["linea"]), item_linea)
+                for item_rollo in pendientes["rollos_pendientes"]:
+                    todos_rollos_pendientes.setdefault(str(item_rollo["clave_articulo"]), item_rollo)
+
+            if todas_lineas_sin_factor or todos_rollos_pendientes:
+                lista_lineas = list(todas_lineas_sin_factor.values())
+                lista_rollos = list(todos_rollos_pendientes.values())
+                if lista_lineas and lista_rollos:
+                    tipo_conf = "factores_y_rollos"
+                elif lista_lineas:
+                    tipo_conf = "lineas_sin_factor"
+                else:
+                    tipo_conf = "rollos_pendientes"
+                pregunta = construir_pregunta_interactiva(lista_lineas, lista_rollos)
+                return {
+                    "carpetas": len(carpetas_nuevas),
+                    "carpetas_nuevas": len(carpetas_nuevas),
+                    "archivos": archivos_descargados,
+                    "productos": 0,
+                    "carpetas_reubicadas": carpetas_reubicadas,
+                    "requiere_confirmacion": True,
+                    "tipo_confirmacion": tipo_conf,
+                    "lineas_sin_factor": lista_lineas,
+                    "rollos_pendientes": lista_rollos,
+                    "menu_factores": formatear_menu_factores() if lista_lineas else None,
+                    "pregunta_usuario": pregunta,
+                    "pregunta_sugerida": pregunta,
+                }
+
+        # Fase B: Procesar XMLs, generar reportes y archivar en Google Drive
+        carpeta_archivo_id = buscar_o_crear_carpeta(
+            cliente,
+            CARPETA_REPORTES_HISTORICOS,
+            carpeta_raiz_id,
+        )
+        for carpeta, destino, rutas_xml, archivo_by_name in descargas_por_carpeta:
+            carpeta_fecha_archivo_id = buscar_o_crear_carpeta(
+                cliente,
+                carpeta.nombre,
+                carpeta_archivo_id,
+            )
+            df_carpeta: list[pd.DataFrame] = []
             fecha_carga = _nombre_drive_seguro(carpeta.nombre)
-            
+
             # Agrupar por proveedor
-            dfs_por_proveedor = {}
-            archivos_por_proveedor = {}
-            
+            dfs_por_proveedor: dict[str, list[pd.DataFrame]] = {}
+            archivos_por_proveedor: dict[str, list[str]] = {}
+
             for ruta_xml in rutas_xml:
                 logger.info("  Extrayendo datos de XML: %s", ruta_xml.name)
-                df_xml = procesar_xml(str(ruta_xml), str(destino))
+                if factores_elegidos is None and decisiones_rollos is None:
+                    df_xml = procesar_xml(str(ruta_xml), str(destino))
+                else:
+                    df_xml = procesar_xml(
+                        str(ruta_xml),
+                        str(destino),
+                        factores_elegidos=factores_elegidos,
+                        decisiones_rollos=decisiones_rollos,
+                    )
                 if df_xml.empty:
                     continue
                 df_carpeta.append(df_xml)
 
-                meta = leer_meta(str(ruta_xml))
+                meta = extractor.leer_meta(str(ruta_xml))
                 proveedor = _nombre_drive_seguro(meta.get("proveedor_nombre") or "Proveedor desconocido")
-                
+
                 if proveedor not in dfs_por_proveedor:
                     dfs_por_proveedor[proveedor] = []
                     archivos_por_proveedor[proveedor] = []
-                
+
                 dfs_por_proveedor[proveedor].append(df_xml)
 
                 # Determinar archivos a mover (XML + PDF/TXT asociados)
@@ -202,29 +472,29 @@ def sincronizar_drive(cliente: Any | None = None, forzar: bool = False) -> dict:
                         del archivo_by_name[nombre_arch]
 
                 # Generar y subir Excel unificado por proveedor (sin JSON)
-                df_prov_concat = pd.concat(dfs_prov, ignore_index=True)
+                df_prov_concat = _concatenar_con_meta(dfs_prov)
                 carpeta_mini = destino / "mini"
                 carpeta_mini.mkdir(exist_ok=True)
                 prefijo_mini = f"ENTRADAS_ALMACEN_{proveedor}_{fecha_carga}"
-                
+
                 guardar_en_base_acumulada(df_prov_concat, str(carpeta_mini), limpiar_previos=True, prefijo=prefijo_mini, guardar_resumen=False)
-                
+
                 for f in carpeta_mini.iterdir():
                     if f.is_file():
                         subir_archivo(cliente, f, subcarpeta_id)
                         f.unlink()
 
             if df_carpeta:
-                df_batch = pd.concat(df_carpeta, ignore_index=True)
+                df_batch = _concatenar_con_meta(df_carpeta)
                 dataframes.append(df_batch)
-                
+
                 # Guarda el Excel acumulado de la carga en la carpeta de archivo por fecha.
                 carpeta_batch = destino / "batch"
                 carpeta_batch.mkdir(exist_ok=True)
                 prefijo_batch = f"ENTRADAS_ALMACEN_{fecha_carga}"
                 # Sin JSON tampoco para el reporte batch de drive
                 guardar_en_base_acumulada(df_batch, str(carpeta_batch), limpiar_previos=True, prefijo=prefijo_batch, guardar_resumen=False)
-                
+
                 for f in carpeta_batch.iterdir():
                     if f.is_file():
                         subir_archivo(cliente, f, carpeta_fecha_archivo_id)
@@ -261,7 +531,7 @@ def sincronizar_drive(cliente: Any | None = None, forzar: bool = False) -> dict:
             "carpetas_reubicadas": carpetas_reubicadas,
         }
 
-    df_nuevo = pd.concat(dataframes, ignore_index=True)
+    df_nuevo = _concatenar_con_meta(dataframes)
     guardar_en_base_acumulada(df_nuevo, str(CARPETA_DATOS), limpiar_previos=True)
     marcar_procesadas(carpetas_nuevas, estado)
     guardar_estado(ruta_estado, estado)
@@ -280,4 +550,8 @@ def sincronizar_drive(cliente: Any | None = None, forzar: bool = False) -> dict:
     }
 
 
-__all__ = ["sincronizar_drive"]
+__all__ = [
+    "construir_pregunta_interactiva",
+    "inspeccionar_pendientes_carpeta",
+    "sincronizar_drive",
+]

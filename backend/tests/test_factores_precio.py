@@ -221,3 +221,222 @@ def test_excel_inyecta_formulas_dinamicas_y_txt_exporta_numeros(tmp_path: Path) 
     assert "17.9632" in contenido_txt
     assert "39.9182" in contenido_txt
 
+
+def _xml_cfdi_ejemplo(
+    *,
+    no_identificacion: str = "PROD01",
+    descripcion: str = "CONECTOR RECTO 1/4",
+    clave_unidad: str = "H87",
+    valor_unitario: str = "100.00",
+    proveedor: str = "PROVEEDOR DEMO SA",
+    folio: str = "100",
+) -> bytes:
+    return f"""<?xml version="1.0" encoding="utf-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" Folio="{folio}" Fecha="2026-08-04T12:00:00">
+  <cfdi:Emisor Nombre="{proveedor}" Rfc="PDE010101AAA"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto
+      NoIdentificacion="{no_identificacion}"
+      Descripcion="{descripcion}"
+      ClaveProdServ="40142000"
+      ClaveUnidad="{clave_unidad}"
+      Cantidad="1"
+      ValorUnitario="{valor_unitario}"
+      Importe="{valor_unitario}"/>
+  </cfdi:Conceptos>
+</cfdi:Comprobante>""".encode("utf-8")
+
+
+def _txt_sae_ejemplo(
+    *,
+    clave: str = "PROD01",
+    descripcion_corta: str = "CONECTOR RECTO 1/4",
+    linea: str = "FESTO",
+    folio: str = "100",
+) -> bytes:
+    return f"""COMPRA  {folio}
+Proveedor: ( 491 ) PROVEEDOR DEMO SA
+  1.00  {clave}  {linea}  {descripcion_corta}
+""".encode("utf-8")
+
+
+def _configurar_drive_mock(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    carpeta_nombre: str,
+    archivos_contenido: dict[str, bytes],
+) -> None:
+    from app.agents import tools
+    from app.core.config import settings
+    from app.services.almacen import excel
+    from app.services.almacen.fuentes import google_drive_client, sincronizador
+    from app.services.almacen.fuentes.google_drive import CarpetaFactura, DriveArchivo
+
+    monkeypatch.setattr(settings, "google_drive_folder_id", "docs-root")
+    monkeypatch.setattr(settings, "google_service_account_json", '{"type": "service_account"}')
+    monkeypatch.setattr(tools, "CARPETA_DATOS", tmp_path)
+    monkeypatch.setattr(sincronizador, "CARPETA_DATOS", tmp_path)
+    monkeypatch.setattr(excel, "CARPETA_DATOS", tmp_path)
+
+    monkeypatch.setattr(sincronizador, "crear_cliente_drive", lambda: object())
+    monkeypatch.setattr(
+        sincronizador,
+        "reubicar_carpetas_mal_ubicadas",
+        lambda c, cid: {"carpetas_reubicadas": [], "archivos_reubicados_ids": []},
+    )
+    monkeypatch.setattr(sincronizador, "buscar_carpeta_hija", lambda *a, **kw: "input-root")
+    monkeypatch.setattr(sincronizador, "buscar_o_crear_carpeta", lambda c, nombre, padre: f"id-{nombre}")
+
+    drive_archivos = tuple(
+        DriveArchivo(
+            f"id-{nombre}",
+            nombre,
+            "text/xml" if nombre.endswith(".xml") else "text/plain",
+            "v1",
+            "sub-1",
+        )
+        for nombre in archivos_contenido
+    )
+    carpeta = CarpetaFactura(id="sub-1", nombre=carpeta_nombre, archivos=drive_archivos)
+    monkeypatch.setattr(sincronizador, "listar_carpetas_factura", lambda c, cid: [carpeta])
+    monkeypatch.setattr(
+        sincronizador,
+        "descargar_archivo",
+        lambda c, arch, destino: destino.write_bytes(archivos_contenido[arch.nombre]),
+    )
+    monkeypatch.setattr(google_drive_client, "mover_archivo", lambda *a, **kw: None)
+    monkeypatch.setattr(google_drive_client, "subir_archivo", lambda *a, **kw: None)
+    monkeypatch.setattr(google_drive_client, "eliminar_archivo", lambda *a, **kw: None)
+
+
+def test_confirmacion_interactiva_carpeta_solo_xml(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import json
+    from app.agents import tools
+
+    _configurar_drive_mock(
+        monkeypatch,
+        tmp_path,
+        "ENTRADA_SOLO_XML",
+        {"factura-100.xml": _xml_cfdi_ejemplo()},
+    )
+
+    # 1. Sin confirmación: debe detenerse y preguntar y/n
+    resp_1 = json.loads(tools.generar_entradas_almacen.invoke({}))
+    assert resp_1["ok"] is True
+    assert resp_1["requiere_confirmacion"] is True
+    assert resp_1["tipo_confirmacion"] == "solo_xml"
+    assert "ENTRADA_SOLO_XML" in resp_1["pregunta_usuario"]
+    assert "(**y/n**)" in resp_1["pregunta_usuario"]
+
+    # 2. Usuario responde 'n' (confirmar_solo_xml=False): cancela sin generar reporte
+    resp_no = json.loads(tools.generar_entradas_almacen.invoke({"confirmar_solo_xml": False}))
+    assert resp_no["ok"] is True
+    assert resp_no["reporte_generado"] is False
+    assert resp_no["cancelado_por_usuario"] is True
+    assert "revisar que hayas subido todos los documentos" in resp_no["mensaje"]
+
+    # 3. Usuario responde 'y' (confirmar_solo_xml=True): genera el reporte con éxito
+    resp_si = json.loads(tools.generar_entradas_almacen.invoke({"confirmar_solo_xml": True}))
+    assert resp_si["ok"] is True
+    assert resp_si["reporte_generado"] is True
+    assert resp_si["resumen"]["productos_nuevos"] == 1
+
+
+def test_confirmacion_interactiva_linea_sin_factor_y_guardado(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import json
+    from app.agents import tools
+    from app.services.almacen import factores
+
+    ruta_json_custom = tmp_path / "FACTORES_PERSONALIZADOS.json"
+    monkeypatch.setattr(factores, "RUTA_FACTORES_PERSONALIZADOS", ruta_json_custom)
+
+    _configurar_drive_mock(
+        monkeypatch,
+        tmp_path,
+        "ENTRADA_DAYCO",
+        {
+            "factura-100.xml": _xml_cfdi_ejemplo(no_identificacion="BANDA01", valor_unitario="200.00"),
+            "entrada-100.txt": _txt_sae_ejemplo(clave="BANDA01", linea="DAYCO"),
+        },
+    )
+
+    # 1. Primera llamada: detecta que DAYCO no tiene factor definido y muestra menú 1..9
+    resp_1 = json.loads(tools.generar_entradas_almacen.invoke({}))
+    assert resp_1["requiere_confirmacion"] is True
+    assert resp_1["tipo_confirmacion"] == "lineas_sin_factor"
+    assert "DAYCO" in resp_1["pregunta_usuario"]
+    assert "1. **COMPRAS GENERALES LOCALES**" in resp_1["pregunta_usuario"]
+    assert "¿Deseas guardar esta respuesta" in resp_1["pregunta_usuario"]
+
+    # 2. Usuario elige factor 2 (COMPRAS GENERALES FORANEAS) y guardar_factores=True
+    resp_2 = json.loads(
+        tools.generar_entradas_almacen.invoke(
+            {
+                "factores_elegidos": {"DAYCO": "2"},
+                "guardar_factores": True,
+            }
+        )
+    )
+    assert resp_2["ok"] is True
+    assert resp_2["reporte_generado"] is True
+    assert resp_2["resumen"]["lineas"] == ["DAYCO"]
+
+    guardados = factores.cargar_factores_personalizados(ruta_json_custom)
+    assert guardados["DAYCO"]["factor"] == "COMPRAS GENERALES FORANEAS"
+
+
+def test_confirmacion_interactiva_rollos_xro_y_metros(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import json
+    import pandas as pd
+    from app.agents import tools
+
+    _configurar_drive_mock(
+        monkeypatch,
+        tmp_path,
+        "ENTRADA_CYB",
+        {
+            "cyber-100.xml": _xml_cfdi_ejemplo(
+                no_identificacion="PU14TRANSBLUE",
+                descripcion="(100m) Manguera de Poliuretano en Carret",
+                clave_unidad="XRO",
+                valor_unitario="1796.3236",
+                proveedor="CYBERMATICS",
+            ),
+            "cyber-100.txt": _txt_sae_ejemplo(
+                clave="PU14TRANSBLU",
+                descripcion_corta="MANGUERA POLIURETANO 10X6.5 AZUL TR",
+                linea="CYB",
+            ),
+        },
+    )
+
+    # 1. Primera llamada: detecta rollo XRO con (100m) y pide confirmación y/n
+    resp_1 = json.loads(tools.generar_entradas_almacen.invoke({}))
+    assert resp_1["requiere_confirmacion"] is True
+    assert resp_1["tipo_confirmacion"] == "rollos_pendientes"
+    assert "PU14TRANSBLUE" in resp_1["pregunta_usuario"]
+    assert "MTR" in resp_1["pregunta_usuario"]
+    assert "100" in resp_1["pregunta_usuario"]
+
+    # 2. Usuario confirma ambos (cambiar_xro_a_mtr=True, dividir_precio_entre_metros=True)
+    resp_2 = json.loads(
+        tools.generar_entradas_almacen.invoke(
+            {
+                "cambiar_xro_a_mtr": True,
+                "dividir_precio_entre_metros": True,
+            }
+        )
+    )
+    assert resp_2["ok"] is True
+    assert resp_2["reporte_generado"] is True
+
+    df_generado = pd.read_excel(tmp_path / "BASE_ENTRADAS_ALMACEN.xlsx")
+    assert df_generado.iloc[0]["Clave Artículo"] == "PU14TRANSBLUE"
+    assert df_generado.iloc[0]["Clave unidad"] == "MTR"
+

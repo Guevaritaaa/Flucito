@@ -62,6 +62,7 @@ def _ejecutar_chat(request: ChatRequest) -> ChatResponse:
     reportes_historicos: list[dict[str, str]] = []
     advertencia_ubicacion: str | None = None
     advertencia_archivos_sueltos: str | None = None
+    bloqueado_por_confirmacion = False
     for mensaje in reversed(resultado["messages"]):
         tipo_mensaje = getattr(mensaje, "type", None)
         if tipo_mensaje == "human":
@@ -72,6 +73,8 @@ def _ejecutar_chat(request: ChatRequest) -> ChatResponse:
             datos = json.loads(mensaje.content)
         except (TypeError, json.JSONDecodeError):
             continue
+        if datos.get("requiere_confirmacion") or datos.get("cancelado_por_usuario"):
+            bloqueado_por_confirmacion = True
         if datos.get("ok") and datos.get("tipo") == "busqueda_historica" and not reportes_historicos:
             reportes_historicos = [
                 {
@@ -105,7 +108,11 @@ def _ejecutar_chat(request: ChatRequest) -> ChatResponse:
         respuesta = f"{respuesta}\n\n{advertencia_archivos_sueltos}"
 
     # Si la base física existe y el asistente la menciona o el usuario la pidió
-    if archivo_almacen_url is None and (CARPETA_DATOS / NOMBRE_ARCHIVO_BASE).is_file():
+    if (
+        not bloqueado_por_confirmacion
+        and archivo_almacen_url is None
+        and (CARPETA_DATOS / NOMBRE_ARCHIVO_BASE).is_file()
+    ):
         palabras_clave = ("descarg", "botón", "boton", "archivo excel", "plataforma", "portal")
         if any(p in respuesta.lower() for p in palabras_clave):
             archivo_almacen_url = "/api/v1/almacen/download"
@@ -114,7 +121,7 @@ def _ejecutar_chat(request: ChatRequest) -> ChatResponse:
     archivo_txt_url = None
     resp_lower = respuesta.lower()
     txt_detectado = any(p in resp_lower for p in ("txt", "tabulacion", "comas", "aspel"))
-    if txt_detectado:
+    if not bloqueado_por_confirmacion and txt_detectado:
         if "tabulacion" in resp_lower and (CARPETA_DATOS / NOMBRE_TXT_TABS).is_file():
             archivo_txt_url = "/api/v1/almacen/download/txt?separador=tabs"
         elif (CARPETA_DATOS / NOMBRE_TXT_COMAS).is_file():
