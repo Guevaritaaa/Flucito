@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.services.almacen.excel import (
     CARPETA_DATOS,
     NOMBRE_ARCHIVO_RESUMEN,
+    actualizar_precios_reporte_existente,
     procesar_carpeta,
 )
 from app.services.almacen.factores import (
@@ -19,6 +20,7 @@ from app.services.almacen.factores import (
     guardar_factor_personalizado,
 )
 from app.services.almacen.fuentes.sincronizador import (
+    actualizar_precios_reportes_drive,
     construir_pregunta_interactiva,
     inspeccionar_pendientes_carpeta,
     sincronizar_drive,
@@ -140,7 +142,7 @@ def generar_entradas_almacen(
                 guardar_factores=guardar_factores,
                 decisiones_rollos=decisiones_rollos_norm,
             )
-        except (OSError, RuntimeError, ValueError) as error:
+        except Exception as error:
             logger.exception("Error durante sincronización con Drive: %s", error)
             return json.dumps(
                 {"ok": False, "error": str(error)},
@@ -173,6 +175,16 @@ def generar_entradas_almacen(
             logger.info("Drive: Sin documentos nuevos o carpetas. Verificando si existe base previa...")
             ruta_resumen = Path(CARPETA_DATOS) / NOMBRE_ARCHIVO_RESUMEN
             ruta_base = Path(CARPETA_DATOS) / "BASE_ENTRADAS_ALMACEN.xlsx"
+            if ruta_base.is_file():
+                try:
+                    actualizar_precios_reporte_existente(
+                        str(ruta_base),
+                        carpeta_apoyo=str(CARPETA_DATOS),
+                        factores_elegidos=factores_elegidos,
+                        actualizar_resumen=True,
+                    )
+                except Exception as error_precios:
+                    logger.warning("No se pudo actualizar precios en base previa: %s", error_precios)
             if ruta_base.is_file() and ruta_resumen.is_file():
                 try:
                     resumen = json.loads(ruta_resumen.read_text(encoding="utf-8"))
@@ -324,7 +336,7 @@ def generar_entradas_almacen(
                 ensure_ascii=False,
             )
         resumen = json.loads(ruta_resumen.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as error:
+    except Exception as error:
         logger.exception("Error al leer resumen o procesar almacén: %s", error)
         return json.dumps(
             {"ok": False, "error": str(error)},
@@ -352,6 +364,36 @@ def generar_entradas_almacen(
 
     logger.info("Tool 'generar_entradas_almacen' completada exitosamente.")
     return json.dumps(salida, ensure_ascii=False)
+
+
+@tool
+def actualizar_precios_reportes_generados(
+    fecha: str | None = None,
+    factores_elegidos: dict[str, str] | None = None,
+) -> str:
+    """Revisa los reportes Excel ya generados (en Google Drive y en la base local) y si detecta que no tienen los precios o fórmulas aplicadas, se los calcula y actualiza.
+
+    Úsala cuando el usuario pida aplicar, calcular o actualizar los precios de los reportes ya generados.
+    """
+    try:
+        resultado = actualizar_precios_reportes_drive(
+            fecha=fecha,
+            factores_elegidos=factores_elegidos,
+        )
+        return json.dumps(
+            {
+                "ok": True,
+                "tipo": "actualizar_precios_reportes",
+                **resultado,
+            },
+            ensure_ascii=False,
+        )
+    except Exception as error:
+        logger.exception("Error al actualizar precios de reportes generados: %s", error)
+        return json.dumps(
+            {"ok": False, "tipo": "actualizar_precios_reportes", "error": str(error)},
+            ensure_ascii=False,
+        )
 
 
 @tool

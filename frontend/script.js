@@ -95,26 +95,36 @@ function esperar(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function enviarMensaje(mensaje) {
-    const cuerpo = { mensaje, session_id: sessionId };
-    const inicio = await fetch(`${API_URL}/async`, {
+async function enviarMensajeSincrono(cuerpo) {
+    const respuesta = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(cuerpo),
     });
+    if (!respuesta.ok) throw new Error(`Error del servidor: ${respuesta.status}`);
+    return await respuesta.json();
+}
 
-    if (inicio.status === 404) {
-        const respuesta = await fetch(API_URL, {
+async function enviarMensaje(mensaje) {
+    const cuerpo = { mensaje, session_id: sessionId };
+    let inicio;
+    try {
+        inicio = await fetch(`${API_URL}/async`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(cuerpo),
         });
-        if (!respuesta.ok) throw new Error(`Error del servidor: ${respuesta.status}`);
-        return await respuesta.json();
+    } catch (_errRed) {
+        return await enviarMensajeSincrono(cuerpo);
     }
 
-    if (!inicio.ok) throw new Error(`Error del servidor: ${inicio.status}`);
+    if (!inicio.ok) {
+        return await enviarMensajeSincrono(cuerpo);
+    }
     const { job_id: jobId } = await inicio.json();
+    if (!jobId) {
+        return await enviarMensajeSincrono(cuerpo);
+    }
 
     let intentos = 0;
     let erroresRedConsecutivos = 0;
@@ -125,6 +135,9 @@ async function enviarMensaje(mensaje) {
 
         try {
             const estadoResp = await fetch(`${API_URL}/status/${encodeURIComponent(jobId)}`);
+            if (estadoResp.status === 404) {
+                return await enviarMensajeSincrono(cuerpo);
+            }
             if (!estadoResp.ok) {
                 throw new Error(`Error consultando estado: ${estadoResp.status}`);
             }
@@ -141,7 +154,7 @@ async function enviarMensaje(mensaje) {
                 throw err;
             }
             erroresRedConsecutivos += 1;
-            if (erroresRedConsecutivos >= 4) {
+            if (erroresRedConsecutivos >= 8) {
                 throw err;
             }
         }

@@ -254,6 +254,15 @@ def procesar_xml(
     return df
 
 
+def _normalizar_tipos_columnas_precios(df: pd.DataFrame) -> None:
+    """Garantiza dtypes compatibles en columnas de línea y precios tras leer un Excel existente."""
+    if "Línea" in df.columns:
+        df["Línea"] = df["Línea"].astype(object)
+    for col in ("PRECIO COMPRA", *COLUMNAS_FACTORES):
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").astype(float)
+
+
 def _cargar_base_existente(ruta: str) -> pd.DataFrame:
     if not os.path.exists(ruta):
         return pd.DataFrame(columns=COLUMNAS_ASPEL)
@@ -261,6 +270,7 @@ def _cargar_base_existente(ruta: str) -> pd.DataFrame:
     df = pd.read_excel(ruta, header=0)
     if df.empty:
         return df
+    _normalizar_tipos_columnas_precios(df)
 
     # Si openpyxl guardó fórmulas sin caché de Excel, recalculamos los valores numéricos
     try:
@@ -296,11 +306,20 @@ def _cargar_base_existente(ruta: str) -> pd.DataFrame:
             proveedor=str(df.at[idx, "PROVEEDOR"] or ""),
             descripcion=str(df.at[idx, "DESCRIPCION"] or ""),
         )
+        if info_linea["linea_resuelta"] and info_linea["linea_resuelta"] != linea:
+            df.at[idx, "Línea"] = info_linea["linea_resuelta"]
+
         factor = info_linea["factor"]
-        if factor and pd.notna(precio_compra):
+        if factor and pd.notna(precio_compra) and float(precio_compra or 0) > 0:
             precios = calcular_precios_numericos(factor, float(precio_compra))
+            valores_actuales = [
+                df.at[idx, col] for col in COLUMNAS_FACTORES if col in df.columns
+            ]
+            sin_precios = all(
+                pd.isna(v) or float(v or 0) == 0.0 for v in valores_actuales
+            )
             for col in COLUMNAS_FACTORES:
-                if col in df.columns and pd.isna(df.at[idx, col]):
+                if col in df.columns and (pd.isna(df.at[idx, col]) or sin_precios):
                     df.at[idx, col] = precios[col]
 
         if clave:
@@ -312,6 +331,268 @@ def _cargar_base_existente(ruta: str) -> pd.DataFrame:
 
     df.attrs["meta_por_clave"] = meta_por_clave
     return df
+
+
+def _extraer_mapa_apoyo_carpeta(carpeta: str) -> dict[str, dict[str, str]]:
+    """Construye un mapa de clave_articulo -> datos de apoyo (línea, proveedor) desde XML/TXT/PDF."""
+    if not carpeta or not os.path.isdir(carpeta):
+        return {}
+
+    xmls = [
+        os.path.join(carpeta, nombre)
+        for nombre in os.listdir(carpeta)
+        if os.path.splitext(nombre)[1].lower() == ".xml"
+    ]
+    mapa: dict[str, dict[str, str]] = {}
+    for ruta_xml in xmls:
+        try:
+            conceptos = extraer_conceptos(ruta_xml)
+            meta = leer_meta(ruta_xml)
+        except Exception:
+            continue
+
+        apoyo = []
+        if meta["folio"] is not None and meta["year"]:
+            apoyo = obtener_apoyo_por_folio(
+                carpeta,
+                meta["year"],
+                meta["folio"],
+                rfc_proveedor=meta.get("rfc"),
+            )
+        if not apoyo:
+            continue
+
+        datos = [
+            buscar_dato(apoyo, c["no_identificacion"])
+            or buscar_dato(apoyo, c["codigo_secundario"])
+            for c in conceptos
+        ]
+        if all(d is None for d in datos) and len(apoyo) == len(conceptos):
+            datos = apoyo
+
+        for c, d in zip(conceptos, datos):
+            if not isinstance(d, dict):
+                continue
+            clave_apoyo = str(d.get("clave_articulo") or "").strip()
+            clave_xml = str(c.get("no_identificacion") or "").strip()
+            clave_final = recuperar_clave_truncada(clave_apoyo, clave_xml) or clave_xml or clave_apoyo
+            info = {
+                "linea": str(d.get("linea") or "").strip(),
+                "proveedor_nombre": str(c.get("proveedor_nombre") or "").strip(),
+                "descripcion_corta": str(d.get("descripcion_corta") or "").strip(),
+            }
+            for k in (clave_final, clave_xml, clave_apoyo):
+                if k:
+                    mapa[k.upper()] = info
+    return mapa
+
+
+def actualizar_precios_reporte_existente(
+    ruta_excel: str,
+    carpeta_apoyo: str | None = None,
+    factores_elegidos: dict[str, str | None] | None = None,
+    actualizar_resumen: bool = False,
+    generar_txt_si_faltan: bool = True,
+) -> dict[str, object]:
+    """Detecta si un reporte Excel ya generado no tiene precios o fórmulas aplicadas y se los calcula.
+
+    También regenera los archivos TXT (_COMAS.txt y _TABS.txt) y opcionalmente el JSON de resumen.
+    """
+    if not os.path.isfile(ruta_excel):
+        return {
+            "actualizado": False,
+            "filas_actualizadas": 0,
+            "total_filas": 0,
+            "ruta": ruta_excel,
+        }
+
+    try:
+        df = pd.read_excel(ruta_excel, header=0)
+    except Exception as error:
+        logger.warning("No se pudo leer el reporte existente %s: %s", ruta_excel, error)
+        return {
+            "actualizado": False,
+            "filas_actualizadas": 0,
+            "total_filas": 0,
+            "ruta": ruta_excel,
+        }
+
+    if df.empty:
+        return {
+            "actualizado": False,
+            "filas_actualizadas": 0,
+            "total_filas": 0,
+            "ruta": ruta_excel,
+        }
+    _normalizar_tipos_columnas_precios(df)
+
+    try:
+        wb = openpyxl.load_workbook(ruta_excel, data_only=False)
+        ws = wb.active
+    except Exception:
+        ws = None
+
+    carpeta_reporte = os.path.dirname(ruta_excel) or str(CARPETA_DATOS)
+    mapa_apoyo = _extraer_mapa_apoyo_carpeta(carpeta_apoyo or carpeta_reporte)
+
+    indice_col: dict[str, int] = {}
+    if ws is not None:
+        indice_col = {
+            str(ws.cell(row=1, column=col_idx).value or ""): col_idx
+            for col_idx in range(1, ws.max_column + 1)
+        }
+
+    meta_por_clave: dict[str, dict[str, object]] = {}
+    filas_actualizadas = 0
+
+    for idx in range(len(df)):
+        fila_excel = idx + 2
+        fila_modificada = False
+        clave = (
+            str(df.at[idx, "Clave Artículo"] or "").strip()
+            if "Clave Artículo" in df.columns and pd.notna(df.at[idx, "Clave Artículo"])
+            else ""
+        )
+        linea_actual = (
+            str(df.at[idx, "Línea"] or "").strip()
+            if "Línea" in df.columns and pd.notna(df.at[idx, "Línea"])
+            else ""
+        )
+        if linea_actual.lower() == "nan":
+            linea_actual = ""
+
+        info_apoyo = mapa_apoyo.get(clave.upper(), {}) if clave else {}
+        if not linea_actual and info_apoyo.get("linea"):
+            linea_actual = info_apoyo["linea"]
+
+        precio_compra = df.at[idx, "PRECIO COMPRA"] if "PRECIO COMPRA" in df.columns else None
+        bruto: float | None = None
+        divisor: float | None = None
+
+        if ws is not None and "PRECIO COMPRA" in indice_col:
+            valor_celda = ws.cell(row=fila_excel, column=indice_col["PRECIO COMPRA"]).value
+            if isinstance(valor_celda, str):
+                match_div = _PATRON_FORMULA_DIVISION.match(valor_celda)
+                if match_div:
+                    bruto = float(match_div.group(1))
+                    divisor = float(match_div.group(2))
+                    if (pd.isna(precio_compra) or float(precio_compra or 0) == 0.0) and divisor > 0:
+                        precio_compra = round(bruto / divisor, 4)
+                        df.at[idx, "PRECIO COMPRA"] = precio_compra
+                        fila_modificada = True
+
+        proveedor_str = (
+            info_apoyo.get("proveedor_nombre")
+            or (str(df.at[idx, "PROVEEDOR"] or "") if "PROVEEDOR" in df.columns and pd.notna(df.at[idx, "PROVEEDOR"]) else "")
+        )
+        descripcion_str = (
+            f"{df.at[idx, 'DESCRIPCION'] if 'DESCRIPCION' in df.columns and pd.notna(df.at[idx, 'DESCRIPCION']) else ''} "
+            f"{df.at[idx, 'Descripción CFDI'] if 'Descripción CFDI' in df.columns and pd.notna(df.at[idx, 'Descripción CFDI']) else ''}"
+        ).strip()
+
+        info_linea = resolver_linea(
+            linea_actual,
+            proveedor=proveedor_str,
+            descripcion=descripcion_str,
+            factores_temporales=factores_elegidos,
+        )
+        linea_resuelta = str(info_linea["linea_resuelta"] or linea_actual).strip()
+        if linea_resuelta and "Línea" in df.columns:
+            valor_linea_df = (
+                str(df.at[idx, "Línea"] or "").strip()
+                if pd.notna(df.at[idx, "Línea"])
+                else ""
+            )
+            if valor_linea_df != linea_resuelta:
+                df.at[idx, "Línea"] = linea_resuelta
+                fila_modificada = True
+
+        factor = info_linea["factor"]
+        precio_num = 0.0
+        if pd.notna(precio_compra):
+            try:
+                precio_num = float(precio_compra)
+            except (TypeError, ValueError):
+                precio_num = 0.0
+
+        if factor and precio_num > 0:
+            precios = calcular_precios_numericos(factor, precio_num)
+            for col in COLUMNAS_FACTORES:
+                if col not in df.columns:
+                    continue
+                val_actual = df.at[idx, col]
+                falta_valor = pd.isna(val_actual)
+                if not falta_valor:
+                    try:
+                        falta_valor = round(float(val_actual), 4) != round(float(precios[col]), 4)
+                    except (TypeError, ValueError):
+                        falta_valor = True
+
+                falta_formula = False
+                if ws is not None and col in indice_col:
+                    celda_val = ws.cell(row=fila_excel, column=indice_col[col]).value
+                    if not (isinstance(celda_val, str) and celda_val.strip().startswith("=")):
+                        falta_formula = True
+
+                if falta_valor or falta_formula:
+                    df.at[idx, col] = precios[col]
+                    fila_modificada = True
+
+        if fila_modificada:
+            filas_actualizadas += 1
+
+        if clave:
+            meta_por_clave[clave] = {
+                "factor": factor,
+                "precio_compra_bruto": bruto,
+                "divisor_metros": divisor,
+            }
+
+    prefijo = os.path.splitext(os.path.basename(ruta_excel))[0]
+    ruta_txt_comas = os.path.join(carpeta_reporte, f"{prefijo}_COMAS.txt")
+    ruta_txt_tabs = os.path.join(carpeta_reporte, f"{prefijo}_TABS.txt")
+    txt_faltantes = generar_txt_si_faltan and not (
+        os.path.isfile(ruta_txt_comas) and os.path.isfile(ruta_txt_tabs)
+    )
+
+    if filas_actualizadas > 0 or txt_faltantes:
+        df.attrs["meta_por_clave"] = meta_por_clave
+        df.to_excel(ruta_excel, index=False)
+        _aplicar_estilo(ruta_excel, len(COLUMNAS_ASPEL), df_datos=df, meta_por_clave=meta_por_clave)
+        generar_ambos_txt(df, carpeta_reporte, prefijo)
+
+        nombre_json = f"{prefijo}_RESUMEN.json"
+        ruta_json = os.path.join(carpeta_reporte, nombre_json)
+        if actualizar_resumen or os.path.isfile(ruta_json):
+            guardar_resumen_json(
+                construir_resumen(
+                    filas_nuevas=df,
+                    filas_acumuladas=df,
+                    duplicados_ignorados=0,
+                    nombre_excel=os.path.basename(ruta_excel),
+                    nombre_json=nombre_json,
+                ),
+                ruta_json,
+            )
+        logger.info(
+            "Precios/fórmulas actualizados en %s (%d/%d filas actualizadas)",
+            ruta_excel,
+            filas_actualizadas,
+            len(df),
+        )
+        return {
+            "actualizado": True,
+            "filas_actualizadas": filas_actualizadas,
+            "total_filas": len(df),
+            "ruta": ruta_excel,
+        }
+
+    return {
+        "actualizado": False,
+        "filas_actualizadas": 0,
+        "total_filas": len(df),
+        "ruta": ruta_excel,
+    }
 
 
 def _aplicar_estilo(
@@ -485,6 +766,7 @@ __all__ = [
     "COLUMNAS_ASPEL",
     "CARPETA_DATOS",
     "NOMBRE_ARCHIVO_RESUMEN",
+    "actualizar_precios_reporte_existente",
     "guardar_en_base_acumulada",
     "procesar_carpeta",
     "procesar_xml",

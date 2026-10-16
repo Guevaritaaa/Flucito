@@ -44,3 +44,16 @@ def test_error_no_reintentable_se_propaga() -> None:
 
 def test_reconoce_modelo_no_disponible() -> None:
     assert es_error_reintentable(Exception("model_not_found"))
+
+
+def test_reconoce_error_tool_use_failed_de_groq() -> None:
+    class ErrorBadRequest(Exception):
+        status_code = 400
+
+    assert es_error_reintentable(ErrorBadRequest("tool_use_failed: failed_generation"))
+
+    primario = ModeloFalso(error=ErrorBadRequest("tool_use_failed"))
+    respaldo = ModeloFalso(respuesta="respuesta respaldo")
+    assert invocar_con_fallback(["mensaje"], primario, respaldo) == "respuesta respaldo"
+    assert primario.llamadas == 1
+    assert respaldo.llamadas == 1

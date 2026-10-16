@@ -440,3 +440,155 @@ def test_confirmacion_interactiva_rollos_xro_y_metros(
     assert df_generado.iloc[0]["Clave Artículo"] == "PU14TRANSBLUE"
     assert df_generado.iloc[0]["Clave unidad"] == "MTR"
 
+
+def test_actualizar_precios_reporte_existente_aplica_precios_y_formulas(
+    tmp_path: Path,
+) -> None:
+    import openpyxl
+    import pandas as pd
+    from app.services.almacen import excel
+
+    # Crear un reporte Excel ya generado sin precios calculados (en None / 0) y con línea truncada
+    fila_sin_precios = {col: None for col in excel.COLUMNAS_ASPEL}
+    fila_sin_precios.update(
+        {
+            "Clave Artículo": "PROD01",
+            "DESCRIPCION": "CILINDRO NEUMATICO",
+            "Línea": "FEST",
+            "Clave unidad": "H87",
+            "PROVEEDOR": "FESTO PNEUMATIC SA",
+            "PRECIO COMPRA": 100.0,
+            "PUBLICO": 0.0,
+            "MINIMO": None,
+            "MOSTRADOR": None,
+            "MAYOREO": None,
+            "DISTRIBUIDOR": None,
+        }
+    )
+    ruta_xlsx = tmp_path / "ENTRADAS_ALMACEN_13-04-2026.xlsx"
+    pd.DataFrame([fila_sin_precios], columns=excel.COLUMNAS_ASPEL).to_excel(
+        ruta_xlsx, index=False
+    )
+
+    resultado = excel.actualizar_precios_reporte_existente(str(ruta_xlsx))
+    assert resultado["actualizado"] is True
+    assert resultado["filas_actualizadas"] == 1
+
+    # Verificar que la línea se autocorrigió y los TXT tienen precios numéricos
+    ruta_txt = tmp_path / "ENTRADAS_ALMACEN_13-04-2026_COMAS.txt"
+    assert ruta_txt.is_file()
+    contenido_txt = ruta_txt.read_text(encoding="utf-8")
+    assert "FESTO" in contenido_txt
+    assert "142.8571" in contenido_txt  # 100 / 0.7
+
+    # Verificar que el Excel contiene las fórmulas dinámicas
+    wb = openpyxl.load_workbook(ruta_xlsx, data_only=False)
+    ws = wb.active
+    assert ws is not None
+    encabezados = {ws.cell(row=1, column=c).value: c for c in range(1, ws.max_column + 1)}
+    assert ws.cell(row=2, column=encabezados["Línea"]).value == "FESTO"
+    assert ws.cell(row=2, column=encabezados["PUBLICO"]).value == "=S2/.7"
+    assert ws.cell(row=2, column=encabezados["MINIMO"]).value == "=S2/.9"
+
+
+def test_actualizar_precios_reportes_drive_actualiza_reportes_historicos_y_base(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import json
+    import openpyxl
+    import pandas as pd
+    from app.agents import tools
+    from app.core.config import settings
+    from app.services.almacen import excel
+    from app.services.almacen.fuentes import google_drive_client, sincronizador
+    from app.services.almacen.fuentes.google_drive import MIME_CARPETA
+
+    monkeypatch.setattr(settings, "google_drive_folder_id", "root-drive")
+    monkeypatch.setattr(tools, "CARPETA_DATOS", tmp_path)
+    monkeypatch.setattr(sincronizador, "CARPETA_DATOS", tmp_path)
+    monkeypatch.setattr(excel, "CARPETA_DATOS", tmp_path)
+    monkeypatch.setattr(sincronizador, "crear_cliente_drive", lambda: object())
+
+    # Crear un Excel sin precios ni línea para simular reporte viejo en Drive y en base local
+    fila_vieja = {col: None for col in excel.COLUMNAS_ASPEL}
+    fila_vieja.update(
+        {
+            "Clave Artículo": "PROD01",
+            "DESCRIPCION": "CONECTOR RECTO 1/4",
+            "Línea": None,
+            "Clave unidad": "H87",
+            "PROVEEDOR": "PROVEEDOR DEMO SA",
+            "PRECIO COMPRA": 100.0,
+        }
+    )
+    ruta_base_local = tmp_path / "BASE_ENTRADAS_ALMACEN.xlsx"
+    pd.DataFrame([fila_vieja], columns=excel.COLUMNAS_ASPEL).to_excel(
+        ruta_base_local, index=False
+    )
+    bytes_xlsx_sin_precios = ruta_base_local.read_bytes()
+
+    hijos_por_carpeta = {
+        "root-drive": [
+            {"id": "doc-entrada", "name": "DOCUMENTOS ENTRADA", "mimeType": MIME_CARPETA}
+        ],
+        "doc-entrada": [
+            {"id": "fecha-1", "name": "13-04-2026", "mimeType": MIME_CARPETA}
+        ],
+        "fecha-1": [
+            {"id": "prov-1", "name": "Proveedor Demo - 13-04-2026", "mimeType": MIME_CARPETA},
+            {
+                "id": "xlsx-batch",
+                "name": "ENTRADAS_ALMACEN_13-04-2026.xlsx",
+                "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            },
+        ],
+        "prov-1": [
+            {"id": "xml-1", "name": "factura-100.xml", "mimeType": "text/xml"},
+            {"id": "txt-1", "name": "entrada-100.txt", "mimeType": "text/plain"},
+            {
+                "id": "xlsx-prov",
+                "name": "ENTRADAS_ALMACEN_Proveedor_Demo_13-04-2026.xlsx",
+                "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            },
+        ],
+    }
+
+    contenido_drive = {
+        "factura-100.xml": _xml_cfdi_ejemplo(),
+        "entrada-100.txt": _txt_sae_ejemplo(linea="FESTO"),
+        "ENTRADAS_ALMACEN_13-04-2026.xlsx": bytes_xlsx_sin_precios,
+        "ENTRADAS_ALMACEN_Proveedor_Demo_13-04-2026.xlsx": bytes_xlsx_sin_precios,
+    }
+    subidos: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(
+        google_drive_client,
+        "_listar_hijos",
+        lambda _c, cid: hijos_por_carpeta.get(cid, []),
+    )
+    monkeypatch.setattr(
+        sincronizador,
+        "descargar_archivo",
+        lambda _c, arch, destino: destino.write_bytes(contenido_drive[arch.nombre]),
+    )
+    monkeypatch.setattr(google_drive_client, "eliminar_archivo", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        google_drive_client,
+        "subir_archivo",
+        lambda _c, ruta, cid: subidos.append((ruta.name, cid)),
+    )
+
+    resp = json.loads(tools.actualizar_precios_reportes_generados.invoke({}))
+    assert resp["ok"] is True
+    assert resp["reportes_revisados"] == 3
+    assert resp["total_actualizados"] == 3
+    assert resp["base_local_actualizada"] is True
+
+    # Verificar que la base local recuperó la línea FESTO y tiene las fórmulas
+    wb = openpyxl.load_workbook(ruta_base_local, data_only=False)
+    ws = wb.active
+    assert ws is not None
+    encabezados = {ws.cell(row=1, column=c).value: c for c in range(1, ws.max_column + 1)}
+    assert ws.cell(row=2, column=encabezados["Línea"]).value == "FESTO"
+    assert ws.cell(row=2, column=encabezados["PUBLICO"]).value == "=S2/.7"
+

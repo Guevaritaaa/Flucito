@@ -55,7 +55,30 @@ def _ejecutar_chat(request: ChatRequest) -> ChatResponse:
     """Ejecuta el grafo conversacional y construye el ChatResponse."""
     estado = {"messages": [HumanMessage(content=request.mensaje)]}
     config = {"configurable": {"thread_id": request.session_id}}
-    resultado = grafo.invoke(estado, config=config)
+    try:
+        resultado = grafo.invoke(estado, config=config)
+    except Exception as error_grafo:
+        logger.warning(
+            "Fallo en grafo.invoke para sesión %s (%s); reintentando con hilo limpio.",
+            request.session_id,
+            error_grafo,
+        )
+        try:
+            config_limpio = {
+                "configurable": {
+                    "thread_id": f"{request.session_id}-recovery-{uuid.uuid4().hex[:8]}"
+                }
+            }
+            resultado = grafo.invoke(estado, config=config_limpio)
+        except Exception as error_final:
+            logger.exception("Error definitivo en grafo.invoke: %s", error_final)
+            return ChatResponse(
+                respuesta=(
+                    "Ocurrió una interrupción temporal al procesar tu solicitud. "
+                    "Por favor intenta enviarla nuevamente en unos segundos."
+                ),
+            )
+
     respuesta = contenido_a_texto(resultado["messages"][-1])
 
     archivo_almacen_url = None
@@ -88,6 +111,13 @@ def _ejecutar_chat(request: ChatRequest) -> ChatResponse:
         if datos.get("ok") and datos.get("tipo") == "ordenar_todo":
             if datos.get("advertencia_archivos_sueltos") and not advertencia_archivos_sueltos:
                 advertencia_archivos_sueltos = str(datos["advertencia_archivos_sueltos"])
+        if (
+            datos.get("ok")
+            and datos.get("tipo") == "actualizar_precios_reportes"
+            and datos.get("base_local_actualizada")
+            and (CARPETA_DATOS / NOMBRE_ARCHIVO_BASE).is_file()
+        ):
+            archivo_almacen_url = "/api/v1/almacen/download"
         if datos.get("ok") and datos.get("reporte_generado") and datos.get("resumen"):
             archivo_almacen_url = "/api/v1/almacen/download"
             if datos.get("advertencia_ubicacion") and not advertencia_ubicacion:

@@ -17,6 +17,7 @@ from app.services.almacen.excel import (
     NOMBRE_ARCHIVO_BASE,
     _buscar_decision_rollo,
     _precio_con_descuento,
+    actualizar_precios_reporte_existente,
     guardar_en_base_acumulada,
     procesar_xml,
 )
@@ -28,15 +29,21 @@ from app.services.almacen.factores import (
     recuperar_clave_truncada,
     resolver_linea,
 )
+from app.services.almacen.fuentes.google_drive import (
+    MIME_CARPETA,
+    DriveArchivo,
+)
 from app.services.almacen.fuentes.google_drive_client import (
     CARPETA_ENTRADAS_AL_INVENTARIO,
     CARPETA_REPORTES_HISTORICOS,
+    PREFIJO_REPORTE,
     GoogleDriveConfigError,
     buscar_carpeta_hija,
     buscar_o_crear_carpeta,
     crear_cliente_drive,
     descargar_archivo,
     listar_carpetas_factura,
+    normalizar_fecha_reporte,
 )
 from app.services.almacen.fuentes.estado_drive import (
     NOMBRE_ESTADO,
@@ -550,7 +557,195 @@ def sincronizar_drive(
     }
 
 
+def actualizar_precios_reportes_drive(
+    cliente: Any | None = None,
+    fecha: str | None = None,
+    factores_elegidos: dict[str, str | None] | None = None,
+) -> dict[str, object]:
+    """Revisa los reportes ya generados (en DOCUMENTOS ENTRADA de Drive y la base local)
+    y si detecta que no tienen los precios o fórmulas aplicadas, se los calcula y actualiza.
+    """
+    from app.services.almacen.fuentes.google_drive_client import (
+        _listar_hijos,
+        eliminar_archivo,
+        subir_archivo,
+    )
+
+    reportes_revisados = 0
+    reportes_actualizados: list[str] = []
+    filas_actualizadas_total = 0
+    base_local_actualizada = False
+
+    with tempfile.TemporaryDirectory(prefix="flucito_precios_reportes_") as temporal:
+        raiz_temp = Path(temporal)
+        dir_apoyo_global = raiz_temp / "apoyo_global"
+        dir_apoyo_global.mkdir(parents=True, exist_ok=True)
+
+        # Copiar archivos de apoyo locales si existen en CARPETA_DATOS
+        carpeta_datos_path = Path(CARPETA_DATOS)
+        if carpeta_datos_path.is_dir():
+            for arch_local in carpeta_datos_path.iterdir():
+                if (
+                    arch_local.is_file()
+                    and arch_local.suffix.lower() in (".xml", ".pdf", ".txt")
+                    and not arch_local.name.upper().startswith(PREFIJO_REPORTE)
+                    and not arch_local.name.upper().startswith("BASE_ENTRADAS_ALMACEN")
+                ):
+                    (dir_apoyo_global / arch_local.name).write_bytes(arch_local.read_bytes())
+
+        # 1. Revisar reportes históricos en Google Drive (DOCUMENTOS ENTRADA)
+        try:
+            carpeta_raiz_id = settings.google_drive_folder_id
+            if cliente is not None or carpeta_raiz_id:
+                cliente = cliente or crear_cliente_drive()
+                if carpeta_raiz_id:
+                    fecha_filtro = normalizar_fecha_reporte(fecha) if fecha else None
+                    carpetas_archivo = [
+                        elem
+                        for elem in _listar_hijos(cliente, carpeta_raiz_id)
+                        if elem.get("mimeType") == MIME_CARPETA
+                        and elem.get("name") == CARPETA_REPORTES_HISTORICOS
+                    ]
+
+                    for carpeta_archivo in carpetas_archivo:
+                        carpetas_fecha = [
+                            elem
+                            for elem in _listar_hijos(cliente, carpeta_archivo["id"])
+                            if elem.get("mimeType") == MIME_CARPETA
+                            and (fecha_filtro is None or elem.get("name") == fecha_filtro)
+                        ]
+
+                        for idx_f, carpeta_fecha in enumerate(carpetas_fecha):
+                            dir_fecha = raiz_temp / f"fecha_{idx_f}"
+                            dir_apoyo_fecha = dir_fecha / "apoyo"
+                            dir_apoyo_fecha.mkdir(parents=True, exist_ok=True)
+
+                            # Recolectar subcarpetas y la carpeta de fecha (subcarpetas primero para reunir XML/TXT/PDF)
+                            nodos_carpeta: list[tuple[str, str, list[dict]]] = []
+                            cola = [(carpeta_fecha["id"], carpeta_fecha.get("name", ""))]
+                            visitadas: set[str] = set()
+                            while cola:
+                                cid, cnombre = cola.pop(0)
+                                if cid in visitadas:
+                                    continue
+                                visitadas.add(cid)
+                                hijos = _listar_hijos(cliente, cid)
+                                nodos_carpeta.append((cid, cnombre, hijos))
+                                for h in hijos:
+                                    if h.get("mimeType") == MIME_CARPETA:
+                                        cola.append((h["id"], h.get("name", "")))
+
+                            # Procesar de abajo hacia arriba (subcarpetas de proveedor antes que carpeta de fecha)
+                            for idx_c, (cid, _cnombre, hijos) in enumerate(reversed(nodos_carpeta)):
+                                archivos_hijos = [
+                                    h for h in hijos if h.get("mimeType") != MIME_CARPETA
+                                ]
+                                por_nombre = {h.get("name", ""): h for h in archivos_hijos}
+
+                                # Descargar archivos de apoyo (.xml, .pdf, .txt de factura) si hay
+                                for h in archivos_hijos:
+                                    nombre_h = h.get("name", "")
+                                    ext_h = Path(nombre_h).suffix.lower()
+                                    if (
+                                        ext_h in (".xml", ".pdf", ".txt")
+                                        and not nombre_h.upper().startswith(PREFIJO_REPORTE)
+                                    ):
+                                        destino_apoyo = dir_apoyo_fecha / Path(nombre_h).name
+                                        if not destino_apoyo.exists():
+                                            arch_obj = DriveArchivo(
+                                                id=h["id"],
+                                                nombre=nombre_h,
+                                                mime_type=h.get("mimeType", ""),
+                                                modificado=h.get("modifiedTime", ""),
+                                                carpeta_id=cid,
+                                            )
+                                            descargar_archivo(cliente, arch_obj, destino_apoyo)
+                                            (dir_apoyo_global / destino_apoyo.name).write_bytes(
+                                                destino_apoyo.read_bytes()
+                                            )
+
+                                # Revisar reportes .xlsx en esta carpeta
+                                reportes_xlsx = [
+                                    h
+                                    for h in archivos_hijos
+                                    if Path(h.get("name", "")).suffix.lower() == ".xlsx"
+                                    and h.get("name", "").upper().startswith(PREFIJO_REPORTE)
+                                ]
+                                for idx_r, rep in enumerate(reportes_xlsx):
+                                    nombre_xlsx = rep["name"]
+                                    prefijo_rep = Path(nombre_xlsx).stem
+                                    dir_rep = dir_fecha / f"rep_{idx_c}_{idx_r}"
+                                    dir_rep.mkdir(parents=True, exist_ok=True)
+                                    ruta_xlsx_local = dir_rep / nombre_xlsx
+
+                                    arch_xlsx = DriveArchivo(
+                                        id=rep["id"],
+                                        nombre=nombre_xlsx,
+                                        mime_type=rep.get("mimeType", ""),
+                                        modificado=rep.get("modifiedTime", ""),
+                                        carpeta_id=cid,
+                                    )
+                                    descargar_archivo(cliente, arch_xlsx, ruta_xlsx_local)
+                                    tiene_txts_drive = (
+                                        f"{prefijo_rep}_COMAS.txt" in por_nombre
+                                        and f"{prefijo_rep}_TABS.txt" in por_nombre
+                                    )
+
+                                    res_rep = actualizar_precios_reporte_existente(
+                                        str(ruta_xlsx_local),
+                                        carpeta_apoyo=str(dir_apoyo_fecha),
+                                        factores_elegidos=factores_elegidos,
+                                        actualizar_resumen=False,
+                                        generar_txt_si_faltan=not tiene_txts_drive,
+                                    )
+                                    reportes_revisados += 1
+                                    if res_rep.get("actualizado"):
+                                        reportes_actualizados.append(nombre_xlsx)
+                                        filas_actualizadas_total += int(
+                                            res_rep.get("filas_actualizadas", 0)
+                                        )
+                                        for arch_subir in (
+                                            ruta_xlsx_local,
+                                            dir_rep / f"{prefijo_rep}_COMAS.txt",
+                                            dir_rep / f"{prefijo_rep}_TABS.txt",
+                                        ):
+                                            if arch_subir.is_file():
+                                                existente = por_nombre.get(arch_subir.name)
+                                                if existente:
+                                                    eliminar_archivo(cliente, existente["id"])
+                                                subir_archivo(cliente, arch_subir, cid)
+        except GoogleDriveConfigError as error:
+            logger.info("Drive no disponible al actualizar precios de reportes: %s", error)
+        except Exception as error:
+            logger.warning("No se pudieron revisar reportes en Drive: %s", error)
+
+        # 2. Revisar reporte base local (BASE_ENTRADAS_ALMACEN.xlsx)
+        ruta_base_local = Path(CARPETA_DATOS) / NOMBRE_ARCHIVO_BASE
+        if ruta_base_local.is_file():
+            res_local = actualizar_precios_reporte_existente(
+                str(ruta_base_local),
+                carpeta_apoyo=str(dir_apoyo_global),
+                factores_elegidos=factores_elegidos,
+                actualizar_resumen=True,
+                generar_txt_si_faltan=True,
+            )
+            reportes_revisados += 1
+            if res_local.get("actualizado"):
+                base_local_actualizada = True
+                reportes_actualizados.append(NOMBRE_ARCHIVO_BASE)
+                filas_actualizadas_total += int(res_local.get("filas_actualizadas", 0))
+
+    return {
+        "reportes_revisados": reportes_revisados,
+        "reportes_actualizados": reportes_actualizados,
+        "total_actualizados": len(reportes_actualizados),
+        "filas_actualizadas": filas_actualizadas_total,
+        "base_local_actualizada": base_local_actualizada,
+    }
+
+
 __all__ = [
+    "actualizar_precios_reportes_drive",
     "construir_pregunta_interactiva",
     "inspeccionar_pendientes_carpeta",
     "sincronizar_drive",

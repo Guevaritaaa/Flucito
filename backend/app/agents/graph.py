@@ -8,6 +8,7 @@ from langgraph.prebuilt import ToolNode
 from app.agents.prompts import SYSTEM_PROMPT
 from app.agents.state import AsistenteState
 from app.agents.tools import (
+    actualizar_precios_reportes_generados,
     buscar_reporte_historico,
     generar_entradas_almacen,
     mover_carpetas_con_reportes,
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 HERRAMIENTAS = [
     generar_entradas_almacen,
+    actualizar_precios_reportes_generados,
     buscar_reporte_historico,
     revisar_carpetas_sin_reportes,
     ordenar_todo,
@@ -39,17 +41,32 @@ llm_respaldo_con_herramientas = (
 
 def es_error_reintentable(error: Exception) -> bool:
     """Identifica fallas temporales o de disponibilidad del proveedor."""
+    if isinstance(error, ValueError):
+        return False
+
     status_code = getattr(error, "status_code", None)
     response = getattr(error, "response", None)
     status_code = status_code or getattr(response, "status_code", None)
 
-    if status_code in {404, 408, 429, 500, 502, 503, 504}:
+    if status_code in {400, 404, 408, 429, 500, 502, 503, 504}:
         return True
 
     mensaje = str(error).lower()
     return any(
         texto in mensaje
-        for texto in ("timeout", "timed out", "model_not_found", "temporarily")
+        for texto in (
+            "timeout",
+            "timed out",
+            "model_not_found",
+            "temporarily",
+            "tool_use_failed",
+            "failed_generation",
+            "tool call",
+            "rate_limit",
+            "rate limit",
+            "connection",
+            "bad request",
+        )
     )
 
 
@@ -58,11 +75,15 @@ def invocar_con_fallback(mensajes: list, primario, respaldo):
     try:
         return primario.invoke(mensajes)
     except Exception as error:
-        if respaldo is None or not es_error_reintentable(error):
+        if not es_error_reintentable(error):
             raise
 
-        logger.warning("Proveedor primario no disponible; usando fallback: %s", error)
-        return respaldo.invoke(mensajes)
+        if respaldo is not None:
+            logger.warning("Proveedor primario no disponible; usando fallback: %s", error)
+            return respaldo.invoke(mensajes)
+
+        logger.warning("Error transitorio en proveedor primario sin respaldo; reintentando: %s", error)
+        return primario.invoke(mensajes)
 
 
 def nodo_flucito(state: AsistenteState) -> AsistenteState:
