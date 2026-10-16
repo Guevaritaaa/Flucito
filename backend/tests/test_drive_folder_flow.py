@@ -369,3 +369,52 @@ def test_restaurar_entorno_pruebas_reutiliza_carpeta_fecha_sin_borrar(monkeypatc
     assert set(eliminados) == {"batch-rep", "prov-rep", "prov-folder"}
 
 
+def test_mover_archivo_reutiliza_padre_en_cache_sin_llamada_get() -> None:
+    llamadas_get: list[str] = []
+    llamadas_update: list[dict] = []
+
+    class SolicitudFalsa:
+        def __init__(self, resultado: dict):
+            self._resultado = resultado
+
+        def execute(self, num_retries: int = 0) -> dict:
+            return self._resultado
+
+    class RecursoFilesFalso:
+        def list(self, **kwargs):
+            return SolicitudFalsa(
+                {
+                    "files": [
+                        {
+                            "id": "arch-99",
+                            "name": "factura.xml",
+                            "mimeType": "text/xml",
+                            "parents": ["carpeta-origen"],
+                        }
+                    ]
+                }
+            )
+
+        def get(self, **kwargs):
+            llamadas_get.append(kwargs.get("fileId", ""))
+            return SolicitudFalsa({"parents": ["carpeta-origen"]})
+
+        def update(self, **kwargs):
+            llamadas_update.append(kwargs)
+            return SolicitudFalsa({"id": kwargs.get("fileId"), "parents": [kwargs.get("addParents")]})
+
+    class ClienteDriveFalso:
+        def files(self):
+            return RecursoFilesFalso()
+
+    cliente = ClienteDriveFalso()
+    hijos = google_drive_client._listar_hijos(cliente, "carpeta-origen")
+    assert len(hijos) == 1
+
+    google_drive_client.mover_archivo(cliente, "arch-99", "carpeta-destino")
+    assert llamadas_get == []
+    assert len(llamadas_update) == 1
+    assert llamadas_update[0]["addParents"] == "carpeta-destino"
+    assert llamadas_update[0]["removeParents"] == "carpeta-origen"
+
+

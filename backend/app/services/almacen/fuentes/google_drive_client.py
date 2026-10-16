@@ -21,6 +21,7 @@ ARCHIVOS_FIELDS = "nextPageToken,files(id,name,mimeType,modifiedTime,parents)"
 PREFIJO_REPORTE = "ENTRADAS_ALMACEN_"
 CARPETA_ENTRADAS_AL_INVENTARIO = "ENTRADAS AL INVENTARIO"
 CARPETA_REPORTES_HISTORICOS = "DOCUMENTOS ENTRADA"
+_PADRES_CACHE: dict[str, str] = {}
 
 
 class GoogleDriveConfigError(RuntimeError):
@@ -134,7 +135,13 @@ def _listar_hijos(cliente: Any, carpeta_id: str) -> list[dict]:
                     "Google Drive API deshabilitada o sin permisos en el proyecto de la cuenta"
                 ) from error
             raise
-        archivos.extend(respuesta.get("files", []))
+        lote = respuesta.get("files", [])
+        for item in lote:
+            item_id = item.get("id")
+            if item_id:
+                padres = item.get("parents")
+                _PADRES_CACHE[item_id] = ",".join(padres) if padres else carpeta_id
+        archivos.extend(lote)
         pagina = respuesta.get("nextPageToken")
         if not pagina:
             return archivos
@@ -262,7 +269,9 @@ def buscar_o_crear_carpeta(cliente: Any, nombre: str, carpeta_padre: str) -> str
     )
     carpetas = respuesta.get("files", [])
     if carpetas:
-        return carpetas[0]["id"]
+        carpeta_id = carpetas[0]["id"]
+        _PADRES_CACHE[carpeta_id] = carpeta_padre
+        return carpeta_id
 
     carpeta = (
         cliente.files()
@@ -272,7 +281,9 @@ def buscar_o_crear_carpeta(cliente: Any, nombre: str, carpeta_padre: str) -> str
         )
         .execute(num_retries=3)
     )
-    return carpeta["id"]
+    carpeta_id = carpeta["id"]
+    _PADRES_CACHE[carpeta_id] = carpeta_padre
+    return carpeta_id
 
 
 def subir_archivo(cliente: Any, ruta: Path, carpeta_id: str) -> str:
@@ -293,7 +304,9 @@ def subir_archivo(cliente: Any, ruta: Path, carpeta_id: str) -> str:
         )
         .execute(num_retries=3)
     )
-    return archivo["id"]
+    archivo_id = archivo["id"]
+    _PADRES_CACHE[archivo_id] = carpeta_id
+    return archivo_id
 
 
 def listar_archivos_carpeta(cliente: Any, carpeta_id: str) -> list[dict]:
@@ -308,29 +321,43 @@ def listar_archivos_carpeta(cliente: Any, carpeta_id: str) -> list[dict]:
         )
         .execute(num_retries=3)
     )
-    return respuesta.get("files", [])
+    archivos = respuesta.get("files", [])
+    for item in archivos:
+        item_id = item.get("id")
+        if item_id:
+            _PADRES_CACHE[item_id] = carpeta_id
+    return archivos
 
 
-def mover_archivo(cliente: Any, archivo_id: str, nueva_carpeta_id: str) -> None:
-    """Mueve un archivo en Google Drive a una nueva carpeta."""
-    archivo = cliente.files().get(fileId=archivo_id, fields="parents").execute(num_retries=3)
-    padres_previos = ",".join(archivo.get("parents", []))
+def mover_archivo(
+    cliente: Any,
+    archivo_id: str,
+    nueva_carpeta_id: str,
+    carpeta_origen_id: str | None = None,
+) -> None:
+    """Mueve un archivo en Google Drive a una nueva carpeta evitando GET redundante si se conoce el padre."""
+    padres_previos = carpeta_origen_id or _PADRES_CACHE.get(archivo_id)
+    if not padres_previos:
+        archivo = cliente.files().get(fileId=archivo_id, fields="parents").execute(num_retries=3)
+        padres_previos = ",".join(archivo.get("parents", []))
     cliente.files().update(
         fileId=archivo_id,
         addParents=nueva_carpeta_id,
         removeParents=padres_previos,
-        fields="id, parents"
+        fields="id, parents",
     ).execute(num_retries=3)
+    _PADRES_CACHE[archivo_id] = nueva_carpeta_id
 
 
 def eliminar_archivo(cliente: Any, archivo_id: str) -> None:
     """Mueve un archivo o carpeta a la papelera en Google Drive."""
     try:
         cliente.files().update(fileId=archivo_id, body={"trashed": True}).execute(num_retries=3)
+        _PADRES_CACHE.pop(archivo_id, None)
     except Exception as error:
         status_code = getattr(getattr(error, "resp", None), "status", None)
         if status_code == 404:
-            pass  # Ya estaba eliminado/no encontrado
+            _PADRES_CACHE.pop(archivo_id, None)
         else:
             raise
 
