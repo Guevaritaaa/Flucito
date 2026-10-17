@@ -213,6 +213,18 @@ def test_excel_inyecta_formulas_dinamicas_y_txt_exporta_numeros(tmp_path: Path) 
     assert ws.cell(row=2, column=encabezados["MAYOREO"]).value == "=T2*.9"
     assert ws.cell(row=2, column=encabezados["DISTRIBUIDOR"]).value == "=T2*.8"
 
+    # 1b. Verificar valores en caché (<v>) para que Excel los muestre en Vista Protegida
+    #     sin necesidad de pulsar "Habilitar edición"
+    wb_cache = openpyxl.load_workbook(ruta_xlsx, data_only=True)
+    ws_cache = wb_cache.active
+    assert ws_cache is not None
+    assert ws_cache.cell(row=2, column=encabezados["PRECIO COMPRA"]).value == 17.9632
+    assert ws_cache.cell(row=2, column=encabezados["PUBLICO"]).value == 39.9182
+    assert ws_cache.cell(row=2, column=encabezados["MINIMO"]).value == 31.9346
+    assert ws_cache.cell(row=2, column=encabezados["MOSTRADOR"]).value == 39.9182
+    assert ws_cache.cell(row=2, column=encabezados["MAYOREO"]).value == 35.9264
+    assert ws_cache.cell(row=2, column=encabezados["DISTRIBUIDOR"]).value == 31.9346
+
     # 2. Verificar valores numéricos en el TXT (sin fórmulas '=' ni NaN)
     ruta_txt_comas = tmp_path / "TEST_REPORTE_COMAS.txt"
     contenido_txt = ruta_txt_comas.read_text(encoding="utf-8")

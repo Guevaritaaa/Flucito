@@ -19,9 +19,11 @@ from app.services.almacen.apoyo import buscar_dato, obtener_apoyo_por_folio
 from app.services.almacen.extractor import CARPETA_DATOS, extraer_conceptos, leer_meta
 from app.services.almacen.factores import (
     COLUMNAS_FACTORES,
+    SIN_FACTOR,
     calcular_precios_numericos,
     detectar_rollo_metros,
     generar_formulas_fila,
+    normalizar_eleccion_factor,
     recuperar_clave_truncada,
     resolver_linea,
 )
@@ -595,6 +597,49 @@ def actualizar_precios_reporte_existente(
     }
 
 
+def _inyectar_valores_cache_formulas(
+    ruta_xlsx: str,
+    valores_cache: dict[str, float | int],
+) -> None:
+    """Inyecta el valor numérico precalculado en <v> junto a <f> dentro del .xlsx.
+
+    Openpyxl serializa las celdas con fórmula como `<c r="T2"><f>...</f><v /></c>`
+    sin valor en caché. Esto provoca que la Vista Protegida de Excel (y la vista
+    previa de Google Drive) muestre en blanco las columnas de precios hasta que
+    el usuario pulsa "Habilitar edición". Al poblar `<v>{valor}</v>`, Excel
+    muestra los precios de inmediato y conserva la fórmula dinámica al editar.
+    """
+    if not valores_cache:
+        return
+
+    import zipfile
+
+    patron_celda = re.compile(
+        r'(<c\b[^>]*\br="(?P<coord>[A-Z]+\d+)"[^>]*>\s*<f>[^<]*</f>\s*)<v\s*/>(\s*</c>)'
+    )
+
+    def _reemplazar(match: re.Match[str]) -> str:
+        coord = match.group("coord")
+        if coord not in valores_cache:
+            return match.group(0)
+        val = valores_cache[coord]
+        return f"{match.group(1)}<v>{val}</v>{match.group(3)}"
+
+    ruta_tmp = f"{ruta_xlsx}.tmp"
+    with (
+        zipfile.ZipFile(ruta_xlsx, "r") as zin,
+        zipfile.ZipFile(ruta_tmp, "w", compression=zipfile.ZIP_DEFLATED) as zout,
+    ):
+        for item in zin.infolist():
+            contenido = zin.read(item.filename)
+            if item.filename == "xl/worksheets/sheet1.xml":
+                xml_texto = contenido.decode("utf-8")
+                xml_texto = patron_celda.sub(_reemplazar, xml_texto)
+                contenido = xml_texto.encode("utf-8")
+            zout.writestr(item, contenido)
+    os.replace(ruta_tmp, ruta_xlsx)
+
+
 def _aplicar_estilo(
     ruta: str,
     n_columnas: int,
@@ -623,6 +668,8 @@ def _aplicar_estilo(
                  for r in range(2, ws.max_row + 1)), default=0),
         )
         ws.column_dimensions[letra].width = min(max(max_len + 2, 10), 40)
+
+    valores_cache: dict[str, float | int] = {}
 
     # Inyectar fórmulas dinámicas (=S{r}..., =T{r}...) en las columnas de precios
     if df_datos is not None and not df_datos.empty:
@@ -662,9 +709,15 @@ def _aplicar_estilo(
             for col_nombre, formula in formulas.items():
                 col_idx = indice_col.get(col_nombre)
                 if col_idx is not None:
-                    ws.cell(row=fila_excel, column=col_idx, value=formula)
+                    celda_precio = ws.cell(row=fila_excel, column=col_idx)
+                    val_previo = fila.get(col_nombre)
+                    if pd.notna(val_previo) and isinstance(val_previo, (int, float)):
+                        valores_cache[celda_precio.coordinate] = round(float(val_previo), 4)
+                    celda_precio.value = formula
 
     wb.save(ruta)
+    _inyectar_valores_cache_formulas(ruta, valores_cache)
+
 
 
 def guardar_en_base_acumulada(
