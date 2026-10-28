@@ -7,30 +7,11 @@ from langgraph.prebuilt import ToolNode
 
 from app.agents.prompts import SYSTEM_PROMPT
 from app.agents.state import AsistenteState
-from app.agents.tools import (
-    actualizar_precios_reportes_generados,
-    buscar_reporte_historico,
-    generar_entradas_almacen,
-    mover_carpetas_con_reportes,
-    ordenar_todo,
-    preparar_entorno_pruebas,
-    revisar_carpetas_sin_reportes,
-)
+from app.agents.tools import HERRAMIENTAS
 from app.agents.llm_router import crear_llms
 
 
 logger = logging.getLogger(__name__)
-
-
-HERRAMIENTAS = [
-    generar_entradas_almacen,
-    actualizar_precios_reportes_generados,
-    buscar_reporte_historico,
-    revisar_carpetas_sin_reportes,
-    ordenar_todo,
-    mover_carpetas_con_reportes,
-    preparar_entorno_pruebas,
-]
 
 llm_primario, llm_respaldo = crear_llms()
 llm_primario_con_herramientas = llm_primario.bind_tools(HERRAMIENTAS)
