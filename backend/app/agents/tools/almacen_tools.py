@@ -300,6 +300,7 @@ def consultar_almacen(
 @tool(args_schema=GenerarEntradasAlmacenInput)
 def generar_entradas_almacen(
     confirmar_solo_xml: bool | None = None,
+    omitir_incompletas: bool | None = None,
     factores_elegidos: dict[str, str] | None = None,
     guardar_factores: bool | None = None,
     cambiar_xro_a_mtr: bool | None = None,
@@ -327,13 +328,16 @@ def generar_entradas_almacen(
 
     if usar_drive:
         try:
-            sincronizacion = sincronizar_drive(
-                interactivo=True,
-                confirmar_solo_xml=confirmar_solo_xml,
-                factores_elegidos=factores_elegidos,
-                guardar_factores=guardar_factores,
-                decisiones_rollos=decisiones_rollos_norm,
-            )
+            kwargs_sync: dict[str, Any] = {
+                "interactivo": True,
+                "confirmar_solo_xml": confirmar_solo_xml,
+                "factores_elegidos": factores_elegidos,
+                "guardar_factores": guardar_factores,
+                "decisiones_rollos": decisiones_rollos_norm,
+            }
+            if omitir_incompletas is not None:
+                kwargs_sync["omitir_incompletas"] = bool(omitir_incompletas)
+            sincronizacion = sincronizar_drive(**kwargs_sync)
         except Exception as error:
             logger.exception("Error durante sincronización con Drive: %s", error)
             return json.dumps(
@@ -361,6 +365,8 @@ def generar_entradas_almacen(
             if carpetas_reubicadas:
                 salida_cancelado["carpetas_reubicadas"] = carpetas_reubicadas
                 salida_cancelado["advertencia_ubicacion"] = aviso_reubicacion
+            if sincronizacion.get("carpetas_omitidas_solo_xml"):
+                salida_cancelado["carpetas_omitidas_solo_xml"] = sincronizacion["carpetas_omitidas_solo_xml"]
             return json.dumps(salida_cancelado, ensure_ascii=False)
 
         if sincronizacion.get("requiere_confirmacion"):
@@ -570,6 +576,8 @@ def generar_entradas_almacen(
         resumen["archivos_drive"] = sincronizacion["archivos"]
         if sincronizacion.get("carpetas_procesadas"):
             resumen["carpetas_procesadas"] = sincronizacion["carpetas_procesadas"]
+        if sincronizacion.get("carpetas_omitidas_solo_xml"):
+            resumen["carpetas_omitidas_solo_xml"] = sincronizacion["carpetas_omitidas_solo_xml"]
         if carpetas_reubicadas:
             resumen["carpetas_reubicadas"] = carpetas_reubicadas
         try:
@@ -582,6 +590,8 @@ def generar_entradas_almacen(
         "reporte_generado": True,
         "resumen": resumen,
     }
+    if sincronizacion.get("carpetas_omitidas_solo_xml"):
+        salida["carpetas_omitidas_solo_xml"] = sincronizacion["carpetas_omitidas_solo_xml"]
     if carpetas_reubicadas:
         salida["carpetas_reubicadas"] = carpetas_reubicadas
         salida["advertencia_ubicacion"] = construir_advertencia_ubicacion(

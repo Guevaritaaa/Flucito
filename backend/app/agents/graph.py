@@ -1,6 +1,6 @@
 import logging
 
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import SystemMessage, ToolMessage
 from langgraph.graph import END, StateGraph
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import ToolNode
@@ -31,7 +31,7 @@ def es_error_reintentable(error: Exception) -> bool:
     response = getattr(error, "response", None)
     status_code = status_code or getattr(response, "status_code", None)
 
-    if status_code in {400, 404, 408, 429, 500, 502, 503, 504}:
+    if status_code in {400, 404, 408, 413, 429, 500, 502, 503, 504}:
         return True
 
     mensaje = str(error).lower()
@@ -81,9 +81,60 @@ def contar_rondas_herramientas_turno_actual(mensajes: list) -> int:
     return rondas
 
 
+MAX_TURNOS_HISTORIAL_LLM = 5
+MAX_CARACTERES_TOOL_TURNO_ANTERIOR = 900
+
+
+def compactar_historial_para_llm(mensajes: list) -> list:
+    """Recorta salidas extensas de herramientas de turnos anteriores para no exceder el límite TPM de Groq."""
+    if not mensajes:
+        return []
+
+    indices_humanos = [
+        idx
+        for idx, msg in enumerate(mensajes)
+        if getattr(msg, "type", None) == "human"
+    ]
+    if not indices_humanos:
+        return list(mensajes)
+
+    inicio = (
+        indices_humanos[-MAX_TURNOS_HISTORIAL_LLM]
+        if len(indices_humanos) > MAX_TURNOS_HISTORIAL_LLM
+        else 0
+    )
+    idx_turno_actual = indices_humanos[-1]
+
+    compactados: list = []
+    for idx in range(inicio, len(mensajes)):
+        msg = mensajes[idx]
+        if (
+            idx < idx_turno_actual
+            and getattr(msg, "type", None) == "tool"
+            and isinstance(getattr(msg, "content", None), str)
+            and len(msg.content) > MAX_CARACTERES_TOOL_TURNO_ANTERIOR
+        ):
+            contenido_corto = (
+                msg.content[:MAX_CARACTERES_TOOL_TURNO_ANTERIOR]
+                + "... [salida resumida de turno anterior]"
+            )
+            compactados.append(
+                ToolMessage(
+                    content=contenido_corto,
+                    tool_call_id=getattr(msg, "tool_call_id", ""),
+                    name=getattr(msg, "name", None),
+                )
+            )
+        else:
+            compactados.append(msg)
+
+    return compactados
+
+
 def nodo_flucito(state: AsistenteState) -> AsistenteState:
     """Nodo principal de Flucito con límite de rondas de herramientas por turno."""
     rondas_actuales = contar_rondas_herramientas_turno_actual(state["messages"])
+    historial_compacto = compactar_historial_para_llm(state["messages"])
 
     if rondas_actuales >= MAX_ITERACIONES_TOOLS:
         logger.warning(
@@ -95,7 +146,7 @@ def nodo_flucito(state: AsistenteState) -> AsistenteState:
             "NOTA DEL SISTEMA: Ya alcanzaste el límite máximo de llamadas a herramientas para este mensaje. "
             "Responde ahora directamente al usuario resumiendo la información que ya obtuviste."
         )
-        mensajes = [SystemMessage(content=prompt_cierre)] + state["messages"]
+        mensajes = [SystemMessage(content=prompt_cierre)] + historial_compacto
         respuesta = invocar_con_fallback(
             mensajes,
             llm_primario,
@@ -103,7 +154,7 @@ def nodo_flucito(state: AsistenteState) -> AsistenteState:
         )
         return {"messages": [respuesta]}
 
-    mensajes = [SystemMessage(content=SYSTEM_PROMPT)] + state["messages"]
+    mensajes = [SystemMessage(content=SYSTEM_PROMPT)] + historial_compacto
     respuesta = invocar_con_fallback(
         mensajes,
         llm_primario_con_herramientas,

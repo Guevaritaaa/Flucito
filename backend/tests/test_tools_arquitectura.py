@@ -496,3 +496,152 @@ def test_construir_resumen_enriquecido_con_estadisticas_desgloses_y_productos() 
     assert prod_festo["precios_venta"]["mayoreo"] == round(1000.0 / 0.8, 2)
     assert prod_festo["precios_venta"]["distribuidor"] == round(1000.0 / 0.9, 2)
     assert prod_festo["precios_venta"]["minimo"] == round(1000.0 / 0.9, 2)
+
+
+def test_esquemas_toleran_null_en_campos_opcionales_y_compactan_historial() -> None:
+    """Verifica que los esquemas acepten null en campos con default y que el historial se compacte."""
+    from app.agents.graph import compactar_historial_para_llm
+
+    entrada = ConsultarDriveInput(
+        modo_consulta="explorar",
+        ubicacion=None,
+        filtro_auditoria=None,
+        incluir_archivos=None,
+    )
+    assert entrada.modo_consulta == "explorar_estructura"
+    assert entrada.ubicacion == "todas"
+    assert entrada.filtro_auditoria == "todos"
+    assert entrada.incluir_archivos is True
+
+    mensajes = [
+        HumanMessage(content="Turno 1"),
+        AIMessage(content="", tool_calls=[{"name": "consultar_drive", "args": {}, "id": "t1"}]),
+        ToolMessage(content="x" * 2500, tool_call_id="t1"),
+        AIMessage(content="Respuesta 1"),
+        HumanMessage(content="Turno 2 actual"),
+        AIMessage(content="", tool_calls=[{"name": "consultar_drive", "args": {}, "id": "t2"}]),
+        ToolMessage(content="y" * 2500, tool_call_id="t2"),
+    ]
+    compactados = compactar_historial_para_llm(mensajes)
+    assert "salida resumida de turno anterior" in compactados[2].content
+    assert len(compactados[2].content) < 1000
+    assert compactados[6].content == "y" * 2500
+
+
+def test_chat_endpoint_no_duplica_aviso_reubicacion_ni_activa_boton_txt_por_txt_de_apoyo(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Verifica que _ejecutar_chat no duplique el aviso de reubicación ni muestre el botón TXT al hablar de un TXT de apoyo."""
+    monkeypatch.setattr(chat_route, "CARPETA_DATOS", tmp_path)
+    (tmp_path / "ENTRADAS_ALMACEN_COMAS.txt").write_text("datos", encoding="utf-8")
+
+    aviso = (
+        "Por cierto, detecté que las carpetas **26-10-2026** no tenían su reporte generado "
+        "y estaban dentro de **DOCUMENTOS ENTRADA**, así que las moví automáticamente a "
+        "**ENTRADAS AL INVENTARIO** para poder procesarlas."
+    )
+
+    class GrafoFalso:
+        def invoke(self, estado, config=None):
+            return {
+                "messages": [
+                    HumanMessage(content="¿Qué contiene la carpeta?"),
+                    AIMessage(
+                        content="",
+                        tool_calls=[{"name": "generar_entradas_almacen", "args": {}, "id": "c1"}],
+                    ),
+                    ToolMessage(
+                        content=json.dumps(
+                            {
+                                "ok": True,
+                                "reporte_generado": False,
+                                "advertencia_ubicacion": aviso,
+                            }
+                        ),
+                        tool_call_id="c1",
+                    ),
+                    AIMessage(
+                        content=f"{aviso}\n\nEn la carpeta tienes 1 TXT de apoyo: factura.txt"
+                    ),
+                ]
+            }
+
+    monkeypatch.setattr(chat_route, "grafo", GrafoFalso())
+    respuesta = chat_route._ejecutar_chat(
+        ChatRequest(mensaje="¿Qué contiene la carpeta?", session_id="ses-dup")
+    )
+    assert respuesta.respuesta.count("Por cierto, detecté") == 1
+    assert respuesta.archivo_txt_url is None
+
+
+def test_omitir_incompletas_procesa_solo_carpetas_completas_y_excluye_solo_xml(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Verifica que omitir_incompletas=True procese las carpetas completas y excluya las que solo tienen XML."""
+    from app.services.almacen import excel
+    from app.services.almacen.fuentes import google_drive_client, sincronizador
+    from app.services.almacen.fuentes.google_drive import CarpetaFactura, DriveArchivo
+    from tests.test_factores_precio import _txt_sae_ejemplo, _xml_cfdi_ejemplo
+
+    monkeypatch.setattr(almacen_tools.settings, "google_drive_folder_id", "docs-root")
+    monkeypatch.setattr(
+        almacen_tools.settings,
+        "google_service_account_json",
+        '{"type": "service_account"}',
+    )
+    monkeypatch.setattr(tools, "CARPETA_DATOS", tmp_path)
+    monkeypatch.setattr(sincronizador, "CARPETA_DATOS", tmp_path)
+    monkeypatch.setattr(excel, "CARPETA_DATOS", tmp_path)
+    monkeypatch.setattr(sincronizador, "crear_cliente_drive", lambda: object())
+    monkeypatch.setattr(
+        sincronizador,
+        "reubicar_carpetas_mal_ubicadas",
+        lambda c, cid: {"carpetas_reubicadas": [], "archivos_reubicados_ids": []},
+    )
+    monkeypatch.setattr(sincronizador, "buscar_carpeta_hija", lambda *a, **kw: "input-root")
+    monkeypatch.setattr(
+        sincronizador, "buscar_o_crear_carpeta", lambda c, nombre, padre: f"id-{nombre}"
+    )
+
+    carpeta_incompleta = CarpetaFactura(
+        id="sub-24",
+        nombre="24-10-2026",
+        archivos=(
+            DriveArchivo("id-xml-24", "factura-24.xml", "text/xml", "v1", "sub-24"),
+        ),
+    )
+    carpeta_completa = CarpetaFactura(
+        id="sub-26",
+        nombre="26-10-2026",
+        archivos=(
+            DriveArchivo("id-xml-26", "factura-100.xml", "text/xml", "v1", "sub-26"),
+            DriveArchivo("id-txt-26", "factura-100.txt", "text/plain", "v1", "sub-26"),
+        ),
+    )
+    contenidos = {
+        "factura-24.xml": _xml_cfdi_ejemplo(folio="24"),
+        "factura-100.xml": _xml_cfdi_ejemplo(folio="100"),
+        "factura-100.txt": _txt_sae_ejemplo(folio="100"),
+    }
+    monkeypatch.setattr(
+        sincronizador,
+        "listar_carpetas_factura",
+        lambda c, cid: [carpeta_incompleta, carpeta_completa],
+    )
+    monkeypatch.setattr(
+        sincronizador,
+        "descargar_archivo",
+        lambda c, arch, destino: destino.write_bytes(contenidos[arch.nombre]),
+    )
+    monkeypatch.setattr(google_drive_client, "mover_archivo", lambda *a, **kw: None)
+    monkeypatch.setattr(google_drive_client, "subir_archivo", lambda *a, **kw: None)
+    monkeypatch.setattr(google_drive_client, "eliminar_archivo", lambda *a, **kw: None)
+
+    resp = json.loads(
+        generar_entradas_almacen.invoke({"omitir_incompletas": True})
+    )
+    assert resp["ok"] is True
+    assert resp["reporte_generado"] is True
+    assert resp["carpetas_omitidas_solo_xml"] == ["24-10-2026"]
+    assert resp["resumen"]["carpetas_procesadas"] == ["26-10-2026"]
+    assert resp["resumen"]["carpetas_omitidas_solo_xml"] == ["24-10-2026"]

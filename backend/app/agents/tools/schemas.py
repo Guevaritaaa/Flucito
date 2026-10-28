@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ConsultarDriveInput(BaseModel):
@@ -12,23 +12,25 @@ class ConsultarDriveInput(BaseModel):
 
     modo_consulta: Literal[
         "explorar_estructura",
+        "explorar",
         "auditar_facturas",
         "buscar_reportes_excel",
         "inspeccionar_xml",
     ] = Field(
+        default="explorar_estructura",
         description=(
             "Modo de lectura: 'explorar_estructura' lista carpetas y archivos; "
             "'auditar_facturas' detecta carpetas vacías, sin XML, XML sin PDF/TXT o sin reporte Excel; "
             "'buscar_reportes_excel' busca reportes Excel históricos para descarga; "
             "'inspeccionar_xml' lee en solo lectura de qué trata un archivo XML o factura en Drive."
-        )
+        ),
     )
     ubicacion: Literal[
         "todas",
         "entradas_al_inventario",
         "documentos_entrada",
         "raiz",
-    ] = Field(
+    ] | None = Field(
         default="todas",
         description="Sección del Drive donde realizar la consulta.",
     )
@@ -43,7 +45,7 @@ class ConsultarDriveInput(BaseModel):
         "sin_apoyo",
         "sin_reporte_excel",
         "completas",
-    ] = Field(
+    ] | None = Field(
         default="todos",
         description="Filtro para modo 'auditar_facturas' según el tipo de hallazgo buscado.",
     )
@@ -51,10 +53,32 @@ class ConsultarDriveInput(BaseModel):
         default=None,
         description="Filtro opcional por nombre de proveedor al buscar reportes Excel históricos.",
     )
-    incluir_archivos: bool = Field(
+    incluir_archivos: bool | None = Field(
         default=True,
         description="Si es True, incluye la lista de nombres de archivos dentro de cada carpeta.",
     )
+
+    @field_validator("modo_consulta", mode="before")
+    @classmethod
+    def _normalizar_modo_consulta(cls, valor: object) -> object:
+        if valor is None or valor == "explorar":
+            return "explorar_estructura"
+        return valor
+
+    @field_validator("ubicacion", mode="before")
+    @classmethod
+    def _normalizar_ubicacion(cls, valor: object) -> object:
+        return "todas" if valor is None else valor
+
+    @field_validator("filtro_auditoria", mode="before")
+    @classmethod
+    def _normalizar_filtro_auditoria(cls, valor: object) -> object:
+        return "todos" if valor is None else valor
+
+    @field_validator("incluir_archivos", mode="before")
+    @classmethod
+    def _normalizar_incluir_archivos(cls, valor: object) -> object:
+        return True if valor is None else valor
 
 
 class GestionarArchivosDriveInput(BaseModel):
@@ -91,13 +115,18 @@ class GestionarArchivosDriveInput(BaseModel):
             "o ruta de la nueva carpeta para 'crear_carpeta' (ej. 'ENTRADAS AL INVENTARIO/25-03-2026')."
         ),
     )
-    confirmar_eliminar_con_contenido: bool = Field(
+    confirmar_eliminar_con_contenido: bool | None = Field(
         default=False,
         description=(
             "En 'eliminar_elemento': usar False primero; cambiar a True únicamente cuando el "
             "usuario haya confirmado explícitamente eliminar una carpeta que contiene archivos."
         ),
     )
+
+    @field_validator("confirmar_eliminar_con_contenido", mode="before")
+    @classmethod
+    def _normalizar_confirmar_eliminar(cls, valor: object) -> object:
+        return False if valor is None else valor
 
 
 class ConsultarAlmacenInput(BaseModel):
@@ -135,12 +164,17 @@ class ConsultarAlmacenInput(BaseModel):
         default=None,
         description="Filtro por fecha de entrada o documento.",
     )
-    limite: int = Field(
+    limite: int | None = Field(
         default=25,
         ge=1,
         le=100,
         description="Cantidad máxima de registros a devolver en 'buscar_entradas'.",
     )
+
+    @field_validator("limite", mode="before")
+    @classmethod
+    def _normalizar_limite(cls, valor: object) -> object:
+        return 25 if valor is None else valor
 
 
 class GenerarEntradasAlmacenInput(BaseModel):
@@ -148,7 +182,14 @@ class GenerarEntradasAlmacenInput(BaseModel):
 
     confirmar_solo_xml: bool | None = Field(
         default=None,
-        description="True ('y') si el usuario autoriza procesar carpetas con solo XML; False ('n') si cancela.",
+        description="True ('y') si el usuario autoriza procesar también carpetas con solo XML; False ('n') si cancela todo.",
+    )
+    omitir_incompletas: bool | None = Field(
+        default=None,
+        description=(
+            "True si el usuario pide generar los reportes únicamente de las carpetas completas "
+            "(que sí tienen XML + TXT o PDF) y excluir/omitir las carpetas incompletas que solo tienen XML."
+        ),
     )
     factores_elegidos: dict[str, str] | None = Field(
         default=None,

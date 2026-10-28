@@ -221,6 +221,7 @@ def sincronizar_drive(
     forzar: bool = False,
     interactivo: bool = False,
     confirmar_solo_xml: bool | None = None,
+    omitir_incompletas: bool = False,
     factores_elegidos: dict[str, str | None] | None = None,
     guardar_factores: bool | None = None,
     decisiones_rollos: dict[str, dict[str, object]] | None = None,
@@ -298,6 +299,7 @@ def sincronizar_drive(
     logger.info("Drive: %d carpeta(s) con archivos nuevos o modificados.", len(carpetas_nuevas))
 
     # 1. Verificar si alguna carpeta contiene únicamente archivos XML (sin TXT ni PDF de apoyo)
+    carpetas_omitidas_solo_xml: list[str] = []
     if interactivo:
         carpetas_solo_xml = [
             c.nombre
@@ -306,7 +308,40 @@ def sincronizar_drive(
             and not any(a.extension in (".pdf", ".txt") for a in c.archivos)
         ]
         if carpetas_solo_xml:
-            if confirmar_solo_xml is False:
+            if omitir_incompletas:
+                carpetas_omitidas_solo_xml = list(carpetas_solo_xml)
+                set_omitidas = set(carpetas_solo_xml)
+                carpetas_nuevas = [
+                    c for c in carpetas_nuevas if c.nombre not in set_omitidas
+                ]
+                if not carpetas_nuevas:
+                    aviso_previo = (
+                        construir_aviso_reubicacion_previa(carpetas_reubicadas)
+                        if carpetas_reubicadas
+                        else None
+                    )
+                    nombres_str = ", ".join(carpetas_omitidas_solo_xml)
+                    mensaje_sin_completas = (
+                        f"Se excluyeron las carpetas incompletas ({nombres_str}) porque solo contienen XML, "
+                        "y no quedaron otras carpetas completas con TXT o PDF pendientes por procesar."
+                    )
+                    if aviso_previo:
+                        mensaje_sin_completas = f"{aviso_previo}\n\n{mensaje_sin_completas}"
+                    salida_sin_completas: dict[str, Any] = {
+                        "carpetas": len(carpetas),
+                        "carpetas_nuevas": 0,
+                        "carpetas_procesadas": [],
+                        "carpetas_omitidas_solo_xml": carpetas_omitidas_solo_xml,
+                        "archivos": 0,
+                        "productos": 0,
+                        "carpetas_reubicadas": carpetas_reubicadas,
+                        "cancelado_por_usuario": True,
+                        "mensaje": mensaje_sin_completas,
+                    }
+                    if aviso_previo:
+                        salida_sin_completas["advertencia_ubicacion"] = aviso_previo
+                    return salida_sin_completas
+            elif confirmar_solo_xml is False:
                 aviso_previo = (
                     construir_aviso_reubicacion_previa(carpetas_reubicadas)
                     if carpetas_reubicadas
@@ -322,6 +357,7 @@ def sincronizar_drive(
                     "carpetas": len(carpetas_nuevas),
                     "carpetas_nuevas": len(carpetas_nuevas),
         "carpetas_procesadas": [c.nombre for c in carpetas_nuevas],
+        "carpetas_omitidas_solo_xml": carpetas_omitidas_solo_xml,
                     "archivos": 0,
                     "productos": 0,
                     "carpetas_reubicadas": carpetas_reubicadas,
@@ -331,11 +367,12 @@ def sincronizar_drive(
                 if aviso_previo:
                     salida_cancelado["advertencia_ubicacion"] = aviso_previo
                 return salida_cancelado
-            if False:
+            elif False:
                 return {
                     "carpetas": len(carpetas_nuevas),
                     "carpetas_nuevas": len(carpetas_nuevas),
         "carpetas_procesadas": [c.nombre for c in carpetas_nuevas],
+        "carpetas_omitidas_solo_xml": carpetas_omitidas_solo_xml,
                     "archivos": 0,
                     "productos": 0,
                     "carpetas_reubicadas": carpetas_reubicadas,
@@ -345,7 +382,7 @@ def sincronizar_drive(
                         "(XML obligatorio, acompañado de su TXT o PDF de apoyo)."
                     ),
                 }
-            if confirmar_solo_xml is None:
+            elif confirmar_solo_xml is None:
                 aviso_previo = (
                     construir_aviso_reubicacion_previa(carpetas_reubicadas)
                     if carpetas_reubicadas
@@ -366,6 +403,7 @@ def sincronizar_drive(
                     "carpetas": len(carpetas_nuevas),
                     "carpetas_nuevas": len(carpetas_nuevas),
         "carpetas_procesadas": [c.nombre for c in carpetas_nuevas],
+        "carpetas_omitidas_solo_xml": carpetas_omitidas_solo_xml,
                     "archivos": 0,
                     "productos": 0,
                     "carpetas_reubicadas": carpetas_reubicadas,
@@ -378,7 +416,7 @@ def sincronizar_drive(
                 if aviso_previo:
                     salida_solo_xml["advertencia_ubicacion"] = aviso_previo
                 return salida_solo_xml
-            if False:
+            elif False:
                 nombres_str = ", ".join(carpetas_solo_xml)
                 pregunta = (
                     f"Oye, la entrada **{nombres_str}** contiene solo archivos XML (sin TXT ni PDF de apoyo). "
@@ -389,6 +427,7 @@ def sincronizar_drive(
                     "carpetas": len(carpetas_nuevas),
                     "carpetas_nuevas": len(carpetas_nuevas),
         "carpetas_procesadas": [c.nombre for c in carpetas_nuevas],
+        "carpetas_omitidas_solo_xml": carpetas_omitidas_solo_xml,
                     "archivos": 0,
                     "productos": 0,
                     "carpetas_reubicadas": carpetas_reubicadas,
@@ -469,6 +508,7 @@ def sincronizar_drive(
                     "carpetas": len(carpetas_nuevas),
                     "carpetas_nuevas": len(carpetas_nuevas),
         "carpetas_procesadas": [c.nombre for c in carpetas_nuevas],
+        "carpetas_omitidas_solo_xml": carpetas_omitidas_solo_xml,
                     "archivos": archivos_descargados,
                     "productos": 0,
                     "carpetas_reubicadas": carpetas_reubicadas,
@@ -487,6 +527,7 @@ def sincronizar_drive(
                     "carpetas": len(carpetas_nuevas),
                     "carpetas_nuevas": len(carpetas_nuevas),
         "carpetas_procesadas": [c.nombre for c in carpetas_nuevas],
+        "carpetas_omitidas_solo_xml": carpetas_omitidas_solo_xml,
                     "archivos": archivos_descargados,
                     "productos": 0,
                     "carpetas_reubicadas": carpetas_reubicadas,
@@ -626,6 +667,7 @@ def sincronizar_drive(
             "carpetas": len(carpetas_nuevas),
             "carpetas_nuevas": len(carpetas_nuevas),
         "carpetas_procesadas": [c.nombre for c in carpetas_nuevas],
+        "carpetas_omitidas_solo_xml": carpetas_omitidas_solo_xml,
             "archivos": archivos_descargados,
             "productos": 0,
             "carpetas_reubicadas": carpetas_reubicadas,
@@ -645,6 +687,7 @@ def sincronizar_drive(
         "carpetas": len(carpetas_nuevas),
         "carpetas_nuevas": len(carpetas_nuevas),
         "carpetas_procesadas": [c.nombre for c in carpetas_nuevas],
+        "carpetas_omitidas_solo_xml": carpetas_omitidas_solo_xml,
         "archivos": archivos_descargados,
         "productos": len(df_nuevo),
         "carpetas_reubicadas": carpetas_reubicadas,

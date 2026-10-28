@@ -123,11 +123,23 @@ def _ejecutar_chat(request: ChatRequest) -> ChatResponse:
         if datos.get("ok") and datos.get("reporte_generado") and datos.get("resumen"):
             archivo_almacen_url = "/api/v1/almacen/download"
 
-    if (
-        advertencia_ubicacion
-        and "mal ubicadas" not in respuesta.lower()
-        and "recuerda que para subir documentos a procesar" not in respuesta.lower()
-    ):
+    resp_lower_check = respuesta.lower()
+    ya_incluye_aviso_ubicacion = any(
+        frase in resp_lower_check
+        for frase in (
+            "mal ubicadas",
+            "moví automáticamente",
+            "movi automaticamente",
+            "fue movida de",
+            "fueron movidas de",
+            "reubicad",
+            "no tenían su reporte generado",
+            "no tenía su reporte generado",
+            "recuerda que para subir documentos a procesar",
+            "facturas pendientes",
+        )
+    )
+    if advertencia_ubicacion and not ya_incluye_aviso_ubicacion:
         respuesta = f"{advertencia_ubicacion}\n\n{respuesta}"
 
     if (
@@ -147,12 +159,26 @@ def _ejecutar_chat(request: ChatRequest) -> ChatResponse:
         if any(p in respuesta.lower() for p in palabras_clave):
             archivo_almacen_url = "/api/v1/almacen/download"
 
-    # Detectar si el asistente ofrece/menciona TXT y agregar URLs de descarga
+    # Detectar si el asistente ofrece/menciona el TXT de salida para Aspel (evitando falsos positivos por "TXT de apoyo")
     archivo_txt_url = None
     resp_lower = respuesta.lower()
-    txt_detectado = any(p in resp_lower for p in ("txt", "tabulacion", "comas", "aspel"))
-    if not bloqueado_por_confirmacion and txt_detectado:
-        if "tabulacion" in resp_lower and (CARPETA_DATOS / NOMBRE_TXT_TABS).is_file():
+    menciona_txt_aspel = any(
+        frase in resp_lower
+        for frase in (
+            "aspel",
+            "tabulacion",
+            "tabulación",
+            "separado por comas",
+            "separador de comas",
+            "descargar txt",
+            "descargar el txt",
+            "archivo txt de salida",
+        )
+    ) or (archivo_almacen_url is not None and "txt" in resp_lower)
+    if not bloqueado_por_confirmacion and menciona_txt_aspel:
+        if ("tabulacion" in resp_lower or "tabulación" in resp_lower) and (
+            CARPETA_DATOS / NOMBRE_TXT_TABS
+        ).is_file():
             archivo_txt_url = "/api/v1/almacen/download/txt?separador=tabs"
         elif (CARPETA_DATOS / NOMBRE_TXT_COMAS).is_file():
             archivo_txt_url = "/api/v1/almacen/download/txt?separador=comas"
