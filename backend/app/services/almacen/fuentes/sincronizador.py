@@ -52,7 +52,10 @@ from app.services.almacen.fuentes.estado_drive import (
     guardar_estado,
     marcar_procesadas,
 )
-from app.services.almacen.fuentes.organizador import reubicar_carpetas_mal_ubicadas
+from app.services.almacen.fuentes.organizador import (
+    construir_aviso_reubicacion_previa,
+    reubicar_carpetas_mal_ubicadas,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -304,9 +307,35 @@ def sincronizar_drive(
         ]
         if carpetas_solo_xml:
             if confirmar_solo_xml is False:
+                aviso_previo = (
+                    construir_aviso_reubicacion_previa(carpetas_reubicadas)
+                    if carpetas_reubicadas
+                    else None
+                )
+                mensaje_cancelacion = (
+                    "Entendido, te sugiero revisar que hayas subido todos los documentos necesarios "
+                    "(XML obligatorio, acompañado de su TXT o PDF de apoyo)."
+                )
+                if aviso_previo:
+                    mensaje_cancelacion = f"{aviso_previo}\n\n{mensaje_cancelacion}"
+                salida_cancelado: dict[str, Any] = {
+                    "carpetas": len(carpetas_nuevas),
+                    "carpetas_nuevas": len(carpetas_nuevas),
+        "carpetas_procesadas": [c.nombre for c in carpetas_nuevas],
+                    "archivos": 0,
+                    "productos": 0,
+                    "carpetas_reubicadas": carpetas_reubicadas,
+                    "cancelado_por_usuario": True,
+                    "mensaje": mensaje_cancelacion,
+                }
+                if aviso_previo:
+                    salida_cancelado["advertencia_ubicacion"] = aviso_previo
+                return salida_cancelado
+            if False:
                 return {
                     "carpetas": len(carpetas_nuevas),
                     "carpetas_nuevas": len(carpetas_nuevas),
+        "carpetas_procesadas": [c.nombre for c in carpetas_nuevas],
                     "archivos": 0,
                     "productos": 0,
                     "carpetas_reubicadas": carpetas_reubicadas,
@@ -317,6 +346,39 @@ def sincronizar_drive(
                     ),
                 }
             if confirmar_solo_xml is None:
+                aviso_previo = (
+                    construir_aviso_reubicacion_previa(carpetas_reubicadas)
+                    if carpetas_reubicadas
+                    else None
+                )
+                nombres_str = ", ".join(carpetas_solo_xml)
+                pregunta_base = (
+                    f"Oye, la entrada **{nombres_str}** contiene solo archivos XML (sin TXT ni PDF de apoyo). "
+                    "¿Olvidaste subirlos o no los tienes? Esto implica que el reporte no contendrá líneas ni "
+                    "precios con factores. ¿Deseas generar el reporte solo con los XML proporcionados? (**y/n**)"
+                )
+                pregunta = (
+                    f"{aviso_previo}\n\n{pregunta_base}"
+                    if aviso_previo
+                    else pregunta_base
+                )
+                salida_solo_xml: dict[str, Any] = {
+                    "carpetas": len(carpetas_nuevas),
+                    "carpetas_nuevas": len(carpetas_nuevas),
+        "carpetas_procesadas": [c.nombre for c in carpetas_nuevas],
+                    "archivos": 0,
+                    "productos": 0,
+                    "carpetas_reubicadas": carpetas_reubicadas,
+                    "requiere_confirmacion": True,
+                    "tipo_confirmacion": "solo_xml",
+                    "carpetas_solo_xml": carpetas_solo_xml,
+                    "pregunta_usuario": pregunta,
+                    "pregunta_sugerida": pregunta,
+                }
+                if aviso_previo:
+                    salida_solo_xml["advertencia_ubicacion"] = aviso_previo
+                return salida_solo_xml
+            if False:
                 nombres_str = ", ".join(carpetas_solo_xml)
                 pregunta = (
                     f"Oye, la entrada **{nombres_str}** contiene solo archivos XML (sin TXT ni PDF de apoyo). "
@@ -326,6 +388,7 @@ def sincronizar_drive(
                 return {
                     "carpetas": len(carpetas_nuevas),
                     "carpetas_nuevas": len(carpetas_nuevas),
+        "carpetas_procesadas": [c.nombre for c in carpetas_nuevas],
                     "archivos": 0,
                     "productos": 0,
                     "carpetas_reubicadas": carpetas_reubicadas,
@@ -391,10 +454,39 @@ def sincronizar_drive(
                     tipo_conf = "lineas_sin_factor"
                 else:
                     tipo_conf = "rollos_pendientes"
-                pregunta = construir_pregunta_interactiva(lista_lineas, lista_rollos)
+                pregunta_base = construir_pregunta_interactiva(lista_lineas, lista_rollos)
+                aviso_previo = (
+                    construir_aviso_reubicacion_previa(carpetas_reubicadas)
+                    if carpetas_reubicadas
+                    else None
+                )
+                pregunta = (
+                    f"{aviso_previo}\n\n{pregunta_base}"
+                    if aviso_previo
+                    else pregunta_base
+                )
+                salida_interactiva: dict[str, Any] = {
+                    "carpetas": len(carpetas_nuevas),
+                    "carpetas_nuevas": len(carpetas_nuevas),
+        "carpetas_procesadas": [c.nombre for c in carpetas_nuevas],
+                    "archivos": archivos_descargados,
+                    "productos": 0,
+                    "carpetas_reubicadas": carpetas_reubicadas,
+                    "requiere_confirmacion": True,
+                    "tipo_confirmacion": tipo_conf,
+                    "lineas_sin_factor": lista_lineas,
+                    "rollos_pendientes": lista_rollos,
+                    "menu_factores": formatear_menu_factores() if lista_lineas else None,
+                    "pregunta_usuario": pregunta,
+                    "pregunta_sugerida": pregunta,
+                }
+                if aviso_previo:
+                    salida_interactiva["advertencia_ubicacion"] = aviso_previo
+                return salida_interactiva
                 return {
                     "carpetas": len(carpetas_nuevas),
                     "carpetas_nuevas": len(carpetas_nuevas),
+        "carpetas_procesadas": [c.nombre for c in carpetas_nuevas],
                     "archivos": archivos_descargados,
                     "productos": 0,
                     "carpetas_reubicadas": carpetas_reubicadas,
@@ -533,6 +625,7 @@ def sincronizar_drive(
         return {
             "carpetas": len(carpetas_nuevas),
             "carpetas_nuevas": len(carpetas_nuevas),
+        "carpetas_procesadas": [c.nombre for c in carpetas_nuevas],
             "archivos": archivos_descargados,
             "productos": 0,
             "carpetas_reubicadas": carpetas_reubicadas,
@@ -551,6 +644,7 @@ def sincronizar_drive(
     return {
         "carpetas": len(carpetas_nuevas),
         "carpetas_nuevas": len(carpetas_nuevas),
+        "carpetas_procesadas": [c.nombre for c in carpetas_nuevas],
         "archivos": archivos_descargados,
         "productos": len(df_nuevo),
         "carpetas_reubicadas": carpetas_reubicadas,

@@ -14,11 +14,13 @@ class ConsultarDriveInput(BaseModel):
         "explorar_estructura",
         "auditar_facturas",
         "buscar_reportes_excel",
+        "inspeccionar_xml",
     ] = Field(
         description=(
             "Modo de lectura: 'explorar_estructura' lista carpetas y archivos; "
             "'auditar_facturas' detecta carpetas vacías, sin XML, XML sin PDF/TXT o sin reporte Excel; "
-            "'buscar_reportes_excel' busca reportes Excel históricos para descarga."
+            "'buscar_reportes_excel' busca reportes Excel históricos para descarga; "
+            "'inspeccionar_xml' lee en solo lectura de qué trata un archivo XML o factura en Drive."
         )
     )
     ubicacion: Literal[

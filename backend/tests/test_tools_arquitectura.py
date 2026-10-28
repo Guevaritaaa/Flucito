@@ -387,3 +387,112 @@ def test_chat_endpoint_integra_avisos_y_bloqueo_de_confirmacion_con_nuevas_tools
     )
     assert "contiene 3 archivos" in respuesta.respuesta
     assert respuesta.archivo_almacen_url is None
+
+
+def test_generar_entradas_incluye_aviso_reubicacion_cuando_requiere_confirmacion_solo_xml(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Verifica que si generar_entradas_almacen reubica carpetas y pausa por solo_xml, avise qué carpetas movió y por qué."""
+    monkeypatch.setattr(tools, "CARPETA_DATOS", tmp_path)
+    monkeypatch.setattr(almacen_tools.settings, "google_drive_folder_id", "folder-root")
+    monkeypatch.setattr(
+        almacen_tools.settings,
+        "google_service_account_json",
+        '{"type": "service_account"}',
+    )
+
+    monkeypatch.setattr(
+        almacen_tools,
+        "sincronizar_drive",
+        lambda **kwargs: {
+            "carpetas": 5,
+            "carpetas_nuevas": 5,
+            "archivos": 0,
+            "productos": 0,
+            "carpetas_reubicadas": [
+                "26-10-2026",
+                "24-10-2026",
+                "23-10-2026",
+                "21-10-2026",
+                "20-10-2026",
+            ],
+            "requiere_confirmacion": True,
+            "tipo_confirmacion": "solo_xml",
+            "carpetas_solo_xml": ["26-10-2026"],
+            "pregunta_usuario": (
+                "Oye, la entrada **26-10-2026** contiene solo archivos XML (sin TXT ni PDF de apoyo). "
+                "¿Deseas generar el reporte solo con los XML proporcionados? (**y/n**)"
+            ),
+        },
+    )
+
+    respuesta = json.loads(generar_entradas_almacen.invoke({}))
+    assert respuesta["ok"] is True
+    assert respuesta["reporte_generado"] is False
+    assert respuesta["requiere_confirmacion"] is True
+    assert "advertencia_ubicacion" in respuesta
+    assert "26-10-2026" in respuesta["advertencia_ubicacion"]
+    assert "DOCUMENTOS ENTRADA" in respuesta["pregunta_usuario"]
+    assert "ENTRADAS AL INVENTARIO" in respuesta["pregunta_usuario"]
+
+
+def test_construir_resumen_enriquecido_con_estadisticas_desgloses_y_productos() -> None:
+    """Verifica que construir_resumen genere el JSON enriquecido con estadísticas, desgloses y productos_detalle."""
+    from app.services.almacen.resumen import construir_resumen
+
+    tabla = pd.DataFrame(
+        [
+            {
+                "Clave Artículo": "FES-001",
+                "DESCRIPCION": "CILINDRO COMPACTO ADN",
+                "Línea": "FESTO",
+                "Clave unidad": "H87",
+                "Clave SAT": "40141600",
+                "PROVEEDOR": "FESTO PNEUMATIC SA",
+                "MONEDA": "MXN",
+                "PRECIO COMPRA": 1000.0,
+                "PUBLICO": "=R2/0.7",
+                "DISTRIBUIDOR": "=R2/0.8",
+                "MINIMO": "=R2/0.85",
+                "Fecha de última compra": "26-10-2026",
+            },
+            {
+                "Clave Artículo": "PKR-002",
+                "DESCRIPCION": "MANGUERA ALTA PRESION",
+                "Línea": "PKRH",
+                "Clave unidad": "MTR",
+                "Clave SAT": "40142000",
+                "PROVEEDOR": "PARKER HANNIFIN",
+                "MONEDA": "USD",
+                "PRECIO COMPRA": 250.0,
+                "PUBLICO": "=R3*1.95",
+                "DISTRIBUIDOR": "=R3*1.6",
+                "MINIMO": "=R3*1.4",
+                "Fecha de última compra": "26-10-2026",
+            },
+        ]
+    )
+    tabla.attrs["meta_por_clave"] = {
+        "FES-001": {"factor": "FESTO", "descripcion_cfdi": "CILINDRO ADN-32-50"},
+        "PKR-002": {"factor": "PKRH", "descripcion_cfdi": "MANGUERA 1/2 SAE 100R2"},
+    }
+
+    resumen = construir_resumen(tabla)
+    assert resumen["productos_nuevos"] == 2
+    assert resumen["productos_acumulados"] == 2
+    assert resumen["total_proveedores"] == 2
+    assert resumen["total_lineas"] == 2
+    assert resumen["estadisticas_precios"]["suma_precios_compra_unitarios"] == 1250.0
+    assert resumen["estadisticas_precios"]["precio_compra_maximo"] == 1000.0
+    assert resumen["estadisticas_precios"]["precio_compra_minimo"] == 250.0
+    assert len(resumen["desglose_por_proveedor"]) == 2
+    assert len(resumen["desglose_por_linea"]) == 2
+    assert len(resumen["productos_detalle"]) == 2
+    prod_festo = next(
+        p for p in resumen["productos_detalle"] if p["clave_articulo"] == "FES-001"
+    )
+    assert prod_festo["factor"] == "FESTO"
+    assert prod_festo["precios_venta"]["publico"] == round(1000.0 / 0.7, 2)
+    assert prod_festo["precios_venta"]["mayoreo"] == round(1000.0 / 0.8, 2)
+    assert prod_festo["precios_venta"]["distribuidor"] == round(1000.0 / 0.9, 2)
+    assert prod_festo["precios_venta"]["minimo"] == round(1000.0 / 0.9, 2)

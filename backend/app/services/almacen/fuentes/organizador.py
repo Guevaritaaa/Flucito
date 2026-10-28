@@ -70,6 +70,18 @@ def es_documento_entrada(nombre: str) -> bool:
     return ext in {".xml", ".txt", ".pdf"} and not es_archivo_generado(nombre)
 
 
+def construir_aviso_reubicacion_previa(carpetas: list[str]) -> str:
+    """Construye el aviso cuando se reubican carpetas antes de pedir confirmación o cancelar."""
+    lista = ", ".join(carpetas)
+    return (
+        f"Por cierto, detecté que las carpetas **{lista}** no tenían su reporte generado "
+        "y estaban dentro de **DOCUMENTOS ENTRADA**, así que las moví automáticamente a "
+        "**ENTRADAS AL INVENTARIO** para poder procesarlas.\n\n"
+        "⚠️ **Aviso:** Recuerda que las facturas pendientes (XML, PDF o TXT) deben subirse "
+        "siempre en la carpeta **ENTRADAS AL INVENTARIO** en Google Drive."
+    )
+
+
 def construir_advertencia_ubicacion(carpetas: list[str]) -> str:
     """Construye el mensaje de advertencia cuando se detectan carpetas mal ubicadas."""
     lista = ", ".join(carpetas)
@@ -697,6 +709,7 @@ __all__ = [
     "PREFIJO_CARPETA_ARCHIVOS_SUELTOS",
     "construir_advertencia_archivos_sueltos",
     "construir_advertencia_ubicacion",
+    "construir_aviso_reubicacion_previa",
     "es_archivo_generado",
     "es_carpeta_archivos_sueltos",
     "es_documento_entrada",

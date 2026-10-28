@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import re
+import tempfile
 from pathlib import Path
 from typing import Any
 
 from app.core.config import settings
-from app.services.almacen.fuentes.google_drive import MIME_CARPETA
+from app.services.almacen import extractor
+from app.services.almacen.fuentes.google_drive import MIME_CARPETA, DriveArchivo
 from app.services.almacen.fuentes.google_drive_client import (
     CARPETA_ENTRADAS_AL_INVENTARIO,
     CARPETA_REPORTES_HISTORICOS,
@@ -17,6 +19,7 @@ from app.services.almacen.fuentes.google_drive_client import (
     buscar_carpeta_hija,
     buscar_o_crear_carpeta,
     crear_cliente_drive,
+    descargar_archivo,
     eliminar_archivo,
     mover_archivo,
     normalizar_fecha_reporte,
@@ -59,6 +62,43 @@ def _intentar_normalizar_fecha(texto: str) -> str:
         return normalizar_fecha_reporte(limpio)
     except ValueError:
         return limpio
+
+
+def _extraer_fecha_carpeta(nombre: str) -> tuple[int, int, int] | None:
+    """Extrae (año, mes, día) si el nombre de la carpeta contiene una fecha DD-MM-AAAA o AAAA-MM-DD."""
+    texto = (nombre or "").strip()
+    m_dmy = re.search(r"\b(\d{2})-(\d{2})-(\d{4})\b", texto)
+    if m_dmy:
+        dia, mes, anio = int(m_dmy.group(1)), int(m_dmy.group(2)), int(m_dmy.group(3))
+        if 1 <= mes <= 12 and 1 <= dia <= 31:
+            return (anio, mes, dia)
+    m_ymd = re.search(r"\b(\d{4})-(\d{2})-(\d{2})\b", texto)
+    if m_ymd:
+        anio, mes, dia = int(m_ymd.group(1)), int(m_ymd.group(2)), int(m_ymd.group(3))
+        if 1 <= mes <= 12 and 1 <= dia <= 31:
+            return (anio, mes, dia)
+    return None
+
+
+def _clave_orden_carpeta(nombre: str) -> tuple[int, int, int, int, str]:
+    """Ordena carpetas sin fecha primero alfabéticamente y carpetas con fecha en orden cronológico (más antigua a más reciente)."""
+    fecha = _extraer_fecha_carpeta(nombre)
+    if fecha is not None:
+        return (1, fecha[0], fecha[1], fecha[2], (nombre or "").casefold())
+    return (0, 0, 0, 0, (nombre or "").casefold())
+
+
+def _obtener_rango_fechas_carpetas(nombres_carpetas: list[str]) -> tuple[str | None, str | None]:
+    """Devuelve (carpeta_mas_antigua, carpeta_mas_reciente) considerando solo carpetas con fecha válida."""
+    con_fecha: list[tuple[tuple[int, int, int], str]] = []
+    for nombre in nombres_carpetas:
+        fecha = _extraer_fecha_carpeta(nombre)
+        if fecha is not None:
+            con_fecha.append((fecha, nombre))
+    if not con_fecha:
+        return None, None
+    con_fecha.sort(key=lambda item: item[0])
+    return con_fecha[0][1], con_fecha[-1][1]
 
 
 def _coincide_nombre_elemento(nombre_real: str, nombre_buscado: str) -> bool:
@@ -344,9 +384,13 @@ def _resumir_elementos_carpeta(
         else:
             conteo["otros"] += 1
 
+    subcarpetas_ordenadas = sorted(
+        subcarpetas_raw,
+        key=lambda x: _clave_orden_carpeta(x.get("name", "")),
+    )
     subcarpetas_info: list[dict[str, Any]] = []
     if profundidad_maxima > 0:
-        for sub in sorted(subcarpetas_raw, key=lambda x: x.get("name", "").casefold()):
+        for sub in subcarpetas_ordenadas:
             nombre_sub = sub.get("name", "")
             resumen_sub = _resumir_elementos_carpeta(
                 cliente=cliente,
@@ -367,6 +411,10 @@ def _resumir_elementos_carpeta(
         "conteo_archivos": conteo,
         "subcarpetas": subcarpetas_info,
     }
+    if profundidad_maxima == 0 and subcarpetas_ordenadas:
+        resultado["nombres_subcarpetas"] = [
+            s.get("name", "") for s in subcarpetas_ordenadas
+        ]
     if incluir_archivos:
         resultado["archivos"] = sorted(nombres_archivos, key=str.casefold)
     return resultado
@@ -510,13 +558,17 @@ def explorar_estructura_drive(
                 nombre_carpeta=CARPETA_ENTRADAS_AL_INVENTARIO,
                 ruta_carpeta=CARPETA_ENTRADAS_AL_INVENTARIO,
                 incluir_archivos=incluir_archivos,
-                profundidad_maxima=2,
+                profundidad_maxima=1,
             )
+            nombres_entradas = [c["nombre"] for c in resumen_entradas["subcarpetas"]]
+            antigua_ent, reciente_ent = _obtener_rango_fechas_carpetas(nombres_entradas)
             resultado_contenedores["entradas_al_inventario"] = {
                 "id": entradas_id,
                 "nombre": CARPETA_ENTRADAS_AL_INVENTARIO,
                 "total_carpetas": len(resumen_entradas["subcarpetas"]),
-                "nombres_carpetas": [c["nombre"] for c in resumen_entradas["subcarpetas"]],
+                "carpeta_mas_antigua": antigua_ent,
+                "carpeta_mas_reciente": reciente_ent,
+                "nombres_carpetas": nombres_entradas,
                 "carpetas": resumen_entradas["subcarpetas"],
                 "archivos_sueltos": resumen_entradas.get("archivos", []),
             }
@@ -525,6 +577,8 @@ def explorar_estructura_drive(
                 "id": None,
                 "nombre": CARPETA_ENTRADAS_AL_INVENTARIO,
                 "total_carpetas": 0,
+                "carpeta_mas_antigua": None,
+                "carpeta_mas_reciente": None,
                 "nombres_carpetas": [],
                 "carpetas": [],
                 "archivos_sueltos": [],
@@ -539,13 +593,17 @@ def explorar_estructura_drive(
                 nombre_carpeta=CARPETA_REPORTES_HISTORICOS,
                 ruta_carpeta=CARPETA_REPORTES_HISTORICOS,
                 incluir_archivos=incluir_archivos,
-                profundidad_maxima=2,
+                profundidad_maxima=1,
             )
+            nombres_hist = [c["nombre"] for c in resumen_historicos["subcarpetas"]]
+            antigua_hist, reciente_hist = _obtener_rango_fechas_carpetas(nombres_hist)
             resultado_contenedores["documentos_entrada"] = {
                 "id": historicos_id,
                 "nombre": CARPETA_REPORTES_HISTORICOS,
                 "total_carpetas": len(resumen_historicos["subcarpetas"]),
-                "nombres_carpetas": [c["nombre"] for c in resumen_historicos["subcarpetas"]],
+                "carpeta_mas_antigua": antigua_hist,
+                "carpeta_mas_reciente": reciente_hist,
+                "nombres_carpetas": nombres_hist,
                 "carpetas": resumen_historicos["subcarpetas"],
                 "archivos_sueltos": resumen_historicos.get("archivos", []),
             }
@@ -554,6 +612,8 @@ def explorar_estructura_drive(
                 "id": None,
                 "nombre": CARPETA_REPORTES_HISTORICOS,
                 "total_carpetas": 0,
+                "carpeta_mas_antigua": None,
+                "carpeta_mas_reciente": None,
                 "nombres_carpetas": [],
                 "carpetas": [],
                 "archivos_sueltos": [],
@@ -572,6 +632,13 @@ def explorar_estructura_drive(
     total_en_historicos = (
         resultado_contenedores.get("documentos_entrada", {}).get("total_carpetas", 0)
     )
+    todas_las_fechas = (
+        resultado_contenedores.get("entradas_al_inventario", {}).get("nombres_carpetas", [])
+        + resultado_contenedores.get("documentos_entrada", {}).get("nombres_carpetas", [])
+    )
+    carpeta_mas_antigua_global, carpeta_mas_reciente_global = _obtener_rango_fechas_carpetas(
+        todas_las_fechas
+    )
 
     return {
         "ok": True,
@@ -581,12 +648,19 @@ def explorar_estructura_drive(
         "resumen": {
             "total_carpetas_en_entradas_al_inventario": total_en_entradas,
             "total_carpetas_en_documentos_entrada": total_en_historicos,
+            "carpeta_mas_antigua_global": carpeta_mas_antigua_global,
+            "carpeta_mas_reciente_global": carpeta_mas_reciente_global,
             "otras_carpetas_en_raiz": len(otras_carpetas_raiz),
             "archivos_sueltos_en_raiz": len(archivos_sueltos_raiz),
         },
         "mensaje": (
             f"Estructura de Google Drive consultada: {total_en_entradas} carpeta(s) en "
             f"ENTRADAS AL INVENTARIO y {total_en_historicos} carpeta(s) en DOCUMENTOS ENTRADA."
+            + (
+                f" La carpeta más reciente por fecha es '{carpeta_mas_reciente_global}'."
+                if carpeta_mas_reciente_global
+                else ""
+            )
         ),
     }
 
@@ -765,7 +839,10 @@ def auditar_facturas_drive(
         carpetas_hijas = [
             h for h in hijos_contenedor if h.get("mimeType") == MIME_CARPETA
         ]
-        for carpeta in sorted(carpetas_hijas, key=lambda x: x.get("name", "").casefold()):
+        for carpeta in sorted(
+            carpetas_hijas,
+            key=lambda x: _clave_orden_carpeta(x.get("name", "")),
+        ):
             nombre_c = carpeta.get("name", "")
             if es_carpeta_archivos_sueltos(nombre_c) and not filtro_nombre:
                 continue
@@ -1132,10 +1209,165 @@ def eliminar_elemento_por_ruta(
     }
 
 
+def inspeccionar_xml_drive(
+    carpeta_o_archivo: str,
+    cliente: Any | None = None,
+    carpeta_raiz_id: str | None = None,
+) -> dict[str, Any]:
+    """
+    Lee en modo solo lectura los metadatos y conceptos de los archivos XML en una carpeta o ruta de Google Drive.
+
+    No modifica carpetas, no cambia el estado de sincronización ni genera reportes.
+    """
+    cliente = cliente or crear_cliente_drive()
+    raiz_id = carpeta_raiz_id or settings.google_drive_folder_id
+    if not raiz_id:
+        raise GoogleDriveConfigError("Falta GOOGLE_DRIVE_FOLDER_ID")
+
+    if not carpeta_o_archivo or not carpeta_o_archivo.strip():
+        raise ValueError(
+            "Debes indicar la carpeta, fecha o nombre del archivo XML que deseas inspeccionar."
+        )
+
+    objetivo = resolver_ruta_drive(cliente, carpeta_o_archivo.strip(), carpeta_raiz_id=raiz_id)
+    archivos_xml_drive: list[tuple[dict[str, Any], str]] = []
+
+    if not objetivo["es_carpeta"]:
+        if Path(objetivo["nombre"]).suffix.lower() != ".xml":
+            raise ValueError(
+                f"El archivo '{objetivo['ruta_completa']}' no es un archivo XML."
+            )
+        archivos_xml_drive.append(
+            (
+                {
+                    "id": objetivo["id"],
+                    "name": objetivo["nombre"],
+                    "mimeType": objetivo.get("mimeType", "text/xml"),
+                },
+                objetivo["padre_id"] or raiz_id,
+            )
+        )
+    else:
+        hijos = _listar_hijos(cliente, objetivo["id"])
+        for h in hijos:
+            if (
+                h.get("mimeType") != MIME_CARPETA
+                and Path(h.get("name", "")).suffix.lower() == ".xml"
+                and not es_archivo_generado(h.get("name", ""))
+            ):
+                archivos_xml_drive.append((h, objetivo["id"]))
+
+        # Si están organizados dentro de subcarpetas de proveedor, buscar un nivel abajo
+        if not archivos_xml_drive:
+            for sub in hijos:
+                if sub.get("mimeType") == MIME_CARPETA:
+                    for nieto in _listar_hijos(cliente, sub["id"]):
+                        if (
+                            nieto.get("mimeType") != MIME_CARPETA
+                            and Path(nieto.get("name", "")).suffix.lower() == ".xml"
+                            and not es_archivo_generado(nieto.get("name", ""))
+                        ):
+                            archivos_xml_drive.append((nieto, sub["id"]))
+
+    if not archivos_xml_drive:
+        return {
+            "ok": True,
+            "tipo": "inspeccionar_xml",
+            "ruta_consultada": objetivo["ruta_completa"],
+            "total_xml": 0,
+            "facturas": [],
+            "mensaje": f"No se encontraron archivos XML dentro de '{objetivo['ruta_completa']}'.",
+        }
+
+    facturas_detalle: list[dict[str, Any]] = []
+    with tempfile.TemporaryDirectory(prefix="flucito_inspeccion_xml_") as temp_dir:
+        raiz_temp = Path(temp_dir)
+        for indice, (item_xml, padre_id) in enumerate(archivos_xml_drive):
+            nombre_xml = item_xml.get("name", f"factura_{indice}.xml")
+            ruta_local = raiz_temp / f"{indice}_{Path(nombre_xml).name}"
+            archivo_obj = DriveArchivo(
+                id=item_xml["id"],
+                nombre=nombre_xml,
+                mime_type=item_xml.get("mimeType", "text/xml"),
+                modificado=item_xml.get("modifiedTime", ""),
+                carpeta_id=padre_id,
+            )
+            descargar_archivo(cliente, archivo_obj, ruta_local)
+            meta = extractor.leer_meta(str(ruta_local))
+            conceptos_raw = extractor.extraer_conceptos(str(ruta_local))
+
+            moneda = (
+                str(conceptos_raw[0].get("moneda") or "MXN")
+                if conceptos_raw
+                else "MXN"
+            )
+            subtotal_estimado = round(
+                sum(
+                    (
+                        float(c["importe"])
+                        if c.get("importe") is not None
+                        else float(c.get("cantidad") or 1.0)
+                        * float(c.get("valor_unitario") or 0.0)
+                    )
+                    - float(c.get("descuento") or 0.0)
+                    for c in conceptos_raw
+                ),
+                2,
+            )
+            conceptos_resumen = [
+                {
+                    "no_identificacion": c.get("no_identificacion"),
+                    "descripcion": c.get("descripcion"),
+                    "cantidad": c.get("cantidad"),
+                    "clave_unidad": c.get("clave_unidad"),
+                    "clave_prod_serv": c.get("clave_prod_serv"),
+                    "valor_unitario": c.get("valor_unitario"),
+                    "descuento": c.get("descuento"),
+                    "importe": (
+                        c.get("importe")
+                        if c.get("importe") is not None
+                        else round(
+                            float(c.get("cantidad") or 1.0)
+                            * float(c.get("valor_unitario") or 0.0)
+                            - float(c.get("descuento") or 0.0),
+                            2,
+                        )
+                    ),
+                }
+                for c in conceptos_raw[:30]
+            ]
+            facturas_detalle.append(
+                {
+                    "archivo": nombre_xml,
+                    "proveedor": meta.get("proveedor_nombre") or "Proveedor desconocido",
+                    "rfc_proveedor": meta.get("rfc"),
+                    "folio": meta.get("folio"),
+                    "fecha_factura": meta.get("fecha")
+                    or (conceptos_raw[0].get("fecha_compra") if conceptos_raw else None),
+                    "moneda": moneda,
+                    "total_conceptos": len(conceptos_raw),
+                    "subtotal_estimado": subtotal_estimado,
+                    "conceptos": conceptos_resumen,
+                }
+            )
+
+    return {
+        "ok": True,
+        "tipo": "inspeccionar_xml",
+        "ruta_consultada": objetivo["ruta_completa"],
+        "total_xml": len(facturas_detalle),
+        "facturas": facturas_detalle,
+        "mensaje": (
+            f"Se inspeccionaron {len(facturas_detalle)} factura(s) XML en '{objetivo['ruta_completa']}'."
+        ),
+    }
+
+
 __all__ = [
     "resolver_ruta_drive",
     "explorar_estructura_drive",
     "auditar_facturas_drive",
+    "inspeccionar_xml_drive",
     "mover_elemento_por_ruta",
     "crear_carpeta_por_ruta",
     "eliminar_elemento_por_ruta",

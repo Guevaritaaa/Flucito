@@ -21,6 +21,7 @@ from app.services.almacen.fuentes.navegador_drive import (
     crear_carpeta_por_ruta,
     eliminar_elemento_por_ruta,
     explorar_estructura_drive,
+    inspeccionar_xml_drive,
     mover_elemento_por_ruta,
 )
 from app.services.almacen.fuentes.organizador import (
@@ -39,6 +40,7 @@ def consultar_drive(
         "explorar_estructura",
         "auditar_facturas",
         "buscar_reportes_excel",
+        "inspeccionar_xml",
     ],
     ubicacion: Literal[
         "todas",
@@ -58,7 +60,7 @@ def consultar_drive(
     proveedor: str | None = None,
     incluir_archivos: bool = True,
 ) -> str:
-    """Inspecciona Google Drive en modo solo lectura: explora carpetas/archivos, audita facturas incompletas o busca reportes Excel históricos."""
+    """Inspecciona Google Drive en modo solo lectura: explora carpetas/archivos, audita facturas incompletas, lee el contenido de un XML o busca reportes Excel históricos."""
     try:
         if modo_consulta == "explorar_estructura":
             resultado = explorar_estructura_drive(
@@ -73,6 +75,12 @@ def consultar_drive(
                 ubicacion=ubicacion,
                 carpeta_o_fecha=carpeta_o_fecha,
                 filtro_auditoria=filtro_auditoria,
+            )
+            return json.dumps(resultado, ensure_ascii=False)
+
+        if modo_consulta == "inspeccionar_xml":
+            resultado = inspeccionar_xml_drive(
+                carpeta_o_archivo=carpeta_o_fecha or "",
             )
             return json.dumps(resultado, ensure_ascii=False)
 

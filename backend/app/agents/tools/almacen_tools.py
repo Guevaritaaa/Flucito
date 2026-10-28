@@ -29,7 +29,11 @@ from app.services.almacen.factores import (
     formatear_menu_factores,
     guardar_factor_personalizado,
 )
-from app.services.almacen.fuentes.organizador import construir_advertencia_ubicacion
+from app.services.almacen.fuentes.organizador import (
+    construir_advertencia_ubicacion,
+    construir_aviso_reubicacion_previa,
+)
+from app.services.almacen.resumen import guardar_resumen_json
 from app.services.almacen.fuentes.sincronizador import (
     actualizar_precios_reportes_drive,
     construir_pregunta_interactiva,
@@ -337,28 +341,52 @@ def generar_entradas_almacen(
                 ensure_ascii=False,
             )
 
+        carpetas_reubicadas = sincronizacion.get("carpetas_reubicadas") or []
+
         if sincronizacion.get("cancelado_por_usuario"):
-            return json.dumps(
-                {
-                    "ok": True,
-                    "reporte_generado": False,
-                    "cancelado_por_usuario": True,
-                    "mensaje": sincronizacion["mensaje"],
-                },
-                ensure_ascii=False,
+            aviso_reubicacion = sincronizacion.get("advertencia_ubicacion") or (
+                construir_aviso_reubicacion_previa(carpetas_reubicadas)
+                if carpetas_reubicadas
+                else None
             )
+            mensaje_cancelado = sincronizacion["mensaje"]
+            if aviso_reubicacion and aviso_reubicacion not in mensaje_cancelado:
+                mensaje_cancelado = f"{aviso_reubicacion}\n\n{mensaje_cancelado}"
+            salida_cancelado: dict[str, Any] = {
+                "ok": True,
+                "reporte_generado": False,
+                "cancelado_por_usuario": True,
+                "mensaje": mensaje_cancelado,
+            }
+            if carpetas_reubicadas:
+                salida_cancelado["carpetas_reubicadas"] = carpetas_reubicadas
+                salida_cancelado["advertencia_ubicacion"] = aviso_reubicacion
+            return json.dumps(salida_cancelado, ensure_ascii=False)
 
         if sincronizacion.get("requiere_confirmacion"):
+            datos_conf = dict(sincronizacion)
+            if carpetas_reubicadas:
+                aviso_reubicacion = datos_conf.get("advertencia_ubicacion") or (
+                    construir_aviso_reubicacion_previa(carpetas_reubicadas)
+                )
+                datos_conf["advertencia_ubicacion"] = aviso_reubicacion
+                pregunta_actual = datos_conf.get("pregunta_usuario") or ""
+                if aviso_reubicacion not in pregunta_actual:
+                    pregunta_con_aviso = (
+                        f"{aviso_reubicacion}\n\n{pregunta_actual}"
+                        if pregunta_actual
+                        else aviso_reubicacion
+                    )
+                    datos_conf["pregunta_usuario"] = pregunta_con_aviso
+                    datos_conf["pregunta_sugerida"] = pregunta_con_aviso
             return json.dumps(
                 {
                     "ok": True,
                     "reporte_generado": False,
-                    **sincronizacion,
+                    **datos_conf,
                 },
                 ensure_ascii=False,
             )
-
-        carpetas_reubicadas = sincronizacion.get("carpetas_reubicadas") or []
         if sincronizacion["carpetas"] == 0 or sincronizacion.get("carpetas_nuevas", 0) == 0:
             logger.info("Drive: Sin documentos nuevos o carpetas. Verificando si existe base previa...")
             ruta_resumen = carpeta_datos / NOMBRE_ARCHIVO_RESUMEN
@@ -540,8 +568,14 @@ def generar_entradas_almacen(
         resumen["documentos_nuevos"] = sincronizacion["archivos"]
         resumen["carpetas_drive"] = sincronizacion["carpetas"]
         resumen["archivos_drive"] = sincronizacion["archivos"]
+        if sincronizacion.get("carpetas_procesadas"):
+            resumen["carpetas_procesadas"] = sincronizacion["carpetas_procesadas"]
         if carpetas_reubicadas:
             resumen["carpetas_reubicadas"] = carpetas_reubicadas
+        try:
+            guardar_resumen_json(resumen, carpeta / NOMBRE_ARCHIVO_RESUMEN)
+        except Exception as err_save:
+            logger.warning("No se pudo persistir metadatos de Drive en resumen JSON: %s", err_save)
 
     salida: dict = {
         "ok": True,

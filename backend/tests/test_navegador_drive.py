@@ -279,3 +279,98 @@ def test_mover_crear_y_eliminar_con_confirmacion_de_seguridad(monkeypatch) -> No
     )
     assert res_protegido["ok"] is False
     assert "entradas-id" not in eliminados
+
+
+def test_orden_cronologico_carpetas_fecha_y_carpeta_mas_reciente(monkeypatch) -> None:
+    """Verifica que las carpetas DD-MM-YYYY se ordenen cronológicamente y se identifique 26-10-2026 como la más reciente."""
+    estructura = {
+        "root-id": [
+            {"id": "entradas-id", "name": "ENTRADAS AL INVENTARIO", "mimeType": MIME_CARPETA},
+            {"id": "historicos-id", "name": "DOCUMENTOS ENTRADA", "mimeType": MIME_CARPETA},
+        ],
+        "entradas-id": [
+            {"id": "c-24-10", "name": "24-10-2026", "mimeType": MIME_CARPETA},
+            {"id": "c-26-09", "name": "26-09-2026", "mimeType": MIME_CARPETA},
+            {"id": "c-26-10", "name": "26-10-2026", "mimeType": MIME_CARPETA},
+            {"id": "c-28-09", "name": "28-09-2026", "mimeType": MIME_CARPETA},
+            {"id": "c-20-10", "name": "20-10-2026", "mimeType": MIME_CARPETA},
+        ],
+        "historicos-id": [],
+        "c-24-10": [],
+        "c-26-09": [],
+        "c-26-10": [{"id": "xml-26", "name": "GAA6000335597.xml", "mimeType": "text/xml"}],
+        "c-28-09": [],
+        "c-20-10": [],
+    }
+    monkeypatch.setattr(settings, "google_drive_folder_id", "root-id")
+    monkeypatch.setattr(
+        navegador_drive,
+        "_listar_hijos",
+        lambda cliente, carpeta_id: estructura.get(carpeta_id, []),
+    )
+
+    resultado = navegador_drive.explorar_estructura_drive(
+        ubicacion="todas",
+        cliente=object(),
+        carpeta_raiz_id="root-id",
+    )
+    info_entradas = resultado["contenedores"]["entradas_al_inventario"]
+    assert info_entradas["nombres_carpetas"] == [
+        "26-09-2026",
+        "28-09-2026",
+        "20-10-2026",
+        "24-10-2026",
+        "26-10-2026",
+    ]
+    assert info_entradas["carpeta_mas_antigua"] == "26-09-2026"
+    assert info_entradas["carpeta_mas_reciente"] == "26-10-2026"
+    assert resultado["resumen"]["carpeta_mas_reciente_global"] == "26-10-2026"
+
+
+def test_inspeccionar_xml_drive_solo_lectura(monkeypatch) -> None:
+    """Verifica que inspeccionar_xml_drive lea proveedor, folio y conceptos de un XML sin mover carpetas."""
+    estructura = {
+        "root-id": [
+            {"id": "entradas-id", "name": "ENTRADAS AL INVENTARIO", "mimeType": MIME_CARPETA},
+        ],
+        "entradas-id": [
+            {"id": "c-26-10", "name": "26-10-2026", "mimeType": MIME_CARPETA},
+        ],
+        "c-26-10": [
+            {"id": "xml-26", "name": "GAA6000335597.xml", "mimeType": "text/xml"},
+        ],
+    }
+    xml_cfdi = """<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" Folio="335597" Fecha="2026-10-26T10:15:00" Moneda="MXN">
+  <cfdi:Emisor Rfc="GAA010101AAA" Nombre="GRUPO INDUSTRIAL GAA SA DE CV"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto ClaveProdServ="40141600" NoIdentificacion="VALV-01" Cantidad="4" ClaveUnidad="H87" Descripcion="VALVULA DIRECCIONAL 1/2" ValorUnitario="1250.00" Importe="5000.00" Descuento="0.00"/>
+  </cfdi:Conceptos>
+</cfdi:Comprobante>"""
+
+    monkeypatch.setattr(settings, "google_drive_folder_id", "root-id")
+    monkeypatch.setattr(
+        navegador_drive,
+        "_listar_hijos",
+        lambda cliente, carpeta_id: estructura.get(carpeta_id, []),
+    )
+    monkeypatch.setattr(
+        navegador_drive,
+        "descargar_archivo",
+        lambda cliente, archivo, destino: destino.write_text(xml_cfdi, encoding="utf-8"),
+    )
+
+    inspeccion = navegador_drive.inspeccionar_xml_drive(
+        carpeta_o_archivo="26-10-2026",
+        cliente=object(),
+        carpeta_raiz_id="root-id",
+    )
+    assert inspeccion["ok"] is True
+    assert inspeccion["total_xml"] == 1
+    factura = inspeccion["facturas"][0]
+    assert factura["archivo"] == "GAA6000335597.xml"
+    assert factura["proveedor"] == "GRUPO INDUSTRIAL GAA SA DE CV"
+    assert factura["folio"] == 335597
+    assert factura["subtotal_estimado"] == 5000.0
+    assert factura["conceptos"][0]["no_identificacion"] == "VALV-01"
+    assert factura["conceptos"][0]["descripcion"] == "VALVULA DIRECCIONAL 1/2"
