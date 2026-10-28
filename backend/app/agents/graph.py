@@ -13,6 +13,8 @@ from app.agents.llm_router import crear_llms
 
 logger = logging.getLogger(__name__)
 
+MAX_ITERACIONES_TOOLS = 4
+
 llm_primario, llm_respaldo = crear_llms()
 llm_primario_con_herramientas = llm_primario.bind_tools(HERRAMIENTAS)
 llm_respaldo_con_herramientas = (
@@ -67,8 +69,40 @@ def invocar_con_fallback(mensajes: list, primario, respaldo):
         return primario.invoke(mensajes)
 
 
+def contar_rondas_herramientas_turno_actual(mensajes: list) -> int:
+    """Cuenta cuántas rondas de llamada a herramientas se han ejecutado desde el último mensaje del usuario."""
+    rondas = 0
+    for mensaje in reversed(mensajes):
+        tipo = getattr(mensaje, "type", None)
+        if tipo == "human":
+            break
+        if tipo == "ai" and getattr(mensaje, "tool_calls", None):
+            rondas += 1
+    return rondas
+
+
 def nodo_flucito(state: AsistenteState) -> AsistenteState:
-    """Nodo principal de Flucito."""
+    """Nodo principal de Flucito con límite de rondas de herramientas por turno."""
+    rondas_actuales = contar_rondas_herramientas_turno_actual(state["messages"])
+
+    if rondas_actuales >= MAX_ITERACIONES_TOOLS:
+        logger.warning(
+            "Se alcanzó el límite de %d rondas de herramientas en este turno; sintetizando respuesta final.",
+            MAX_ITERACIONES_TOOLS,
+        )
+        prompt_cierre = (
+            f"{SYSTEM_PROMPT}\n\n"
+            "NOTA DEL SISTEMA: Ya alcanzaste el límite máximo de llamadas a herramientas para este mensaje. "
+            "Responde ahora directamente al usuario resumiendo la información que ya obtuviste."
+        )
+        mensajes = [SystemMessage(content=prompt_cierre)] + state["messages"]
+        respuesta = invocar_con_fallback(
+            mensajes,
+            llm_primario,
+            llm_respaldo,
+        )
+        return {"messages": [respuesta]}
+
     mensajes = [SystemMessage(content=SYSTEM_PROMPT)] + state["messages"]
     respuesta = invocar_con_fallback(
         mensajes,
@@ -79,9 +113,12 @@ def nodo_flucito(state: AsistenteState) -> AsistenteState:
 
 
 def siguiente_nodo(state: AsistenteState) -> str:
-    """Envía la ejecución a herramientas solo cuando el modelo las solicita."""
+    """Envía la ejecución a herramientas solo cuando el modelo las solicita y no excede el límite."""
     ultima_respuesta = state["messages"][-1]
     if getattr(ultima_respuesta, "tool_calls", None):
+        rondas = contar_rondas_herramientas_turno_actual(state["messages"])
+        if rondas > MAX_ITERACIONES_TOOLS:
+            return END
         return "herramientas"
     return END
 

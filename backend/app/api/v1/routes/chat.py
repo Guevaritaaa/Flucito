@@ -111,6 +111,8 @@ def _ejecutar_chat(request: ChatRequest) -> ChatResponse:
         if datos.get("ok") and datos.get("tipo") == "ordenar_todo":
             if datos.get("advertencia_archivos_sueltos") and not advertencia_archivos_sueltos:
                 advertencia_archivos_sueltos = str(datos["advertencia_archivos_sueltos"])
+        if datos.get("ok") and datos.get("advertencia_ubicacion") and not advertencia_ubicacion:
+            advertencia_ubicacion = str(datos["advertencia_ubicacion"])
         if (
             datos.get("ok")
             and datos.get("tipo") == "actualizar_precios_reportes"
@@ -120,8 +122,6 @@ def _ejecutar_chat(request: ChatRequest) -> ChatResponse:
             archivo_almacen_url = "/api/v1/almacen/download"
         if datos.get("ok") and datos.get("reporte_generado") and datos.get("resumen"):
             archivo_almacen_url = "/api/v1/almacen/download"
-            if datos.get("advertencia_ubicacion") and not advertencia_ubicacion:
-                advertencia_ubicacion = str(datos["advertencia_ubicacion"])
 
     if (
         advertencia_ubicacion
@@ -216,4 +216,3 @@ def consultar_estado_chat(job_id: str) -> ChatJobStatusResponse:
             result=job["result"],
             error=job["error"],
         )
-

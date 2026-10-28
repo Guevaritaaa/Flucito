@@ -1,6 +1,15 @@
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 import pytest
 
-from app.agents.graph import es_error_reintentable, invocar_con_fallback
+from app.agents import graph
+from app.agents.graph import (
+    MAX_ITERACIONES_TOOLS,
+    contar_rondas_herramientas_turno_actual,
+    es_error_reintentable,
+    invocar_con_fallback,
+    nodo_flucito,
+)
+from app.agents.llm_router import crear_llm_groq
 
 
 class ErrorConEstado(Exception):
@@ -57,3 +66,43 @@ def test_reconoce_error_tool_use_failed_de_groq() -> None:
     assert invocar_con_fallback(["mensaje"], primario, respaldo) == "respuesta respaldo"
     assert primario.llamadas == 1
     assert respaldo.llamadas == 1
+
+
+def test_temperatura_baja_para_precision_en_herramientas() -> None:
+    modelo = crear_llm_groq()
+    assert getattr(modelo, "temperature", None) == 0.1
+
+
+def test_limite_de_iteraciones_corta_bucle_de_herramientas(monkeypatch) -> None:
+    modelo_con_tools = ModeloFalso(respuesta=AIMessage(content="con tools"))
+    modelo_sin_tools = ModeloFalso(respuesta=AIMessage(content="respuesta final sintetizada"))
+
+    monkeypatch.setattr(graph, "llm_primario_con_herramientas", modelo_con_tools)
+    monkeypatch.setattr(graph, "llm_respaldo_con_herramientas", None)
+    monkeypatch.setattr(graph, "llm_primario", modelo_sin_tools)
+    monkeypatch.setattr(graph, "llm_respaldo", None)
+
+    mensajes_turno = [HumanMessage(content="Revisa y ordena todo")]
+    for i in range(MAX_ITERACIONES_TOOLS):
+        mensajes_turno.append(
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "consultar_drive",
+                        "args": {"modo_consulta": "explorar_estructura"},
+                        "id": f"call_{i}",
+                    }
+                ],
+            )
+        )
+        mensajes_turno.append(
+            ToolMessage(content='{"ok": true}', tool_call_id=f"call_{i}")
+        )
+
+    assert contar_rondas_herramientas_turno_actual(mensajes_turno) == MAX_ITERACIONES_TOOLS
+
+    resultado = nodo_flucito({"messages": mensajes_turno})
+    assert resultado["messages"][-1].content == "respuesta final sintetizada"
+    assert modelo_con_tools.llamadas == 0
+    assert modelo_sin_tools.llamadas == 1

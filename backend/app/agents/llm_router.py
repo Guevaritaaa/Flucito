@@ -12,7 +12,7 @@ def crear_llm_groq() -> BaseChatModel:
     return ChatGroq(
         model=settings.groq_model,
         api_key=settings.groq_api_key,
-        temperature=0.4,
+        temperature=0.1,
     )
 
 
@@ -24,7 +24,7 @@ def crear_llm_openai() -> BaseChatModel:
     return ChatOpenAI(
         model=settings.openai_model,
         api_key=settings.openai_api_key,
-        temperature=0.4,
+        temperature=0.1,
         reasoning_effort="none",
     )
 
