@@ -184,14 +184,20 @@ def normalizar_fecha_reporte(fecha: str) -> str:
     raise ValueError("Usa una fecha válida en formato DD-MM-AAAA o AAAA-MM-DD")
 
 
-def buscar_reportes_historicos(fecha: str, cliente: Any | None = None) -> list[dict[str, str]]:
-    """Busca Excel históricos dentro de DOCUMENTOS ENTRADA/{fecha} en la raíz configurada."""
+def buscar_reportes_historicos(
+    fecha: str | None = None,
+    cliente: Any | None = None,
+    proveedor: str | None = None,
+) -> list[dict[str, str]]:
+    """Busca reportes Excel históricos dentro de DOCUMENTOS ENTRADA, filtrando opcionalmente por fecha y/o proveedor."""
     cliente = cliente or crear_cliente_drive()
     root_id = settings.google_drive_folder_id
     if not root_id:
         raise GoogleDriveConfigError("Falta GOOGLE_DRIVE_FOLDER_ID")
 
-    fecha_normalizada = normalizar_fecha_reporte(fecha)
+    fecha_normalizada = normalizar_fecha_reporte(fecha) if fecha and fecha.strip() else None
+    filtro_proveedor = proveedor.strip().casefold() if proveedor and proveedor.strip() else None
+
     carpetas_archivo = [
         elemento
         for elemento in _listar_hijos(cliente, root_id)
@@ -201,38 +207,61 @@ def buscar_reportes_historicos(fecha: str, cliente: Any | None = None) -> list[d
 
     reportes: list[dict[str, str]] = []
     for carpeta_archivo in carpetas_archivo:
-        carpetas_fecha = [
-            elemento
-            for elemento in _listar_hijos(cliente, carpeta_archivo["id"])
-            if elemento.get("mimeType") == MIME_CARPETA
-            and elemento.get("name") == fecha_normalizada
-        ]
+        hijos_archivo = _listar_hijos(cliente, carpeta_archivo["id"])
+        if fecha_normalizada:
+            carpetas_fecha = [
+                elemento
+                for elemento in hijos_archivo
+                if elemento.get("mimeType") == MIME_CARPETA
+                and elemento.get("name") == fecha_normalizada
+            ]
+        else:
+            carpetas_fecha = [
+                elemento
+                for elemento in hijos_archivo
+                if elemento.get("mimeType") == MIME_CARPETA
+                and not elemento.get("name", "").upper().startswith("ARCHIVOS_SUELTOS_")
+            ]
+
         for carpeta_fecha in carpetas_fecha:
-            pendientes = [carpeta_fecha["id"]]
+            nombre_fecha_carpeta = fecha_normalizada or carpeta_fecha.get("name", "")
+            pendientes: list[tuple[str, str]] = [
+                (carpeta_fecha["id"], carpeta_fecha.get("name", ""))
+            ]
             visitadas: set[str] = set()
             while pendientes:
-                carpeta_id = pendientes.pop()
+                carpeta_id, nombre_carpeta_actual = pendientes.pop()
                 if carpeta_id in visitadas:
                     continue
                 visitadas.add(carpeta_id)
                 for elemento in _listar_hijos(cliente, carpeta_id):
                     if elemento.get("mimeType") == MIME_CARPETA:
-                        pendientes.append(elemento["id"])
+                        pendientes.append((elemento["id"], elemento.get("name", "")))
                         continue
                     nombre = elemento.get("name", "")
                     if (
                         Path(nombre).suffix.lower() == ".xlsx"
                         and nombre.upper().startswith(PREFIJO_REPORTE)
                     ):
+                        if filtro_proveedor:
+                            coincide_archivo = filtro_proveedor in nombre.casefold()
+                            coincide_carpeta = (
+                                filtro_proveedor in nombre_carpeta_actual.casefold()
+                            )
+                            if not (coincide_archivo or coincide_carpeta):
+                                continue
                         reportes.append(
                             {
                                 "id": elemento["id"],
                                 "nombre": nombre,
-                                "fecha": fecha_normalizada,
+                                "fecha": nombre_fecha_carpeta,
                             }
                         )
 
-    return sorted(reportes, key=lambda reporte: reporte["nombre"].casefold())
+    return sorted(
+        reportes,
+        key=lambda reporte: (reporte["fecha"], reporte["nombre"].casefold()),
+    )
 
 
 def descargar_archivo(cliente: Any, archivo: DriveArchivo, destino: Path) -> Path:
