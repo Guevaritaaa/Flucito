@@ -1,23 +1,34 @@
-"""Pruebas unitarias para el paquete modular de herramientas del agente (Fase 2)."""
+"""Pruebas unitarias y de integración para las 6 herramientas del agente Flucito."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 import pandas as pd
+import pytest
+from pydantic import ValidationError
 
 from app.agents import tools
 from app.agents.tools import (
     HERRAMIENTAS,
     actualizar_precios_reportes_generados,
+    almacen_tools,
     consultar_almacen,
     consultar_drive,
+    drive_tools,
     generar_entradas_almacen,
     gestionar_archivos_drive,
     preparar_entorno_pruebas,
 )
-from app.agents.tools import drive_tools
+from app.agents.tools.schemas import (
+    ConsultarAlmacenInput,
+    ConsultarDriveInput,
+    GestionarArchivosDriveInput,
+)
+from app.api.v1.routes import chat as chat_route
+from app.schemas.chat import ChatRequest
 
 
 def test_lista_herramientas_contiene_exactamente_las_6_tools_ortogonales() -> None:
@@ -31,6 +42,28 @@ def test_lista_herramientas_contiene_exactamente_las_6_tools_ortogonales() -> No
         "actualizar_precios_reportes_generados",
         "preparar_entorno_pruebas",
     ]
+
+
+def test_esquemas_pydantic_planos_validan_literales_y_limitan_parametros() -> None:
+    """Verifica que los esquemas Pydantic sean planos (sin submodelos anidados) y rechacen valores fuera de Literal."""
+    for herramienta in HERRAMIENTAS:
+        esquema = herramienta.args_schema.model_json_schema()
+        propiedades = esquema.get("properties", {})
+        assert "$defs" not in esquema, (
+            f"La herramienta {herramienta.name} no debe tener submodelos anidados ($defs)"
+        )
+        assert len(propiedades) <= 7, (
+            f"La herramienta {herramienta.name} excede el límite de parámetros planos"
+        )
+
+    with pytest.raises(ValidationError):
+        ConsultarDriveInput(modo_consulta="modo_inexistente")  # type: ignore[arg-type]
+
+    with pytest.raises(ValidationError):
+        GestionarArchivosDriveInput(accion="accion_inexistente")  # type: ignore[arg-type]
+
+    with pytest.raises(ValidationError):
+        ConsultarAlmacenInput(tipo_consulta="consulta_inexistente")  # type: ignore[arg-type]
 
 
 def test_consultar_drive_modos_explorar_auditar_y_buscar_reportes(monkeypatch) -> None:
@@ -239,3 +272,118 @@ def test_consultar_almacen_resumen_busqueda_y_factores(monkeypatch, tmp_path: Pa
     assert res_busqueda["ok"] is True
     assert res_busqueda["total_coincidencias"] == 1
     assert res_busqueda["entradas"][0]["Clave Artículo"] == "CIL-01"
+
+
+def test_generar_entradas_actualizar_precios_y_preparar_pruebas(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Verifica el despacho de generar_entradas_almacen, actualizar_precios_reportes_generados y preparar_entorno_pruebas."""
+    monkeypatch.setattr(tools, "CARPETA_DATOS", tmp_path)
+    monkeypatch.setattr(almacen_tools.settings, "google_drive_folder_id", "folder-root")
+    monkeypatch.setattr(almacen_tools.settings, "google_service_account_json", '{"type": "service_account"}')
+
+    ruta_resumen = tmp_path / "BASE_ENTRADAS_ALMACEN_RESUMEN.json"
+    ruta_resumen.write_text(
+        json.dumps({"total_registros": 3, "proveedores": ["FESTO"]}),
+        encoding="utf-8",
+    )
+
+    parametros_recibidos: dict = {}
+
+    def falso_sincronizar(**kwargs):
+        parametros_recibidos.update(kwargs)
+        return {
+            "carpetas": 1,
+            "carpetas_nuevas": 1,
+            "archivos": 2,
+            "carpetas_reubicadas": ["18-03-2026"],
+        }
+
+    monkeypatch.setattr(almacen_tools, "sincronizar_drive", falso_sincronizar)
+    monkeypatch.setattr(
+        almacen_tools,
+        "actualizar_precios_reportes_drive",
+        lambda **kwargs: {
+            "reportes_actualizados": 2,
+            "base_local_actualizada": True,
+        },
+    )
+    from app.services.almacen.fuentes import limpieza
+
+    monkeypatch.setattr(
+        limpieza,
+        "restaurar_entorno_pruebas",
+        lambda: {
+            "ok": True,
+            "reportes_eliminados": 4,
+            "carpetas_movidas": 1,
+        },
+    )
+
+    res_generar = json.loads(
+        generar_entradas_almacen.invoke(
+            {
+                "confirmar_solo_xml": True,
+                "factores_elegidos": {"FESTO": "1"},
+            }
+        )
+    )
+    assert res_generar["ok"] is True
+    assert res_generar["reporte_generado"] is True
+    assert res_generar["carpetas_reubicadas"] == ["18-03-2026"]
+    assert parametros_recibidos["confirmar_solo_xml"] is True
+    assert parametros_recibidos["factores_elegidos"] == {"FESTO": "1"}
+
+    res_precios = json.loads(
+        actualizar_precios_reportes_generados.invoke(
+            {"fecha": "18-03-2026", "factores_elegidos": {"FESTO": "1"}}
+        )
+    )
+    assert res_precios["ok"] is True
+    assert res_precios["reportes_actualizados"] == 2
+
+    res_pruebas = json.loads(preparar_entorno_pruebas.invoke({}))
+    assert res_pruebas["ok"] is True
+    assert res_pruebas["reportes_eliminados"] == 4
+
+
+def test_chat_endpoint_integra_avisos_y_bloqueo_de_confirmacion_con_nuevas_tools(monkeypatch) -> None:
+    """Verifica que _ejecutar_chat procese avisos de ubicación y bloqueos de confirmación de las nuevas tools."""
+    class GrafoFalso:
+        def invoke(self, estado, config=None):
+            return {
+                "messages": [
+                    HumanMessage(content="Elimina la carpeta 18-03-2026"),
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "gestionar_archivos_drive",
+                                "args": {"accion": "eliminar_elemento", "ruta_origen": "18-03-2026"},
+                                "id": "call_del",
+                            }
+                        ],
+                    ),
+                    ToolMessage(
+                        content=json.dumps(
+                            {
+                                "ok": False,
+                                "requiere_confirmacion": True,
+                                "tipo": "eliminar_elemento",
+                                "pregunta_usuario": "La carpeta contiene 3 archivos. ¿Confirmas eliminarla?",
+                            }
+                        ),
+                        tool_call_id="call_del",
+                    ),
+                    AIMessage(
+                        content="La carpeta **18-03-2026** contiene 3 archivos. ¿Confirmas que deseas eliminarla?"
+                    ),
+                ]
+            }
+
+    monkeypatch.setattr(chat_route, "grafo", GrafoFalso())
+    respuesta = chat_route._ejecutar_chat(
+        ChatRequest(mensaje="Elimina la carpeta 18-03-2026", session_id="ses-test")
+    )
+    assert "contiene 3 archivos" in respuesta.respuesta
+    assert respuesta.archivo_almacen_url is None
