@@ -15,7 +15,7 @@ import openpyxl
 import pandas as pd
 from openpyxl.styles import Alignment, Font, PatternFill
 
-from app.services.almacen.apoyo import buscar_dato, obtener_apoyo_por_folio
+from app.services.almacen.apoyo import buscar_dato, emparejar_conceptos_con_apoyo, obtener_apoyo_por_folio
 from app.services.almacen.extractor import CARPETA_DATOS, extraer_conceptos, leer_meta
 from app.services.almacen.factores import (
     COLUMNAS_FACTORES,
@@ -209,7 +209,7 @@ def procesar_xml(
     if meta["folio"] is not None and meta["year"]:
         apoyo = obtener_apoyo_por_folio(carpeta, meta["year"], meta["folio"], rfc_proveedor=meta.get("rfc"))
 
-    datos = [
+    datos = emparejar_conceptos_con_apoyo(conceptos, apoyo) or [
         buscar_dato(apoyo, c["no_identificacion"]) or buscar_dato(apoyo, c["codigo_secundario"])
         for c in conceptos
     ]
@@ -245,6 +245,7 @@ def procesar_xml(
         for c, d in zip(conceptos, datos)
     ]
     df = pd.DataFrame(filas, columns=COLUMNAS_ASPEL)
+    df.attrs["tiene_apoyo"] = bool(apoyo)
     df.attrs["meta_por_clave"] = meta_por_clave
     logger.info(
         "[%s] %s productos XML (apoyo: %s items, proveedor: %s)",
@@ -364,7 +365,7 @@ def _extraer_mapa_apoyo_carpeta(carpeta: str) -> dict[str, dict[str, str]]:
         if not apoyo:
             continue
 
-        datos = [
+        datos = emparejar_conceptos_con_apoyo(conceptos, apoyo) or [
             buscar_dato(apoyo, c["no_identificacion"])
             or buscar_dato(apoyo, c["codigo_secundario"])
             for c in conceptos

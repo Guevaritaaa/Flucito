@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import threading
 import time
 import uuid
@@ -85,6 +86,7 @@ def _ejecutar_chat(request: ChatRequest) -> ChatResponse:
     reportes_historicos: list[dict[str, str]] = []
     advertencia_ubicacion: str | None = None
     advertencia_archivos_sueltos: str | None = None
+    advertencia_xmls_sin_apoyo: str | None = None
     bloqueado_por_confirmacion = False
     for mensaje in reversed(resultado["messages"]):
         tipo_mensaje = getattr(mensaje, "type", None)
@@ -99,6 +101,14 @@ def _ejecutar_chat(request: ChatRequest) -> ChatResponse:
         if datos.get("requiere_confirmacion") or datos.get("cancelado_por_usuario"):
             bloqueado_por_confirmacion = True
         if datos.get("ok") and datos.get("tipo") == "busqueda_historica" and not reportes_historicos:
+            lista_rep = datos.get("reportes", [])
+            if (
+                not datos.get("fecha")
+                and lista_rep
+                and re.search(r"\b(ultimo|último|reciente|recientes)\b", request.mensaje, re.IGNORECASE)
+            ):
+                fecha_mas_reciente = lista_rep[0].get("fecha")
+                lista_rep = [r for r in lista_rep if r.get("fecha") == fecha_mas_reciente]
             reportes_historicos = [
                 {
                     "nombre": reporte["nombre"],
@@ -106,13 +116,15 @@ def _ejecutar_chat(request: ChatRequest) -> ChatResponse:
                     "url": "/api/v1/almacen/download/historico?"
                     + urlencode({"fecha": reporte["fecha"], "archivo_id": reporte["id"]}),
                 }
-                for reporte in datos.get("reportes", [])
+                for reporte in lista_rep
             ]
         if datos.get("ok") and datos.get("tipo") == "ordenar_todo":
             if datos.get("advertencia_archivos_sueltos") and not advertencia_archivos_sueltos:
                 advertencia_archivos_sueltos = str(datos["advertencia_archivos_sueltos"])
         if datos.get("ok") and datos.get("advertencia_ubicacion") and not advertencia_ubicacion:
             advertencia_ubicacion = str(datos["advertencia_ubicacion"])
+        if datos.get("ok") and datos.get("advertencia_xmls_sin_apoyo") and not advertencia_xmls_sin_apoyo:
+            advertencia_xmls_sin_apoyo = str(datos["advertencia_xmls_sin_apoyo"])
         if (
             datos.get("ok")
             and datos.get("tipo") == "actualizar_precios_reportes"
@@ -148,6 +160,12 @@ def _ejecutar_chat(request: ChatRequest) -> ChatResponse:
         and "organiza manualmente" not in respuesta.lower()
     ):
         respuesta = f"{respuesta}\n\n{advertencia_archivos_sueltos}"
+
+    if (
+        advertencia_xmls_sin_apoyo
+        and "sin archivo de apoyo" not in respuesta.lower()
+    ):
+        respuesta = f"{respuesta}\n\n{advertencia_xmls_sin_apoyo}"
 
     # Si la base física existe y el asistente la menciona o el usuario la pidió
     if (

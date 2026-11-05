@@ -24,13 +24,37 @@ def _normaliza(codigo: str) -> str:
     return (codigo or "").strip().upper()
 
 
+def _normaliza_compacto(codigo: str) -> str:
+    """Elimina espacios y separadores no alfanuméricos para comparar 'FL 69221' con 'FL69221'."""
+    return re.sub(r"[^A-Z0-9]", "", _normaliza(codigo))
+
+
 def _coinciden(cod_a: str, cod_b: str) -> bool:
     a, b = _normaliza(cod_a), _normaliza(cod_b)
     if not a or not b:
         return False
     # el código del PDF a veces trae un sufijo extra (ej. "25KL4P05000X"
     # vs "25KL4P05000" que sale del XML) -> match por prefijo
-    return a == b or a.startswith(b) or b.startswith(a)
+    if a == b or a.startswith(b) or b.startswith(a):
+        return True
+    ac, bc = _normaliza_compacto(a), _normaliza_compacto(b)
+    if len(ac) >= 3 and len(bc) >= 3:
+        return ac == bc or ac.startswith(bc) or bc.startswith(ac)
+    return False
+
+
+def _completar_linea_unica_faltante(datos: list[dict]) -> None:
+    """
+    Si dentro de un mismo archivo de apoyo (TXT/PDF) la mayoría de partidas tienen
+    la misma línea (ej. 'BAN') y algunas vienen con la columna Línea en blanco,
+    propaga esa línea única a las partidas vacías del mismo documento.
+    """
+    lineas_presentes = {d.get("linea") for d in datos if d.get("linea")}
+    if len(lineas_presentes) == 1:
+        linea_unica = next(iter(lineas_presentes))
+        for d in datos:
+            if not d.get("linea"):
+                d["linea"] = linea_unica
 
 
 def extraer_numero_compra(texto: str) -> str | None:
@@ -126,6 +150,7 @@ def _leer_desde_pdf(ruta_pdf: str) -> list:
                     if dato:
                         datos.append(dato)
 
+    _completar_linea_unica_faltante(datos)
     if num_proveedor:
         for d in datos:
             d["numero_proveedor"] = num_proveedor
@@ -168,6 +193,16 @@ def _leer_desde_txt(ruta_txt: str) -> list:
                         "descripcion_corta": resto_desc or None,
                     })
                     continue
+                if cve_art and linea is None and PATRON_MONTOS_FINALES.search(linea_sin_salto):
+                    # Columna fija de Aspel SAE sin línea capturada (ej. 'BANDA AX41' en pos 62:)
+                    # No caer al regex libre para no robar la primera palabra de la descripción como línea.
+                    datos.append({
+                        "codigo_norm": _normaliza(cve_art),
+                        "clave_articulo": cve_art,
+                        "linea": None,
+                        "descripcion_corta": resto_desc or None,
+                    })
+                    continue
 
             m = PATRON_FILA_TXT.match(linea_txt)
             if not m:
@@ -193,6 +228,7 @@ def _leer_desde_txt(ruta_txt: str) -> list:
             else:
                 logger.warning(f"TXT parse match failed para articulo {cve_art}. Resto: '{resto}'")
 
+    _completar_linea_unica_faltante(datos)
     logger.info(f"TXT {os.path.basename(ruta_txt)}: {len(datos)} productos extraídos.")
     num_proveedor = extraer_numero_proveedor(contenido_completo)
     if num_proveedor:
@@ -287,10 +323,60 @@ def obtener_apoyo_por_folio(carpeta: str, year: str, folio: int, rfc_proveedor: 
 
 def buscar_dato(apoyo: list, codigo_concepto: str) -> dict | None:
     """Empareja el código del concepto XML contra la lista de apoyo, por código."""
+    cod_norm = _normaliza(codigo_concepto)
+    cod_comp = _normaliza_compacto(codigo_concepto)
+    if not cod_norm:
+        return None
+    # Prioridad 1: coincidencia exacta (o exacta sin espacios/guiones)
     for dato in apoyo:
-        if _coinciden(codigo_concepto, dato["codigo_norm"]):
+        d_norm = dato.get("codigo_norm") or _normaliza(str(dato.get("codigo_txt") or dato.get("codigo") or ""))
+        if cod_norm == d_norm or (cod_comp and cod_comp == _normaliza_compacto(d_norm)):
+            return dato
+    # Prioridad 2: coincidencia por prefijo
+    for dato in apoyo:
+        if _coinciden(codigo_concepto, dato.get("codigo_norm") or _normaliza(str(dato.get("codigo_txt") or dato.get("codigo") or ""))):
             return dato
     return None
+
+
+def emparejar_conceptos_con_apoyo(conceptos: list[dict], apoyo: list[dict]) -> list[dict | None]:
+    """
+    Empareja cada concepto del XML con su partida correspondiente del TXT/PDF de apoyo:
+    1. Intenta por código principal y código secundario.
+    2. Si la factura y el documento de apoyo tienen exactamente el mismo número de partidas,
+       las partidas que no coincidieron por código (ej. código de proveedor distinto al de Aspel)
+       se asignan por su posición (1 a 1) siempre que esa fila del apoyo no haya sido usada.
+    """
+    if not apoyo:
+        return [None] * len(conceptos)
+
+    datos: list[dict | None] = []
+    usados_ids: set[int] = set()
+
+    for c in conceptos:
+        cod_principal = c.get("no_identificacion") or c.get("codigo") or ""
+        d = buscar_dato(apoyo, cod_principal)
+        if d is None and c.get("codigo_secundario"):
+            d = buscar_dato(apoyo, c["codigo_secundario"])
+        datos.append(d)
+        if d is not None:
+            usados_ids.add(id(d))
+
+    if len(apoyo) == len(conceptos):
+        for idx, d in enumerate(datos):
+            if d is None:
+                candidato_pos = apoyo[idx]
+                if id(candidato_pos) not in usados_ids:
+                    datos[idx] = candidato_pos
+                    usados_ids.add(id(candidato_pos))
+                else:
+                    for alt in apoyo:
+                        if id(alt) not in usados_ids:
+                            datos[idx] = alt
+                            usados_ids.add(id(alt))
+                            break
+
+    return datos
 
 
 # Mantener es_apoyo_de_folio como wrapper para sincronizador.py
@@ -307,4 +393,10 @@ def es_apoyo_de_folio(nombre_archivo: str, year: str, folio: int) -> bool:
     return folio_str in digitos_nombre or digitos_nombre in folio_str
 
 
-__all__ = ["obtener_apoyo_por_folio", "buscar_dato", "extraer_numero_proveedor", "es_apoyo_de_folio"]
+__all__ = [
+    "obtener_apoyo_por_folio",
+    "buscar_dato",
+    "emparejar_conceptos_con_apoyo",
+    "extraer_numero_proveedor",
+    "es_apoyo_de_folio",
+]

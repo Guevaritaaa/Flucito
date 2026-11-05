@@ -37,6 +37,21 @@ PATRON_FECHA_NOMBRE = re.compile(r"(\d{2}-\d{2}-\d{4})")
 PREFIJO_CARPETA_ARCHIVOS_SUELTOS = "ARCHIVOS_SUELTOS_"
 
 
+def _eliminar_archivo_seguro(cliente: Any, archivo_id: str) -> bool:
+    """Intenta eliminar un archivo/carpeta en Drive sin abortar si la cuenta de servicio recibe 403."""
+    try:
+        eliminar_archivo(cliente, archivo_id)
+        return True
+    except Exception as exc:
+        logger.warning("No se pudo eliminar elemento %s en Drive (permisos): %s", archivo_id, exc)
+        return False
+
+
+def _es_nombre_fecha_pura(nombre: str) -> bool:
+    """Indica si el nombre de la carpeta es exactamente una fecha DD-MM-YYYY (ej. '30-10-2026')."""
+    return bool(PATRON_FECHA_NOMBRE.fullmatch((nombre or "").strip()))
+
+
 def es_carpeta_archivos_sueltos(nombre: str) -> bool:
     """Indica si el nombre corresponde a una carpeta de revisión manual de archivos sueltos."""
     return nombre.upper().startswith(PREFIJO_CARPETA_ARCHIVOS_SUELTOS)
@@ -75,10 +90,10 @@ def construir_aviso_reubicacion_previa(carpetas: list[str]) -> str:
     lista = ", ".join(carpetas)
     return (
         f"Por cierto, detecté que las carpetas **{lista}** no tenían su reporte generado "
-        "y estaban dentro de **DOCUMENTOS ENTRADA**, así que las moví automáticamente a "
+        "y estaban dentro de **DOCUMENTOS ENTRADA** (o anidadas en otra carpeta), así que las moví automáticamente a "
         "**ENTRADAS AL INVENTARIO** para poder procesarlas.\n\n"
         "⚠️ **Aviso:** Recuerda que las facturas pendientes (XML, PDF o TXT) deben subirse "
-        "siempre en la carpeta **ENTRADAS AL INVENTARIO** en Google Drive."
+        "siempre en su propia carpeta por fecha dentro de **ENTRADAS AL INVENTARIO** en Google Drive."
     )
 
 
@@ -87,7 +102,7 @@ def construir_advertencia_ubicacion(carpetas: list[str]) -> str:
     lista = ", ".join(carpetas)
     return (
         f"He detectado que las carpetas {lista} estaban mal ubicadas dentro de "
-        "**DOCUMENTOS ENTRADA**. Primero las moví a **ENTRADAS AL INVENTARIO** y "
+        "**DOCUMENTOS ENTRADA** (o anidadas dentro de otra carpeta). Primero las moví a **ENTRADAS AL INVENTARIO** y "
         "generé todos sus reportes con éxito.\n\n"
         "⚠️ **Aviso:** Recuerda que para subir documentos a procesar, deben colocarse "
         "en la carpeta **ENTRADAS AL INVENTARIO** en Google Drive."
@@ -152,7 +167,7 @@ def _mover_contenido_carpeta(
             mover_archivo(cliente, item_id, destino_id)
             archivos_movidos_ids.append(item_id)
 
-    eliminar_archivo(cliente, origen_id)
+    _eliminar_archivo_seguro(cliente, origen_id)
     return archivos_movidos_ids
 
 
@@ -160,11 +175,15 @@ def reubicar_carpetas_mal_ubicadas(
     cliente: Any | None = None,
     carpeta_raiz_id: str | None = None,
 ) -> dict[str, Any]:
-    """Detecta carpetas en DOCUMENTOS ENTRADA con XML/TXT pero sin Excel y las mueve a ENTRADAS AL INVENTARIO."""
+    """Detecta carpetas en DOCUMENTOS ENTRADA (o subcarpetas anidadas en ENTRADAS AL INVENTARIO) con XML/TXT pero sin Excel y las mueve a ENTRADAS AL INVENTARIO."""
     cliente = cliente or crear_cliente_drive()
     root_id = carpeta_raiz_id or settings.google_drive_folder_id
     if not root_id:
         raise GoogleDriveConfigError("Falta GOOGLE_DRIVE_FOLDER_ID")
+
+    carpetas_reubicadas: list[str] = []
+    archivos_reubicados_ids: list[str] = []
+    carpeta_entrada_id: str | None = None
 
     try:
         carpeta_historico_id = buscar_carpeta_hija(
@@ -176,21 +195,6 @@ def reubicar_carpetas_mal_ubicadas(
         # Soporte para mocks simples en pruebas unitarias sin métodos de API Drive
         return {"carpetas_reubicadas": [], "archivos_reubicados_ids": []}
 
-    if not carpeta_historico_id:
-        return {"carpetas_reubicadas": [], "archivos_reubicados_ids": []}
-
-    items_historico = _listar_hijos(cliente, carpeta_historico_id)
-    carpetas_historico = [
-        item
-        for item in items_historico
-        if item.get("mimeType") == MIME_CARPETA
-        and not es_carpeta_archivos_sueltos(item.get("name", ""))
-    ]
-
-    carpetas_reubicadas: list[str] = []
-    archivos_reubicados_ids: list[str] = []
-    carpeta_entrada_id: str | None = None
-
     def obtener_carpeta_entrada() -> str:
         nonlocal carpeta_entrada_id
         if not carpeta_entrada_id:
@@ -200,6 +204,82 @@ def reubicar_carpetas_mal_ubicadas(
                 root_id,
             )
         return carpeta_entrada_id
+
+    # Paso 0: Revisar si en ENTRADAS AL INVENTARIO hay subcarpetas anidadas (ej. 30-10-2026 dentro de 20-10-2026)
+    carpeta_entrada_existente = buscar_carpeta_hija(
+        cliente,
+        CARPETA_ENTRADAS_AL_INVENTARIO,
+        root_id,
+    )
+    if carpeta_entrada_existente:
+        carpeta_entrada_id = carpeta_entrada_existente
+        items_entrada = _listar_hijos(cliente, carpeta_entrada_existente)
+        carpetas_en_entrada = [
+            item
+            for item in items_entrada
+            if item.get("mimeType") == MIME_CARPETA
+            and not es_carpeta_archivos_sueltos(item.get("name", ""))
+        ]
+        for carp_ent in carpetas_en_entrada:
+            carp_ent_id = carp_ent["id"]
+            carp_ent_nombre = carp_ent.get("name", carp_ent_id)
+            hijos_ent = _listar_hijos(cliente, carp_ent_id)
+            subs_ent = [h for h in hijos_ent if h.get("mimeType") == MIME_CARPETA]
+            for sub_ent in subs_ent:
+                sub_id = sub_ent["id"]
+                sub_nombre = sub_ent.get("name", sub_id)
+                hijos_sub = _listar_hijos(cliente, sub_id)
+                archivos_sub = [a for a in hijos_sub if a.get("mimeType") != MIME_CARPETA]
+                sub_tiene_xml_txt = any(es_xml_o_txt_entrada(a.get("name", "")) for a in archivos_sub)
+                sub_tiene_reporte = any(es_reporte_excel(a.get("name", "")) for a in archivos_sub)
+                if not sub_tiene_xml_txt or sub_tiene_reporte:
+                    continue
+
+                if _es_nombre_fecha_pura(sub_nombre):
+                    # Es una carpeta de fecha (ej. 30-10-2026) metida dentro de otra carpeta (ej. 20-10-2026)
+                    existente_top_id = buscar_carpeta_hija(cliente, sub_nombre, carpeta_entrada_existente)
+                    if existente_top_id and existente_top_id != sub_id:
+                        for arch in archivos_sub:
+                            if es_documento_entrada(arch.get("name", "")):
+                                mover_archivo(cliente, arch["id"], existente_top_id, carpeta_origen_id=sub_id)
+                                archivos_reubicados_ids.append(arch["id"])
+                        _eliminar_archivo_seguro(cliente, sub_id)
+                    else:
+                        mover_archivo(cliente, sub_id, carpeta_entrada_existente, carpeta_origen_id=carp_ent_id)
+                        archivos_reubicados_ids.extend(a["id"] for a in archivos_sub)
+                    if sub_nombre not in carpetas_reubicadas:
+                        carpetas_reubicadas.append(sub_nombre)
+                    logger.info(
+                        "Subcarpeta de fecha '%s/%s' desanidada hacia %s/%s.",
+                        carp_ent_nombre,
+                        sub_nombre,
+                        CARPETA_ENTRADAS_AL_INVENTARIO,
+                        sub_nombre,
+                    )
+                else:
+                    # Subcarpeta común dentro de una carpeta de fecha en ENTRADAS AL INVENTARIO: subir archivos al nivel de la carpeta de fecha
+                    for arch in archivos_sub:
+                        if es_documento_entrada(arch.get("name", "")):
+                            mover_archivo(cliente, arch["id"], carp_ent_id, carpeta_origen_id=sub_id)
+                            archivos_reubicados_ids.append(arch["id"])
+                    _eliminar_archivo_seguro(cliente, sub_id)
+                    etiqueta = f"{carp_ent_nombre}/{sub_nombre}"
+                    if etiqueta not in carpetas_reubicadas:
+                        carpetas_reubicadas.append(etiqueta)
+
+    if not carpeta_historico_id:
+        return {
+            "carpetas_reubicadas": carpetas_reubicadas,
+            "archivos_reubicados_ids": archivos_reubicados_ids,
+        }
+
+    items_historico = _listar_hijos(cliente, carpeta_historico_id)
+    carpetas_historico = [
+        item
+        for item in items_historico
+        if item.get("mimeType") == MIME_CARPETA
+        and not es_carpeta_archivos_sueltos(item.get("name", ""))
+    ]
 
     for carpeta in carpetas_historico:
         carpeta_id = carpeta["id"]
@@ -250,23 +330,35 @@ def reubicar_carpetas_mal_ubicadas(
             entrada_id = obtener_carpeta_entrada()
             existente_id = buscar_carpeta_hija(cliente, carpeta_nombre, entrada_id)
 
-            # Si tenía subcarpetas sin reporte con archivos, subirlos al nivel de la carpeta
+            # Si tenía subcarpetas sin reporte con archivos:
             for info_sub in info_subcarpetas:
-                for arch in info_sub["archivos"]:
-                    if es_documento_entrada(arch.get("name", "")):
-                        mover_archivo(
-                            cliente,
-                            arch["id"],
-                            existente_id or carpeta_id,
-                        )
-                        archivos_reubicados_ids.append(arch["id"])
-                eliminar_archivo(cliente, info_sub["sub"]["id"])
+                sub_obj = info_sub["sub"]
+                sub_nombre = sub_obj.get("name", sub_obj["id"])
+                if _es_nombre_fecha_pura(sub_nombre) and sub_nombre != carpeta_nombre:
+                    destino_sub_fecha = buscar_o_crear_carpeta(cliente, sub_nombre, entrada_id)
+                    for arch in info_sub["archivos"]:
+                        if es_documento_entrada(arch.get("name", "")):
+                            mover_archivo(cliente, arch["id"], destino_sub_fecha)
+                            archivos_reubicados_ids.append(arch["id"])
+                    _eliminar_archivo_seguro(cliente, sub_obj["id"])
+                    if sub_nombre not in carpetas_reubicadas:
+                        carpetas_reubicadas.append(sub_nombre)
+                else:
+                    for arch in info_sub["archivos"]:
+                        if es_documento_entrada(arch.get("name", "")):
+                            mover_archivo(
+                                cliente,
+                                arch["id"],
+                                existente_id or carpeta_id,
+                            )
+                            archivos_reubicados_ids.append(arch["id"])
+                    _eliminar_archivo_seguro(cliente, sub_obj["id"])
 
             if existente_id:
                 for arch in archivos_directos:
                     mover_archivo(cliente, arch["id"], existente_id)
                     archivos_reubicados_ids.append(arch["id"])
-                eliminar_archivo(cliente, carpeta_id)
+                _eliminar_archivo_seguro(cliente, carpeta_id)
             else:
                 mover_archivo(cliente, carpeta_id, entrada_id)
                 archivos_reubicados_ids.extend(a["id"] for a in archivos_directos)
@@ -283,16 +375,23 @@ def reubicar_carpetas_mal_ubicadas(
         # Caso 2: Subcarpetas sin reporte (o archivos directos sin reporte junto a subcarpetas ya procesadas)
         if subs_sin_reporte or (tiene_xml_txt_directo and not tiene_reporte_directo):
             entrada_id = obtener_carpeta_entrada()
-            destino_fecha_id = buscar_o_crear_carpeta(
-                cliente,
-                carpeta_nombre,
-                entrada_id,
-            )
+            destino_fecha_id: str | None = None
+
+            def obtener_destino_fecha_padre() -> str:
+                nonlocal destino_fecha_id
+                if not destino_fecha_id:
+                    destino_fecha_id = buscar_o_crear_carpeta(
+                        cliente,
+                        carpeta_nombre,
+                        entrada_id,
+                    )
+                return destino_fecha_id
 
             if tiene_xml_txt_directo and not tiene_reporte_directo:
+                dest_padre = obtener_destino_fecha_padre()
                 for arch in archivos_directos:
                     if es_documento_entrada(arch.get("name", "")):
-                        mover_archivo(cliente, arch["id"], destino_fecha_id)
+                        mover_archivo(cliente, arch["id"], dest_padre)
                         archivos_reubicados_ids.append(arch["id"])
                 if carpeta_nombre not in carpetas_reubicadas:
                     carpetas_reubicadas.append(carpeta_nombre)
@@ -300,30 +399,53 @@ def reubicar_carpetas_mal_ubicadas(
             for info_sub in subs_sin_reporte:
                 sub = info_sub["sub"]
                 sub_nombre = sub.get("name", sub["id"])
-                for arch in info_sub["archivos"]:
-                    if es_documento_entrada(arch.get("name", "")):
-                        mover_archivo(cliente, arch["id"], destino_fecha_id)
-                        archivos_reubicados_ids.append(arch["id"])
-                eliminar_archivo(cliente, sub["id"])
-                etiqueta = (
-                    carpeta_nombre
-                    if not alguna_sub_con_reporte and not tiene_reporte_directo
-                    else f"{carpeta_nombre}/{sub_nombre}"
-                )
-                if etiqueta not in carpetas_reubicadas:
-                    carpetas_reubicadas.append(etiqueta)
-                logger.info(
-                    "Subcarpeta '%s/%s' sin reporte reubicada a %s/%s.",
-                    carpeta_nombre,
-                    sub_nombre,
-                    CARPETA_ENTRADAS_AL_INVENTARIO,
-                    carpeta_nombre,
-                )
+                if _es_nombre_fecha_pura(sub_nombre) and sub_nombre != carpeta_nombre:
+                    # La subcarpeta tiene nombre de fecha propio (ej. 30-10-2026 dentro de 20-10-2026)
+                    dest_sub_propia = buscar_o_crear_carpeta(
+                        cliente,
+                        sub_nombre,
+                        entrada_id,
+                    )
+                    for arch in info_sub["archivos"]:
+                        if es_documento_entrada(arch.get("name", "")):
+                            mover_archivo(cliente, arch["id"], dest_sub_propia)
+                            archivos_reubicados_ids.append(arch["id"])
+                    _eliminar_archivo_seguro(cliente, sub["id"])
+                    if sub_nombre not in carpetas_reubicadas:
+                        carpetas_reubicadas.append(sub_nombre)
+                    logger.info(
+                        "Subcarpeta de fecha '%s/%s' sin reporte reubicada a %s/%s.",
+                        carpeta_nombre,
+                        sub_nombre,
+                        CARPETA_ENTRADAS_AL_INVENTARIO,
+                        sub_nombre,
+                    )
+                else:
+                    dest_padre = obtener_destino_fecha_padre()
+                    for arch in info_sub["archivos"]:
+                        if es_documento_entrada(arch.get("name", "")):
+                            mover_archivo(cliente, arch["id"], dest_padre)
+                            archivos_reubicados_ids.append(arch["id"])
+                    _eliminar_archivo_seguro(cliente, sub["id"])
+                    etiqueta = (
+                        carpeta_nombre
+                        if not alguna_sub_con_reporte and not tiene_reporte_directo
+                        else f"{carpeta_nombre}/{sub_nombre}"
+                    )
+                    if etiqueta not in carpetas_reubicadas:
+                        carpetas_reubicadas.append(etiqueta)
+                    logger.info(
+                        "Subcarpeta '%s/%s' sin reporte reubicada a %s/%s.",
+                        carpeta_nombre,
+                        sub_nombre,
+                        CARPETA_ENTRADAS_AL_INVENTARIO,
+                        carpeta_nombre,
+                    )
 
             if not tiene_reporte_directo and not alguna_sub_con_reporte:
                 restantes = _listar_hijos(cliente, carpeta_id)
                 if not restantes:
-                    eliminar_archivo(cliente, carpeta_id)
+                    _eliminar_archivo_seguro(cliente, carpeta_id)
 
     return {
         "carpetas_reubicadas": carpetas_reubicadas,
@@ -584,14 +706,14 @@ def _limpiar_carpetas_vacias_en(cliente: Any, carpeta_padre_id: str) -> list[str
             sub_nombre = sub.get("name", sub_id)
             hijos_sub = _listar_hijos(cliente, sub_id)
             if not hijos_sub:
-                eliminar_archivo(cliente, sub_id)
-                eliminadas.append(f"{carpeta_nombre}/{sub_nombre}")
-                sub_eliminadas += 1
+                if _eliminar_archivo_seguro(cliente, sub_id):
+                    eliminadas.append(f"{carpeta_nombre}/{sub_nombre}")
+                    sub_eliminadas += 1
 
         # Si ya no quedan elementos en la carpeta de nivel 1, eliminarla también
         if len(elementos) - sub_eliminadas == 0:
-            eliminar_archivo(cliente, carpeta_id)
-            eliminadas.append(carpeta_nombre)
+            if _eliminar_archivo_seguro(cliente, carpeta_id):
+                eliminadas.append(carpeta_nombre)
 
     return eliminadas
 

@@ -11,7 +11,7 @@ from typing import Any
 import pandas as pd
 
 from app.core.config import settings
-from app.services.almacen.apoyo import buscar_dato, obtener_apoyo_por_folio
+from app.services.almacen.apoyo import buscar_dato, emparejar_conceptos_con_apoyo, obtener_apoyo_por_folio
 from app.services.almacen.excel import (
     CARPETA_DATOS,
     NOMBRE_ARCHIVO_BASE,
@@ -103,7 +103,7 @@ def inspeccionar_pendientes_carpeta(
                 rfc_proveedor=meta.get("rfc"),
             )
 
-        datos = [
+        datos = emparejar_conceptos_con_apoyo(conceptos, apoyo) or [
             buscar_dato(apoyo, c["no_identificacion"]) or buscar_dato(apoyo, c["codigo_secundario"])
             for c in conceptos
         ]
@@ -236,6 +236,7 @@ def sincronizar_drive(
     reubicacion = reubicar_carpetas_mal_ubicadas(cliente, carpeta_raiz_id)
     carpetas_reubicadas = reubicacion["carpetas_reubicadas"]
     archivos_reubicados_ids = set(reubicacion["archivos_reubicados_ids"])
+    xmls_sin_apoyo: list[str] = []
 
     carpeta_entrada_id = buscar_carpeta_hija(
         cliente,
@@ -249,6 +250,7 @@ def sincronizar_drive(
             "archivos": 0,
             "productos": 0,
             "carpetas_reubicadas": carpetas_reubicadas,
+        "xmls_sin_apoyo": xmls_sin_apoyo,
         }
 
     carpetas = listar_carpetas_factura(cliente, carpeta_entrada_id)
@@ -259,6 +261,7 @@ def sincronizar_drive(
             "archivos": 0,
             "productos": 0,
             "carpetas_reubicadas": carpetas_reubicadas,
+        "xmls_sin_apoyo": xmls_sin_apoyo,
         }
 
     logger.info("Drive: %d carpeta(s) encontrada(s) en total.", len(carpetas))
@@ -294,6 +297,7 @@ def sincronizar_drive(
             "archivos": 0,
             "productos": 0,
             "carpetas_reubicadas": carpetas_reubicadas,
+        "xmls_sin_apoyo": xmls_sin_apoyo,
         }
 
     logger.info("Drive: %d carpeta(s) con archivos nuevos o modificados.", len(carpetas_nuevas))
@@ -335,6 +339,7 @@ def sincronizar_drive(
                         "archivos": 0,
                         "productos": 0,
                         "carpetas_reubicadas": carpetas_reubicadas,
+        "xmls_sin_apoyo": xmls_sin_apoyo,
                         "cancelado_por_usuario": True,
                         "mensaje": mensaje_sin_completas,
                     }
@@ -356,32 +361,18 @@ def sincronizar_drive(
                 salida_cancelado: dict[str, Any] = {
                     "carpetas": len(carpetas_nuevas),
                     "carpetas_nuevas": len(carpetas_nuevas),
-        "carpetas_procesadas": [c.nombre for c in carpetas_nuevas],
-        "carpetas_omitidas_solo_xml": carpetas_omitidas_solo_xml,
+                    "carpetas_procesadas": [c.nombre for c in carpetas_nuevas],
+                    "carpetas_omitidas_solo_xml": carpetas_omitidas_solo_xml,
                     "archivos": 0,
                     "productos": 0,
                     "carpetas_reubicadas": carpetas_reubicadas,
+                    "xmls_sin_apoyo": xmls_sin_apoyo,
                     "cancelado_por_usuario": True,
                     "mensaje": mensaje_cancelacion,
                 }
                 if aviso_previo:
                     salida_cancelado["advertencia_ubicacion"] = aviso_previo
                 return salida_cancelado
-            elif False:
-                return {
-                    "carpetas": len(carpetas_nuevas),
-                    "carpetas_nuevas": len(carpetas_nuevas),
-        "carpetas_procesadas": [c.nombre for c in carpetas_nuevas],
-        "carpetas_omitidas_solo_xml": carpetas_omitidas_solo_xml,
-                    "archivos": 0,
-                    "productos": 0,
-                    "carpetas_reubicadas": carpetas_reubicadas,
-                    "cancelado_por_usuario": True,
-                    "mensaje": (
-                        "Entendido, te sugiero revisar que hayas subido todos los documentos necesarios "
-                        "(XML obligatorio, acompañado de su TXT o PDF de apoyo)."
-                    ),
-                }
             elif confirmar_solo_xml is None:
                 aviso_previo = (
                     construir_aviso_reubicacion_previa(carpetas_reubicadas)
@@ -402,11 +393,12 @@ def sincronizar_drive(
                 salida_solo_xml: dict[str, Any] = {
                     "carpetas": len(carpetas_nuevas),
                     "carpetas_nuevas": len(carpetas_nuevas),
-        "carpetas_procesadas": [c.nombre for c in carpetas_nuevas],
-        "carpetas_omitidas_solo_xml": carpetas_omitidas_solo_xml,
+                    "carpetas_procesadas": [c.nombre for c in carpetas_nuevas],
+                    "carpetas_omitidas_solo_xml": carpetas_omitidas_solo_xml,
                     "archivos": 0,
                     "productos": 0,
                     "carpetas_reubicadas": carpetas_reubicadas,
+                    "xmls_sin_apoyo": xmls_sin_apoyo,
                     "requiere_confirmacion": True,
                     "tipo_confirmacion": "solo_xml",
                     "carpetas_solo_xml": carpetas_solo_xml,
@@ -416,27 +408,6 @@ def sincronizar_drive(
                 if aviso_previo:
                     salida_solo_xml["advertencia_ubicacion"] = aviso_previo
                 return salida_solo_xml
-            elif False:
-                nombres_str = ", ".join(carpetas_solo_xml)
-                pregunta = (
-                    f"Oye, la entrada **{nombres_str}** contiene solo archivos XML (sin TXT ni PDF de apoyo). "
-                    "¿Olvidaste subirlos o no los tienes? Esto implica que el reporte no contendrá líneas ni "
-                    "precios con factores. ¿Deseas generar el reporte solo con los XML proporcionados? (**y/n**)"
-                )
-                return {
-                    "carpetas": len(carpetas_nuevas),
-                    "carpetas_nuevas": len(carpetas_nuevas),
-        "carpetas_procesadas": [c.nombre for c in carpetas_nuevas],
-        "carpetas_omitidas_solo_xml": carpetas_omitidas_solo_xml,
-                    "archivos": 0,
-                    "productos": 0,
-                    "carpetas_reubicadas": carpetas_reubicadas,
-                    "requiere_confirmacion": True,
-                    "tipo_confirmacion": "solo_xml",
-                    "carpetas_solo_xml": carpetas_solo_xml,
-                    "pregunta_usuario": pregunta,
-                    "pregunta_sugerida": pregunta,
-                }
 
     # Guardar factores personalizados si el usuario confirmó guardarlos
     if guardar_factores and factores_elegidos:
@@ -447,6 +418,7 @@ def sincronizar_drive(
     from app.services.almacen.apoyo import _folio_coincide_con_archivo
 
     dataframes: list[pd.DataFrame] = []
+    xmls_sin_apoyo: list[str] = []
     archivos_descargados = 0
     with tempfile.TemporaryDirectory(prefix="flucito_drive_almacen_") as temporal:
         raiz = Path(temporal)
@@ -507,11 +479,12 @@ def sincronizar_drive(
                 salida_interactiva: dict[str, Any] = {
                     "carpetas": len(carpetas_nuevas),
                     "carpetas_nuevas": len(carpetas_nuevas),
-        "carpetas_procesadas": [c.nombre for c in carpetas_nuevas],
-        "carpetas_omitidas_solo_xml": carpetas_omitidas_solo_xml,
+                    "carpetas_procesadas": [c.nombre for c in carpetas_nuevas],
+                    "carpetas_omitidas_solo_xml": carpetas_omitidas_solo_xml,
                     "archivos": archivos_descargados,
                     "productos": 0,
                     "carpetas_reubicadas": carpetas_reubicadas,
+                    "xmls_sin_apoyo": xmls_sin_apoyo,
                     "requiere_confirmacion": True,
                     "tipo_confirmacion": tipo_conf,
                     "lineas_sin_factor": lista_lineas,
@@ -523,22 +496,6 @@ def sincronizar_drive(
                 if aviso_previo:
                     salida_interactiva["advertencia_ubicacion"] = aviso_previo
                 return salida_interactiva
-                return {
-                    "carpetas": len(carpetas_nuevas),
-                    "carpetas_nuevas": len(carpetas_nuevas),
-        "carpetas_procesadas": [c.nombre for c in carpetas_nuevas],
-        "carpetas_omitidas_solo_xml": carpetas_omitidas_solo_xml,
-                    "archivos": archivos_descargados,
-                    "productos": 0,
-                    "carpetas_reubicadas": carpetas_reubicadas,
-                    "requiere_confirmacion": True,
-                    "tipo_confirmacion": tipo_conf,
-                    "lineas_sin_factor": lista_lineas,
-                    "rollos_pendientes": lista_rollos,
-                    "menu_factores": formatear_menu_factores() if lista_lineas else None,
-                    "pregunta_usuario": pregunta,
-                    "pregunta_sugerida": pregunta,
-                }
 
         # Fase B: Procesar XMLs, generar reportes y archivar en Google Drive
         carpeta_archivo_id = buscar_o_crear_carpeta(
@@ -573,6 +530,8 @@ def sincronizar_drive(
                 if df_xml.empty:
                     continue
                 df_carpeta.append(df_xml)
+                if not df_xml.attrs.get("tiene_apoyo", True):
+                    xmls_sin_apoyo.append(f"{carpeta.nombre}/{ruta_xml.name}")
 
                 meta = extractor.leer_meta(str(ruta_xml))
                 proveedor = _nombre_drive_seguro(meta.get("proveedor_nombre") or "Proveedor desconocido")
@@ -652,10 +611,13 @@ def sincronizar_drive(
                         e,
                     )
                     try:
+                        mover_archivo(cliente, carpeta.id, carpeta_archivo_id, carpeta_origen_id=carpeta_entrada_id)
                         for item_arch in _listar_hijos(cliente, carpeta_fecha_archivo_id):
-                            mover_archivo(cliente, item_arch["id"], carpeta.id)
-                        eliminar_archivo(cliente, carpeta_fecha_archivo_id)
-                        mover_archivo(cliente, carpeta.id, carpeta_archivo_id)
+                            mover_archivo(cliente, item_arch["id"], carpeta.id, carpeta_origen_id=carpeta_fecha_archivo_id)
+                        try:
+                            eliminar_archivo(cliente, carpeta_fecha_archivo_id)
+                        except Exception as e_del_dup:
+                            logger.warning("No se pudo eliminar carpeta histórica duplicada %s: %s", carpeta_fecha_archivo_id, e_del_dup)
                     except Exception as e_fallback:
                         logger.warning("No se pudo reubicar la carpeta original %s: %s", carpeta.nombre, e_fallback)
             else:
@@ -666,11 +628,12 @@ def sincronizar_drive(
         return {
             "carpetas": len(carpetas_nuevas),
             "carpetas_nuevas": len(carpetas_nuevas),
-        "carpetas_procesadas": [c.nombre for c in carpetas_nuevas],
-        "carpetas_omitidas_solo_xml": carpetas_omitidas_solo_xml,
+            "carpetas_procesadas": [c.nombre for c in carpetas_nuevas],
+            "carpetas_omitidas_solo_xml": carpetas_omitidas_solo_xml,
             "archivos": archivos_descargados,
             "productos": 0,
             "carpetas_reubicadas": carpetas_reubicadas,
+            "xmls_sin_apoyo": xmls_sin_apoyo,
         }
 
     df_nuevo = _concatenar_con_meta(dataframes)
@@ -691,6 +654,7 @@ def sincronizar_drive(
         "archivos": archivos_descargados,
         "productos": len(df_nuevo),
         "carpetas_reubicadas": carpetas_reubicadas,
+        "xmls_sin_apoyo": xmls_sin_apoyo,
     }
 
 

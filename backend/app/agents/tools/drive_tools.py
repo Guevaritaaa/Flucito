@@ -29,6 +29,7 @@ from app.services.almacen.fuentes.organizador import (
     mover_carpetas_con_reportes_drive,
     ordenar_todo_drive,
     reubicar_carpetas_mal_ubicadas,
+    revisar_carpetas_sin_reportes_drive,
 )
 
 logger = logging.getLogger(__name__)
@@ -94,15 +95,29 @@ def consultar_drive(
                 fecha=carpeta_o_fecha,
                 proveedor=proveedor,
             )
+            payload_busqueda: dict[str, object] = {
+                "ok": True,
+                "tipo": "busqueda_historica",
+                "fecha": fecha_normalizada,
+                "proveedor": proveedor,
+                "total_reportes": len(reportes),
+                "reportes": reportes,
+            }
+            try:
+                revision_pendientes = revisar_carpetas_sin_reportes_drive()
+                pendientes = [
+                    c.get("nombre")
+                    for c in revision_pendientes.get("carpetas_pendientes", [])
+                    if isinstance(c, dict)
+                    and c.get("nombre")
+                    and (not fecha_normalizada or c.get("nombre") == fecha_normalizada)
+                ]
+                if pendientes:
+                    payload_busqueda["carpetas_pendientes_sin_procesar"] = pendientes
+            except Exception:
+                pass
             return json.dumps(
-                {
-                    "ok": True,
-                    "tipo": "busqueda_historica",
-                    "fecha": fecha_normalizada,
-                    "proveedor": proveedor,
-                    "total_reportes": len(reportes),
-                    "reportes": reportes,
-                },
+                payload_busqueda,
                 ensure_ascii=False,
             )
 

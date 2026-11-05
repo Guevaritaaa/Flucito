@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -258,9 +259,16 @@ def buscar_reportes_historicos(
                             }
                         )
 
+    def _clave_fecha_desc(fecha_str: str) -> tuple[int, int, int, str]:
+        m = re.match(r"^(\d{2})-(\d{2})-(\d{4})$", str(fecha_str or "").strip())
+        if m:
+            dd, mm, yyyy = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            return (-yyyy, -mm, -dd, fecha_str)
+        return (0, 0, 0, str(fecha_str or ""))
+
     return sorted(
         reportes,
-        key=lambda reporte: (reporte["fecha"], reporte["nombre"].casefold()),
+        key=lambda reporte: (_clave_fecha_desc(reporte["fecha"]), reporte["nombre"].casefold()),
     )
 
 

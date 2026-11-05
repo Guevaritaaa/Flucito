@@ -44,6 +44,38 @@ from app.services.almacen.fuentes.sincronizador import (
 logger = logging.getLogger(__name__)
 
 
+NOMBRE_SESION_CONFIRMACION = "SESION_CONFIRMACION_PENDIENTE.json"
+
+
+def _cargar_sesion_confirmacion(carpeta_datos: Path) -> dict[str, Any]:
+    ruta = carpeta_datos / NOMBRE_SESION_CONFIRMACION
+    if not ruta.is_file():
+        return {}
+    try:
+        datos = json.loads(ruta.read_text(encoding="utf-8"))
+        return datos if isinstance(datos, dict) else {}
+    except Exception:
+        return {}
+
+
+def _guardar_sesion_confirmacion(carpeta_datos: Path, estado: dict[str, Any]) -> None:
+    try:
+        carpeta_datos.mkdir(parents=True, exist_ok=True)
+        ruta = carpeta_datos / NOMBRE_SESION_CONFIRMACION
+        ruta.write_text(json.dumps(estado, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as exc:
+        logger.debug("No se pudo guardar sesión de confirmación: %s", exc)
+
+
+def _limpiar_sesion_confirmacion(carpeta_datos: Path) -> None:
+    ruta = carpeta_datos / NOMBRE_SESION_CONFIRMACION
+    try:
+        if ruta.is_file():
+            ruta.unlink()
+    except Exception:
+        pass
+
+
 def _obtener_carpeta_datos() -> Path:
     """Obtiene la carpeta de datos actual, respetando monkeypatches sobre app.agents.tools.CARPETA_DATOS."""
     try:
@@ -309,6 +341,55 @@ def generar_entradas_almacen(
 ) -> str:
     """Sincroniza facturas nuevas desde Google Drive o carpeta local, genera reportes Excel y actualiza la base acumulada."""
     carpeta_datos = _obtener_carpeta_datos()
+    tiene_parametros_confirmacion = any(
+        v is not None
+        for v in (
+            confirmar_solo_xml,
+            omitir_incompletas,
+            factores_elegidos,
+            guardar_factores,
+            cambiar_xro_a_mtr,
+            dividir_precio_entre_metros,
+            decisiones_rollos,
+        )
+    )
+    if tiene_parametros_confirmacion:
+        previa = _cargar_sesion_confirmacion(carpeta_datos)
+        if confirmar_solo_xml is None:
+            confirmar_solo_xml = previa.get("confirmar_solo_xml")
+        if omitir_incompletas is None:
+            omitir_incompletas = previa.get("omitir_incompletas")
+        if guardar_factores is None:
+            guardar_factores = previa.get("guardar_factores")
+        if cambiar_xro_a_mtr is None:
+            cambiar_xro_a_mtr = previa.get("cambiar_xro_a_mtr")
+        if dividir_precio_entre_metros is None:
+            dividir_precio_entre_metros = previa.get("dividir_precio_entre_metros")
+        factores_previos = previa.get("factores_elegidos")
+        if isinstance(factores_previos, dict):
+            combinados_f = dict(factores_previos)
+            if factores_elegidos:
+                combinados_f.update(factores_elegidos)
+            factores_elegidos = combinados_f
+        rollos_previos = previa.get("decisiones_rollos")
+        if isinstance(rollos_previos, dict):
+            combinados_r = dict(rollos_previos)
+            if decisiones_rollos:
+                combinados_r.update(decisiones_rollos)
+            decisiones_rollos = combinados_r
+    else:
+        _limpiar_sesion_confirmacion(carpeta_datos)
+
+    estado_confirmacion_actual = {
+        "confirmar_solo_xml": confirmar_solo_xml,
+        "omitir_incompletas": omitir_incompletas,
+        "factores_elegidos": factores_elegidos,
+        "guardar_factores": guardar_factores,
+        "cambiar_xro_a_mtr": cambiar_xro_a_mtr,
+        "dividir_precio_entre_metros": dividir_precio_entre_metros,
+        "decisiones_rollos": decisiones_rollos,
+    }
+
     usar_drive = bool(
         settings.google_drive_folder_id
         and (
@@ -348,6 +429,7 @@ def generar_entradas_almacen(
         carpetas_reubicadas = sincronizacion.get("carpetas_reubicadas") or []
 
         if sincronizacion.get("cancelado_por_usuario"):
+            _limpiar_sesion_confirmacion(carpeta_datos)
             aviso_reubicacion = sincronizacion.get("advertencia_ubicacion") or (
                 construir_aviso_reubicacion_previa(carpetas_reubicadas)
                 if carpetas_reubicadas
@@ -370,6 +452,7 @@ def generar_entradas_almacen(
             return json.dumps(salida_cancelado, ensure_ascii=False)
 
         if sincronizacion.get("requiere_confirmacion"):
+            _guardar_sesion_confirmacion(carpeta_datos, estado_confirmacion_actual)
             datos_conf = dict(sincronizacion)
             if carpetas_reubicadas:
                 aviso_reubicacion = datos_conf.get("advertencia_ubicacion") or (
@@ -478,6 +561,7 @@ def generar_entradas_almacen(
         )
         if not tiene_apoyo_local:
             if confirmar_solo_xml is False:
+                _limpiar_sesion_confirmacion(carpeta_datos)
                 return json.dumps(
                     {
                         "ok": True,
@@ -491,6 +575,7 @@ def generar_entradas_almacen(
                     ensure_ascii=False,
                 )
             if confirmar_solo_xml is None:
+                _guardar_sesion_confirmacion(carpeta_datos, estado_confirmacion_actual)
                 pregunta = (
                     f"Oye, la entrada **{carpeta.name}** contiene solo archivos XML (sin TXT ni PDF de apoyo). "
                     "¿Olvidaste subirlos o no los tienes? Esto implica que el reporte no contendrá líneas ni "
@@ -520,6 +605,7 @@ def generar_entradas_almacen(
             decisiones_rollos=decisiones_rollos_norm,
         )
         if pendientes_local["lineas_sin_factor"] or pendientes_local["rollos_pendientes"]:
+            _guardar_sesion_confirmacion(carpeta_datos, estado_confirmacion_actual)
             lista_lineas = pendientes_local["lineas_sin_factor"]
             lista_rollos = pendientes_local["rollos_pendientes"]
             if lista_lineas and lista_rollos:
@@ -578,6 +664,8 @@ def generar_entradas_almacen(
             resumen["carpetas_procesadas"] = sincronizacion["carpetas_procesadas"]
         if sincronizacion.get("carpetas_omitidas_solo_xml"):
             resumen["carpetas_omitidas_solo_xml"] = sincronizacion["carpetas_omitidas_solo_xml"]
+        if sincronizacion.get("xmls_sin_apoyo"):
+            resumen["xmls_sin_apoyo"] = sincronizacion["xmls_sin_apoyo"]
         if carpetas_reubicadas:
             resumen["carpetas_reubicadas"] = carpetas_reubicadas
         try:
@@ -585,6 +673,7 @@ def generar_entradas_almacen(
         except Exception as err_save:
             logger.warning("No se pudo persistir metadatos de Drive en resumen JSON: %s", err_save)
 
+    _limpiar_sesion_confirmacion(carpeta_datos)
     salida: dict = {
         "ok": True,
         "reporte_generado": True,
@@ -592,6 +681,13 @@ def generar_entradas_almacen(
     }
     if sincronizacion.get("carpetas_omitidas_solo_xml"):
         salida["carpetas_omitidas_solo_xml"] = sincronizacion["carpetas_omitidas_solo_xml"]
+    if sincronizacion.get("xmls_sin_apoyo"):
+        salida["xmls_sin_apoyo"] = sincronizacion["xmls_sin_apoyo"]
+        salida["advertencia_xmls_sin_apoyo"] = (
+            "Las siguientes facturas XML no tenían su archivo TXT o PDF de apoyo en su carpeta "
+            "(se procesaron solo con los datos del XML, sin línea ni precios con factor): "
+            + ", ".join(sincronizacion["xmls_sin_apoyo"])
+        )
     if carpetas_reubicadas:
         salida["carpetas_reubicadas"] = carpetas_reubicadas
         salida["advertencia_ubicacion"] = construir_advertencia_ubicacion(

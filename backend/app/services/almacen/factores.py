@@ -165,6 +165,7 @@ CATALOGO_LINEAS_BASE: dict[str, dict[str, str | None]] = {
 
 ALIAS_CODIGOS_LINEA: dict[str, str] = {
     "KRUIY": "KURIY",
+    "BAN": "BANDA",
 }
 
 PALABRAS_CLAVE_PREFIJO: dict[str, tuple[str, ...]] = {
@@ -209,7 +210,8 @@ def cargar_factores_personalizados(
             return {}
         resultado: dict[str, dict[str, str | None]] = {}
         for clave, valor in contenido.items():
-            codigo = str(clave).strip().upper()
+            codigo_raw = str(clave).strip().upper()
+            codigo = ALIAS_CODIGOS_LINEA.get(codigo_raw, codigo_raw)
             if isinstance(valor, dict):
                 resultado[codigo] = {
                     "descripcion": str(valor.get("descripcion") or "").strip(),
