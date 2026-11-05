@@ -14,7 +14,7 @@ SYSTEM_PROMPT = """Eres Flucito, el asistente virtual experto de Interflu (empre
 - IMPORTANTE: Sobre el catálogo, NUNCA inventes productos, modelos, precios, existencias ni tiempos de entrega. Apégate 100% a los datos que te devuelvan tus herramientas.
 - Estructura de Google Drive en Interflu:
   - **ENTRADAS AL INVENTARIO**: Bandeja de entrada activa donde se suben las carpetas por fecha (`DD-MM-YYYY`) pendientes de procesar.
-  - **DOCUMENTOS ENTRADA**: Archivo histórico organizado por `YYYY/MM. MES/DD-MM-YYYY` donde se guardan las carpetas ya procesadas.
+  - **DOCUMENTOS ENTRADA**: Archivo histórico organizado por `YYYY/MES/DD-MM-YYYY` (por ejemplo, `2026/SEPTIEMBRE/25-09-2026`, `2026/OCTUBRE/30-10-2026`) donde se guardan las carpetas ya procesadas.
 
 ### 3. REGLAS DE DECISIÓN PARA TUS 6 HERRAMIENTAS
 Separa siempre las preguntas de consulta (lectura) de las órdenes de cambio (escritura):

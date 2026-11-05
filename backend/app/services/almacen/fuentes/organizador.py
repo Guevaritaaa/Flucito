@@ -26,7 +26,10 @@ from app.services.almacen.fuentes.google_drive_client import (
     buscar_o_crear_carpeta,
     crear_cliente_drive,
     eliminar_archivo,
+    extraer_anio_mes_de_fecha_carpeta,
+    listar_carpetas_fecha_en_historico,
     mover_archivo,
+    obtener_o_crear_carpeta_mes_historico,
 )
 
 logger = logging.getLogger(__name__)
@@ -273,13 +276,11 @@ def reubicar_carpetas_mal_ubicadas(
             "archivos_reubicados_ids": archivos_reubicados_ids,
         }
 
-    items_historico = _listar_hijos(cliente, carpeta_historico_id)
-    carpetas_historico = [
-        item
-        for item in items_historico
-        if item.get("mimeType") == MIME_CARPETA
-        and not es_carpeta_archivos_sueltos(item.get("name", ""))
-    ]
+    carpetas_historico = listar_carpetas_fecha_en_historico(
+        cliente,
+        carpeta_historico_id,
+        fn_listar_hijos=_listar_hijos,
+    )
 
     for carpeta in carpetas_historico:
         carpeta_id = carpeta["id"]
@@ -523,12 +524,18 @@ def revisar_carpetas_sin_reportes_drive(
         items_historico = _listar_hijos(cliente, carpeta_historico_id)
         for item in items_historico:
             nombre = item.get("name", "")
-            if item.get("mimeType") != MIME_CARPETA:
-                if es_xml_o_txt_entrada(nombre):
-                    archivos_sueltos.append(
-                        {"nombre": nombre, "ubicacion": CARPETA_REPORTES_HISTORICOS}
-                    )
-                continue
+            if item.get("mimeType") != MIME_CARPETA and es_xml_o_txt_entrada(nombre):
+                archivos_sueltos.append(
+                    {"nombre": nombre, "ubicacion": CARPETA_REPORTES_HISTORICOS}
+                )
+
+        carpetas_historico = listar_carpetas_fecha_en_historico(
+            cliente,
+            carpeta_historico_id,
+            fn_listar_hijos=_listar_hijos,
+        )
+        for item in carpetas_historico:
+            nombre = item.get("name", "")
             if es_carpeta_archivos_sueltos(nombre):
                 continue
 
@@ -597,11 +604,30 @@ def revisar_carpetas_sin_reportes_drive(
     }
 
 
+def _tiene_reporte_carpeta(cliente: Any, hijos: list[dict]) -> bool:
+    """Indica si una carpeta (o alguna de sus subcarpetas directas) contiene un reporte Excel."""
+    archivos = [h for h in hijos if h.get("mimeType") != MIME_CARPETA]
+    if any(es_reporte_excel(a.get("name", "")) for a in archivos):
+        return True
+    subcarpetas = [h for h in hijos if h.get("mimeType") == MIME_CARPETA]
+    for sub in subcarpetas:
+        hijos_sub = _listar_hijos(cliente, sub["id"])
+        if any(
+            es_reporte_excel(a.get("name", ""))
+            for a in hijos_sub
+            if a.get("mimeType") != MIME_CARPETA
+        ):
+            return True
+    return False
+
+
 def mover_carpetas_con_reportes_drive(
     cliente: Any | None = None,
     carpeta_raiz_id: str | None = None,
 ) -> dict[str, Any]:
-    """Traslada a DOCUMENTOS ENTRADA las carpetas de ENTRADAS AL INVENTARIO que ya tienen reporte Excel."""
+    """Traslada a DOCUMENTOS ENTRADA (bajo AÑO/MES/DD-MM-YYYY) las carpetas de ENTRADAS AL INVENTARIO
+    que ya tienen reporte Excel, y organiza en AÑO/MES cualquier carpeta de fecha plana ya existente en DOCUMENTOS ENTRADA.
+    """
     cliente = cliente or crear_cliente_drive()
     root_id = carpeta_raiz_id or settings.google_drive_folder_id
     if not root_id:
@@ -612,73 +638,105 @@ def mover_carpetas_con_reportes_drive(
         CARPETA_ENTRADAS_AL_INVENTARIO,
         root_id,
     )
-    if not carpeta_entrada_id:
-        return {
-            "ok": True,
-            "tipo": "mover_carpetas_con_reportes",
-            "carpetas_movidas": [],
-            "total_movidas": 0,
-        }
-
-    items_entrada = _listar_hijos(cliente, carpeta_entrada_id)
-    carpetas_entrada = [
-        item
-        for item in items_entrada
-        if item.get("mimeType") == MIME_CARPETA
-        and not es_carpeta_archivos_sueltos(item.get("name", ""))
-    ]
+    carpeta_historico_id = buscar_carpeta_hija(
+        cliente,
+        CARPETA_REPORTES_HISTORICOS,
+        root_id,
+    )
 
     carpetas_movidas: list[str] = []
-    carpeta_historico_id: str | None = None
 
-    for carpeta in carpetas_entrada:
-        carpeta_id = carpeta["id"]
-        carpeta_nombre = carpeta.get("name", carpeta_id)
-        hijos = _listar_hijos(cliente, carpeta_id)
-        archivos = [h for h in hijos if h.get("mimeType") != MIME_CARPETA]
-        subcarpetas = [h for h in hijos if h.get("mimeType") == MIME_CARPETA]
+    if carpeta_entrada_id:
+        items_entrada = _listar_hijos(cliente, carpeta_entrada_id)
+        carpetas_entrada = [
+            item
+            for item in items_entrada
+            if item.get("mimeType") == MIME_CARPETA
+            and not es_carpeta_archivos_sueltos(item.get("name", ""))
+        ]
 
-        tiene_reporte_directo = any(
-            es_reporte_excel(a.get("name", "")) for a in archivos
-        )
-        tiene_reporte_sub = False
-        for sub in subcarpetas:
-            hijos_sub = _listar_hijos(cliente, sub["id"])
-            if any(
-                es_reporte_excel(a.get("name", ""))
-                for a in hijos_sub
-                if a.get("mimeType") != MIME_CARPETA
-            ):
-                tiene_reporte_sub = True
-                break
+        for carpeta in carpetas_entrada:
+            carpeta_id = carpeta["id"]
+            carpeta_nombre = carpeta.get("name", carpeta_id)
+            hijos = _listar_hijos(cliente, carpeta_id)
+            if not _tiene_reporte_carpeta(cliente, hijos):
+                continue
 
-        if not (tiene_reporte_directo or tiene_reporte_sub):
-            continue
+            if not carpeta_historico_id:
+                carpeta_historico_id = buscar_o_crear_carpeta(
+                    cliente,
+                    CARPETA_REPORTES_HISTORICOS,
+                    root_id,
+                )
 
-        if not carpeta_historico_id:
-            carpeta_historico_id = buscar_o_crear_carpeta(
+            carpeta_destino_padre_id = obtener_o_crear_carpeta_mes_historico(
                 cliente,
+                carpeta_historico_id,
+                carpeta_nombre,
+                fn_buscar_o_crear=buscar_o_crear_carpeta,
+            )
+            destino_existente_id = buscar_carpeta_hija(
+                cliente,
+                carpeta_nombre,
+                carpeta_destino_padre_id,
+            )
+            if destino_existente_id and destino_existente_id != carpeta_id:
+                _mover_contenido_carpeta(cliente, carpeta_id, destino_existente_id, hijos)
+            else:
+                mover_archivo(cliente, carpeta_id, carpeta_destino_padre_id)
+
+            carpetas_movidas.append(carpeta_nombre)
+            logger.info(
+                "Carpeta procesada '%s' trasladada de %s a %s.",
+                carpeta_nombre,
+                CARPETA_ENTRADAS_AL_INVENTARIO,
                 CARPETA_REPORTES_HISTORICOS,
-                root_id,
             )
 
-        destino_existente_id = buscar_carpeta_hija(
+    # Organizar también carpetas de fecha planas ya ubicadas en DOCUMENTOS ENTRADA hacia AÑO/MES/DD-MM-YYYY
+    if carpeta_historico_id:
+        carpetas_en_historico = listar_carpetas_fecha_en_historico(
             cliente,
-            carpeta_nombre,
             carpeta_historico_id,
+            fn_listar_hijos=_listar_hijos,
         )
-        if destino_existente_id:
-            _mover_contenido_carpeta(cliente, carpeta_id, destino_existente_id, hijos)
-        else:
-            mover_archivo(cliente, carpeta_id, carpeta_historico_id)
+        for carp_hist in carpetas_en_historico:
+            if carp_hist.get("en_jerarquia_anio_mes", False):
+                continue
+            carp_id = carp_hist["id"]
+            carp_nombre = carp_hist.get("name", carp_id)
+            if not extraer_anio_mes_de_fecha_carpeta(carp_nombre):
+                continue
+            hijos_hist = _listar_hijos(cliente, carp_id)
+            if not _tiene_reporte_carpeta(cliente, hijos_hist):
+                continue
 
-        carpetas_movidas.append(carpeta_nombre)
-        logger.info(
-            "Carpeta procesada '%s' trasladada de %s a %s.",
-            carpeta_nombre,
-            CARPETA_ENTRADAS_AL_INVENTARIO,
-            CARPETA_REPORTES_HISTORICOS,
-        )
+            carpeta_mes_id = obtener_o_crear_carpeta_mes_historico(
+                cliente,
+                carpeta_historico_id,
+                carp_nombre,
+                fn_buscar_o_crear=buscar_o_crear_carpeta,
+            )
+            if carpeta_mes_id == carp_hist.get("padre_id"):
+                continue
+
+            destino_existente_id = buscar_carpeta_hija(
+                cliente,
+                carp_nombre,
+                carpeta_mes_id,
+            )
+            if destino_existente_id and destino_existente_id != carp_id:
+                _mover_contenido_carpeta(cliente, carp_id, destino_existente_id, hijos_hist)
+            else:
+                mover_archivo(cliente, carp_id, carpeta_mes_id)
+
+            if carp_nombre not in carpetas_movidas:
+                carpetas_movidas.append(carp_nombre)
+            logger.info(
+                "Carpeta histórica '%s' organizada en jerarquía AÑO/MES dentro de %s.",
+                carp_nombre,
+                CARPETA_REPORTES_HISTORICOS,
+            )
 
     return {
         "ok": True,
@@ -689,31 +747,32 @@ def mover_carpetas_con_reportes_drive(
 
 
 def _limpiar_carpetas_vacias_en(cliente: Any, carpeta_padre_id: str) -> list[str]:
-    """Elimina subcarpetas vacías (nivel 2 y nivel 1) dentro de carpeta_padre_id."""
+    """Elimina subcarpetas vacías (hasta 4 niveles, incluyendo AÑO/MES/FECHA/PROVEEDOR) dentro de carpeta_padre_id."""
     eliminadas: list[str] = []
-    hijos = _listar_hijos(cliente, carpeta_padre_id)
-    carpetas = [h for h in hijos if h.get("mimeType") == MIME_CARPETA]
 
-    for carpeta in carpetas:
-        carpeta_id = carpeta["id"]
-        carpeta_nombre = carpeta.get("name", carpeta_id)
-        elementos = _listar_hijos(cliente, carpeta_id)
+    def _limpiar_nodo(nodo_id: str, ruta_relativa: str, nivel: int) -> bool:
+        elementos = _listar_hijos(cliente, nodo_id)
         subcarpetas = [e for e in elementos if e.get("mimeType") == MIME_CARPETA]
-
         sub_eliminadas = 0
-        for sub in subcarpetas:
-            sub_id = sub["id"]
-            sub_nombre = sub.get("name", sub_id)
-            hijos_sub = _listar_hijos(cliente, sub_id)
-            if not hijos_sub:
-                if _eliminar_archivo_seguro(cliente, sub_id):
-                    eliminadas.append(f"{carpeta_nombre}/{sub_nombre}")
+        if nivel < 4:
+            for sub in subcarpetas:
+                sub_id = sub["id"]
+                sub_nombre = sub.get("name", sub_id)
+                sub_ruta = f"{ruta_relativa}/{sub_nombre}"
+                if _limpiar_nodo(sub_id, sub_ruta, nivel + 1):
                     sub_eliminadas += 1
-
-        # Si ya no quedan elementos en la carpeta de nivel 1, eliminarla también
         if len(elementos) - sub_eliminadas == 0:
-            if _eliminar_archivo_seguro(cliente, carpeta_id):
-                eliminadas.append(carpeta_nombre)
+            if _eliminar_archivo_seguro(cliente, nodo_id):
+                eliminadas.append(ruta_relativa)
+                return True
+        return False
+
+    hijos = _listar_hijos(cliente, carpeta_padre_id)
+    for carpeta in hijos:
+        if carpeta.get("mimeType") == MIME_CARPETA:
+            carpeta_id = carpeta["id"]
+            carpeta_nombre = carpeta.get("name", carpeta_id)
+            _limpiar_nodo(carpeta_id, carpeta_nombre, 1)
 
     return eliminadas
 

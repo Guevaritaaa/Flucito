@@ -21,6 +21,7 @@ from app.services.almacen.fuentes.google_drive_client import (
     crear_cliente_drive,
     descargar_archivo,
     eliminar_archivo,
+    listar_carpetas_fecha_en_historico,
     mover_archivo,
     normalizar_fecha_reporte,
 )
@@ -235,6 +236,34 @@ def resolver_ruta_drive(
                 ),
                 None,
             )
+            if (
+                not siguiente
+                and indice == 1
+                and elemento_actual.get("name") == CARPETA_REPORTES_HISTORICOS
+            ):
+                carpetas_hist = listar_carpetas_fecha_en_historico(
+                    cliente,
+                    elemento_actual["id"],
+                    fn_listar_hijos=_listar_hijos,
+                )
+                siguiente_hist = next(
+                    (
+                        c
+                        for c in carpetas_hist
+                        if _coincide_nombre_elemento(c.get("name", ""), segmento_buscado)
+                    ),
+                    None,
+                )
+                if siguiente_hist:
+                    padre_actual_id = siguiente_hist.get("padre_id", elemento_actual["id"])
+                    elemento_actual = siguiente_hist
+                    partes_ruta.append(
+                        siguiente_hist.get(
+                            "ruta_relativa",
+                            siguiente_hist.get("name", segmento_buscado),
+                        )
+                    )
+                    continue
             if not siguiente:
                 raise ValueError(
                     f"No se encontró '{segmento_buscado}' dentro de '{'/'.join(partes_ruta)}'."
@@ -268,13 +297,23 @@ def resolver_ruta_drive(
 
     for contenedor in contenedores_principales:
         nombre_contenedor = contenedor.get("name", "")
-        hijos_contenedor = _listar_hijos(cliente, contenedor["id"])
+        hijos_contenedor = list(_listar_hijos(cliente, contenedor["id"]))
+        if nombre_contenedor == CARPETA_REPORTES_HISTORICOS:
+            ids_directos = {h["id"] for h in hijos_contenedor}
+            for carp_h in listar_carpetas_fecha_en_historico(
+                cliente,
+                contenedor["id"],
+                fn_listar_hijos=_listar_hijos,
+            ):
+                if carp_h["id"] not in ids_directos:
+                    hijos_contenedor.append(carp_h)
 
         for hijo in hijos_contenedor:
             if _coincide_nombre_elemento(hijo.get("name", ""), primer_segmento):
                 elemento_actual = hijo
-                padre_actual_id = contenedor["id"]
-                partes_ruta = [nombre_contenedor, elemento_actual.get("name", "")]
+                padre_actual_id = hijo.get("padre_id", contenedor["id"])
+                ruta_rel = hijo.get("ruta_relativa") or elemento_actual.get("name", "")
+                partes_ruta = [nombre_contenedor, ruta_rel]
                 ruta_valida = True
 
                 for indice in range(1, len(segmentos)):
@@ -325,9 +364,21 @@ def resolver_ruta_drive(
         nombre_buscado = segmentos[0]
         for contenedor in contenedores_principales:
             nombre_contenedor = contenedor.get("name", "")
-            for carpeta_fecha in _listar_hijos(cliente, contenedor["id"]):
-                if carpeta_fecha.get("mimeType") != MIME_CARPETA:
-                    continue
+            carpetas_a_revisar = (
+                listar_carpetas_fecha_en_historico(
+                    cliente,
+                    contenedor["id"],
+                    fn_listar_hijos=_listar_hijos,
+                )
+                if nombre_contenedor == CARPETA_REPORTES_HISTORICOS
+                else [
+                    c
+                    for c in _listar_hijos(cliente, contenedor["id"])
+                    if c.get("mimeType") == MIME_CARPETA
+                ]
+            )
+            for carpeta_fecha in carpetas_a_revisar:
+                ruta_rel = carpeta_fecha.get("ruta_relativa") or carpeta_fecha.get("name", "")
                 for subitem in _listar_hijos(cliente, carpeta_fecha["id"]):
                     if _coincide_nombre_elemento(subitem.get("name", ""), nombre_buscado):
                         return {
@@ -337,7 +388,7 @@ def resolver_ruta_drive(
                             "es_carpeta": subitem.get("mimeType") == MIME_CARPETA,
                             "padre_id": carpeta_fecha["id"],
                             "ruta_completa": (
-                                f"{nombre_contenedor}/{carpeta_fecha.get('name', '')}/"
+                                f"{nombre_contenedor}/{ruta_rel}/"
                                 f"{subitem.get('name', '')}"
                             ),
                         }
@@ -487,16 +538,27 @@ def explorar_estructura_drive(
 
         carpetas_coincidentes: list[dict[str, Any]] = []
         for nombre_cont, id_cont in contenedores_a_buscar:
-            for hijo in _listar_hijos(cliente, id_cont):
+            hijos_buscar = list(_listar_hijos(cliente, id_cont))
+            if nombre_cont == CARPETA_REPORTES_HISTORICOS:
+                ids_directos = {h["id"] for h in hijos_buscar}
+                for carp_h in listar_carpetas_fecha_en_historico(
+                    cliente,
+                    id_cont,
+                    fn_listar_hijos=_listar_hijos,
+                ):
+                    if carp_h["id"] not in ids_directos:
+                        hijos_buscar.append(carp_h)
+            for hijo in hijos_buscar:
                 if hijo.get("mimeType") == MIME_CARPETA and _coincide_nombre_elemento(
                     hijo.get("name", ""), objetivo_texto
                 ):
+                    ruta_rel = hijo.get("ruta_relativa") or hijo.get("name", "")
                     carpetas_coincidentes.append(
                         _resumir_elementos_carpeta(
                             cliente=cliente,
                             carpeta_id=hijo["id"],
                             nombre_carpeta=hijo.get("name", ""),
-                            ruta_carpeta=f"{nombre_cont}/{hijo.get('name', '')}",
+                            ruta_carpeta=f"{nombre_cont}/{ruta_rel}",
                             incluir_archivos=incluir_archivos,
                         )
                     )
@@ -587,25 +649,49 @@ def explorar_estructura_drive(
     if ubicacion in {"todas", "documentos_entrada"}:
         historicos_id = carpetas_raiz.get(CARPETA_REPORTES_HISTORICOS)
         if historicos_id:
-            resumen_historicos = _resumir_elementos_carpeta(
-                cliente=cliente,
-                carpeta_id=historicos_id,
-                nombre_carpeta=CARPETA_REPORTES_HISTORICOS,
-                ruta_carpeta=CARPETA_REPORTES_HISTORICOS,
-                incluir_archivos=incluir_archivos,
-                profundidad_maxima=1,
+            hijos_hist_directos = _listar_hijos(cliente, historicos_id)
+            archivos_sueltos_hist = sorted(
+                [
+                    h.get("name", "")
+                    for h in hijos_hist_directos
+                    if h.get("mimeType") != MIME_CARPETA
+                ],
+                key=str.casefold,
             )
-            nombres_hist = [c["nombre"] for c in resumen_historicos["subcarpetas"]]
+            carpetas_hist_raw = listar_carpetas_fecha_en_historico(
+                cliente,
+                historicos_id,
+                fn_listar_hijos=_listar_hijos,
+            )
+            carpetas_hist_ordenadas = sorted(
+                carpetas_hist_raw,
+                key=lambda x: _clave_orden_carpeta(x.get("name", "")),
+            )
+            subcarpetas_hist_info: list[dict[str, Any]] = []
+            for sub in carpetas_hist_ordenadas:
+                nombre_sub = sub.get("name", "")
+                ruta_rel = sub.get("ruta_relativa") or nombre_sub
+                subcarpetas_hist_info.append(
+                    _resumir_elementos_carpeta(
+                        cliente=cliente,
+                        carpeta_id=sub["id"],
+                        nombre_carpeta=nombre_sub,
+                        ruta_carpeta=f"{CARPETA_REPORTES_HISTORICOS}/{ruta_rel}",
+                        incluir_archivos=incluir_archivos,
+                        profundidad_maxima=0,
+                    )
+                )
+            nombres_hist = [c["nombre"] for c in subcarpetas_hist_info]
             antigua_hist, reciente_hist = _obtener_rango_fechas_carpetas(nombres_hist)
             resultado_contenedores["documentos_entrada"] = {
                 "id": historicos_id,
                 "nombre": CARPETA_REPORTES_HISTORICOS,
-                "total_carpetas": len(resumen_historicos["subcarpetas"]),
+                "total_carpetas": len(subcarpetas_hist_info),
                 "carpeta_mas_antigua": antigua_hist,
                 "carpeta_mas_reciente": reciente_hist,
                 "nombres_carpetas": nombres_hist,
-                "carpetas": resumen_historicos["subcarpetas"],
-                "archivos_sueltos": resumen_historicos.get("archivos", []),
+                "carpetas": subcarpetas_hist_info,
+                "archivos_sueltos": archivos_sueltos_hist if incluir_archivos else [],
             }
         else:
             resultado_contenedores["documentos_entrada"] = {
@@ -677,7 +763,8 @@ def _auditar_carpeta_individual(
     qué facturas tienen soporte completo, cuáles están incompletas y si existe reporte Excel.
     """
     nombre_carpeta = carpeta.get("name", "")
-    ruta_carpeta = f"{nombre_contenedor}/{nombre_carpeta}"
+    ruta_rel = carpeta.get("ruta_relativa") or nombre_carpeta
+    ruta_carpeta = f"{nombre_contenedor}/{ruta_rel}"
     hijos = _listar_hijos(cliente, carpeta["id"])
 
     subcarpetas = [h for h in hijos if h.get("mimeType") == MIME_CARPETA]
@@ -835,10 +922,17 @@ def auditar_facturas_drive(
     filtro_nombre = carpeta_o_fecha.strip() if carpeta_o_fecha and carpeta_o_fecha.strip() else None
 
     for nombre_contenedor, contenedor_id in contenedores_objetivo:
-        hijos_contenedor = _listar_hijos(cliente, contenedor_id)
-        carpetas_hijas = [
-            h for h in hijos_contenedor if h.get("mimeType") == MIME_CARPETA
-        ]
+        if nombre_contenedor == CARPETA_REPORTES_HISTORICOS:
+            carpetas_hijas = listar_carpetas_fecha_en_historico(
+                cliente,
+                contenedor_id,
+                fn_listar_hijos=_listar_hijos,
+            )
+        else:
+            hijos_contenedor = _listar_hijos(cliente, contenedor_id)
+            carpetas_hijas = [
+                h for h in hijos_contenedor if h.get("mimeType") == MIME_CARPETA
+            ]
         for carpeta in sorted(
             carpetas_hijas,
             key=lambda x: _clave_orden_carpeta(x.get("name", "")),

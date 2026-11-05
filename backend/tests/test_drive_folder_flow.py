@@ -159,7 +159,9 @@ def test_sincronizacion_archiva_por_nombre_proveedor_y_fecha_de_carga(
     resultado = sincronizador.sincronizar_drive()
 
     archive_id = carpetas_creadas[("DOCUMENTOS ENTRADA", "docs-root")]
-    date_id = carpetas_creadas[("18-03-2026", archive_id)]
+    year_id = carpetas_creadas[("2026", archive_id)]
+    month_id = carpetas_creadas[("MARZO", year_id)]
+    date_id = carpetas_creadas[("18-03-2026", month_id)]
     supplier_id = carpetas_creadas[("Proveedor Ejemplo, S.A. - 18-03-2026", date_id)]
     assert set(movimientos) == {("xml-id", supplier_id), ("pdf-id", supplier_id)}
     assert (
@@ -301,9 +303,171 @@ def test_comandos_conversacionales_revisar_mover_y_ordenar(monkeypatch) -> None:
         in orden["advertencia_archivos_sueltos"]
     )
     assert orden["carpetas_vacias_eliminadas"] == ["Carpeta Vacia"]
-    assert ("done-in", "hist-id") in movimientos
+    assert ("done-in", "created-MARZO-created-2026-hist-id") in movimientos
     assert ("loose-xml", "created-ARCHIVOS_SUELTOS_13-10-2026-docs-root") in movimientos
     assert ("empty-in" in eliminados)
+
+
+def test_busqueda_historica_encuentra_reportes_en_jerarquia_anio_mes(monkeypatch) -> None:
+    carpetas = {
+        "docs-root": [
+            {"id": "archive", "name": "DOCUMENTOS ENTRADA", "mimeType": google_drive_client.MIME_CARPETA},
+        ],
+        "archive": [
+            {"id": "y2026", "name": "2026", "mimeType": google_drive_client.MIME_CARPETA},
+            {"id": "y2027", "name": "2027", "mimeType": google_drive_client.MIME_CARPETA},
+        ],
+        "y2026": [
+            {"id": "m-sep", "name": "SEPTIEMBRE", "mimeType": google_drive_client.MIME_CARPETA},
+            {"id": "m-oct", "name": "OCTUBRE", "mimeType": google_drive_client.MIME_CARPETA},
+        ],
+        "y2027": [
+            {"id": "m-ene", "name": "ENERO", "mimeType": google_drive_client.MIME_CARPETA},
+        ],
+        "m-sep": [
+            {"id": "d-25-09", "name": "25-09-2026", "mimeType": google_drive_client.MIME_CARPETA},
+        ],
+        "m-oct": [
+            {"id": "d-30-10", "name": "30-10-2026", "mimeType": google_drive_client.MIME_CARPETA},
+        ],
+        "m-ene": [
+            {"id": "d-15-01", "name": "15-01-2027", "mimeType": google_drive_client.MIME_CARPETA},
+        ],
+        "d-25-09": [
+            {"id": "rep-sep", "name": "ENTRADAS_ALMACEN_25-09-2026.xlsx", "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
+        ],
+        "d-30-10": [
+            {"id": "rep-oct", "name": "ENTRADAS_ALMACEN_30-10-2026.xlsx", "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
+        ],
+        "d-15-01": [
+            {"id": "rep-ene", "name": "ENTRADAS_ALMACEN_15-01-2027.xlsx", "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
+        ],
+    }
+    monkeypatch.setattr(settings, "google_drive_folder_id", "docs-root")
+    monkeypatch.setattr(google_drive_client, "_listar_hijos", lambda cliente, carpeta_id: carpetas.get(carpeta_id, []))
+
+    reportes_oct = google_drive_client.buscar_reportes_historicos("30-10-2026", cliente=object())
+    assert [r["id"] for r in reportes_oct] == ["rep-oct"]
+    assert reportes_oct[0]["fecha"] == "30-10-2026"
+
+    todos = google_drive_client.buscar_reportes_historicos(cliente=object())
+    assert [r["id"] for r in todos] == ["rep-ene", "rep-oct", "rep-sep"]
+
+
+def test_mover_carpetas_con_reportes_organiza_carpetas_planas_en_anio_mes(monkeypatch) -> None:
+    from app.services.almacen.fuentes import organizador
+
+    estructura = {
+        "docs-root": [
+            {"id": "hist-id", "name": "DOCUMENTOS ENTRADA", "mimeType": google_drive_client.MIME_CARPETA},
+            {"id": "in-id", "name": "ENTRADAS AL INVENTARIO", "mimeType": google_drive_client.MIME_CARPETA},
+        ],
+        "in-id": [],
+        "hist-id": [
+            {"id": "flat-sep", "name": "25-09-2026", "mimeType": google_drive_client.MIME_CARPETA},
+            {"id": "flat-oct", "name": "30-10-2026", "mimeType": google_drive_client.MIME_CARPETA},
+            {"id": "flat-ene", "name": "15-01-2027", "mimeType": google_drive_client.MIME_CARPETA},
+        ],
+        "flat-sep": [
+            {"id": "rep-sep", "name": "ENTRADAS_ALMACEN_25-09-2026.xlsx", "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
+        ],
+        "flat-oct": [
+            {"id": "rep-oct", "name": "ENTRADAS_ALMACEN_30-10-2026.xlsx", "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
+        ],
+        "flat-ene": [
+            {"id": "rep-ene", "name": "ENTRADAS_ALMACEN_15-01-2027.xlsx", "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
+        ],
+    }
+
+    movimientos: list[tuple[str, str]] = []
+    monkeypatch.setattr(settings, "google_drive_folder_id", "docs-root")
+    monkeypatch.setattr(organizador, "_listar_hijos", lambda cliente, carpeta_id: estructura.get(carpeta_id, []))
+    monkeypatch.setattr(
+        organizador,
+        "buscar_carpeta_hija",
+        lambda cliente, nombre, padre: next(
+            (i["id"] for i in estructura.get(padre, []) if i.get("mimeType") == google_drive_client.MIME_CARPETA and i.get("name") == nombre),
+            None,
+        ),
+    )
+    monkeypatch.setattr(
+        organizador,
+        "buscar_o_crear_carpeta",
+        lambda cliente, nombre, padre: next(
+            (i["id"] for i in estructura.get(padre, []) if i.get("mimeType") == google_drive_client.MIME_CARPETA and i.get("name") == nombre),
+            f"created-{nombre}-{padre}",
+        ),
+    )
+    monkeypatch.setattr(
+        organizador,
+        "mover_archivo",
+        lambda cliente, archivo_id, destino_id: movimientos.append((archivo_id, destino_id)),
+    )
+
+    res = organizador.mover_carpetas_con_reportes_drive(cliente=object(), carpeta_raiz_id="docs-root")
+    assert res["carpetas_movidas"] == ["25-09-2026", "30-10-2026", "15-01-2027"]
+    assert ("flat-sep", "created-SEPTIEMBRE-created-2026-hist-id") in movimientos
+    assert ("flat-oct", "created-OCTUBRE-created-2026-hist-id") in movimientos
+    assert ("flat-ene", "created-ENERO-created-2027-hist-id") in movimientos
+
+
+def test_navegador_y_auditoria_soportan_jerarquia_anio_mes(monkeypatch) -> None:
+    from app.services.almacen.fuentes import navegador_drive
+
+    estructura = {
+        "docs-root": [
+            {"id": "hist-id", "name": "DOCUMENTOS ENTRADA", "mimeType": google_drive_client.MIME_CARPETA},
+            {"id": "in-id", "name": "ENTRADAS AL INVENTARIO", "mimeType": google_drive_client.MIME_CARPETA},
+        ],
+        "in-id": [],
+        "hist-id": [
+            {"id": "y2026", "name": "2026", "mimeType": google_drive_client.MIME_CARPETA},
+        ],
+        "y2026": [
+            {"id": "m-sep", "name": "SEPTIEMBRE", "mimeType": google_drive_client.MIME_CARPETA},
+            {"id": "m-oct", "name": "OCTUBRE", "mimeType": google_drive_client.MIME_CARPETA},
+        ],
+        "m-sep": [
+            {"id": "d-25-09", "name": "25-09-2026", "mimeType": google_drive_client.MIME_CARPETA},
+        ],
+        "m-oct": [
+            {"id": "d-30-10", "name": "30-10-2026", "mimeType": google_drive_client.MIME_CARPETA},
+        ],
+        "d-25-09": [
+            {"id": "rep-sep", "name": "ENTRADAS_ALMACEN_25-09-2026.xlsx", "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
+            {"id": "prov-sep", "name": "PROVEEDOR - 25-09-2026", "mimeType": google_drive_client.MIME_CARPETA},
+        ],
+        "prov-sep": [
+            {"id": "xml-sep", "name": "fac1.xml", "mimeType": "text/xml"},
+            {"id": "txt-sep", "name": "fac1.txt", "mimeType": "text/plain"},
+        ],
+        "d-30-10": [
+            {"id": "rep-oct", "name": "ENTRADAS_ALMACEN_30-10-2026.xlsx", "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
+            {"id": "prov-oct", "name": "PROVEEDOR - 30-10-2026", "mimeType": google_drive_client.MIME_CARPETA},
+        ],
+        "prov-oct": [
+            {"id": "xml-oct", "name": "fac2.xml", "mimeType": "text/xml"},
+            {"id": "txt-oct", "name": "fac2.txt", "mimeType": "text/plain"},
+        ],
+    }
+
+    monkeypatch.setattr(settings, "google_drive_folder_id", "docs-root")
+    monkeypatch.setattr(navegador_drive, "_listar_hijos", lambda cliente, carpeta_id: estructura.get(carpeta_id, []))
+
+    exploracion = navegador_drive.explorar_estructura_drive(cliente=object(), carpeta_raiz_id="docs-root")
+    doc_ent = exploracion["contenedores"]["documentos_entrada"]
+    assert doc_ent["total_carpetas"] == 2
+    assert doc_ent["carpeta_mas_antigua"] == "25-09-2026"
+    assert doc_ent["carpeta_mas_reciente"] == "30-10-2026"
+    assert exploracion["resumen"]["carpeta_mas_reciente_global"] == "30-10-2026"
+
+    auditoria = navegador_drive.auditar_facturas_drive(cliente=object(), carpeta_raiz_id="docs-root")
+    assert auditoria["total_carpetas_evaluadas"] == 2
+    assert auditoria["resumen_hallazgos"]["carpetas_sin_xml"] == []
+    assert auditoria["resumen_hallazgos"]["carpetas_completas"] == [
+        "DOCUMENTOS ENTRADA/2026/SEPTIEMBRE/25-09-2026",
+        "DOCUMENTOS ENTRADA/2026/OCTUBRE/30-10-2026",
+    ]
 
 
 def test_restaurar_entorno_pruebas_reutiliza_carpeta_fecha_sin_borrar(monkeypatch, tmp_path: Path) -> None:

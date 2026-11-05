@@ -11,6 +11,7 @@ from app.services.almacen.fuentes.google_drive_client import (
     CARPETA_ENTRADAS_AL_INVENTARIO,
     CARPETA_REPORTES_HISTORICOS,
     eliminar_archivo,
+    listar_carpetas_fecha_en_historico,
     mover_archivo,
     _listar_hijos,
 )
@@ -50,11 +51,12 @@ def restaurar_entorno_pruebas() -> dict:
         for f in Path(CARPETA_DATOS).glob(ext):
             f.unlink()
 
-    # 2. Recorrer DOCUMENTOS ENTRADA/{fecha}
-    carpetas_fecha = [
-        item for item in _listar_hijos(cliente, carpeta_historico_id)
-        if item.get("mimeType") == MIME_CARPETA
-    ]
+    # 2. Recorrer DOCUMENTOS ENTRADA (soportando AÑO/MES/DD-MM-YYYY y carpetas planas)
+    carpetas_fecha = listar_carpetas_fecha_en_historico(
+        cliente,
+        carpeta_historico_id,
+        fn_listar_hijos=_listar_hijos,
+    )
 
     archivos_movidos = 0
     archivos_eliminados = 0

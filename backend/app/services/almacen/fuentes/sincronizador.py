@@ -43,7 +43,9 @@ from app.services.almacen.fuentes.google_drive_client import (
     crear_cliente_drive,
     descargar_archivo,
     listar_carpetas_factura,
+    listar_carpetas_fecha_en_historico,
     normalizar_fecha_reporte,
+    obtener_o_crear_carpeta_mes_historico,
 )
 from app.services.almacen.fuentes.estado_drive import (
     NOMBRE_ESTADO,
@@ -504,10 +506,16 @@ def sincronizar_drive(
             carpeta_raiz_id,
         )
         for carpeta, destino, rutas_xml, archivo_by_name in descargas_por_carpeta:
+            carpeta_destino_padre_id = obtener_o_crear_carpeta_mes_historico(
+                cliente,
+                carpeta_archivo_id,
+                carpeta.nombre,
+                fn_buscar_o_crear=buscar_o_crear_carpeta,
+            )
             carpeta_fecha_archivo_id = buscar_o_crear_carpeta(
                 cliente,
                 carpeta.nombre,
-                carpeta_archivo_id,
+                carpeta_destino_padre_id,
             )
             df_carpeta: list[pd.DataFrame] = []
             fecha_carga = _nombre_drive_seguro(carpeta.nombre)
@@ -611,7 +619,7 @@ def sincronizar_drive(
                         e,
                     )
                     try:
-                        mover_archivo(cliente, carpeta.id, carpeta_archivo_id, carpeta_origen_id=carpeta_entrada_id)
+                        mover_archivo(cliente, carpeta.id, carpeta_destino_padre_id, carpeta_origen_id=carpeta_entrada_id)
                         for item_arch in _listar_hijos(cliente, carpeta_fecha_archivo_id):
                             mover_archivo(cliente, item_arch["id"], carpeta.id, carpeta_origen_id=carpeta_fecha_archivo_id)
                         try:
@@ -709,12 +717,11 @@ def actualizar_precios_reportes_drive(
                     ]
 
                     for carpeta_archivo in carpetas_archivo:
-                        carpetas_fecha = [
-                            elem
-                            for elem in _listar_hijos(cliente, carpeta_archivo["id"])
-                            if elem.get("mimeType") == MIME_CARPETA
-                            and (fecha_filtro is None or elem.get("name") == fecha_filtro)
-                        ]
+                        carpetas_fecha = listar_carpetas_fecha_en_historico(
+                            cliente,
+                            carpeta_archivo["id"],
+                            filtro_fecha=fecha_filtro,
+                        )
 
                         for idx_f, carpeta_fecha in enumerate(carpetas_fecha):
                             dir_fecha = raiz_temp / f"fecha_{idx_f}"
