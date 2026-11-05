@@ -321,21 +321,42 @@ def obtener_apoyo_por_folio(carpeta: str, year: str, folio: int, rfc_proveedor: 
     return []
 
 
-def buscar_dato(apoyo: list, codigo_concepto: str) -> dict | None:
-    """Empareja el código del concepto XML contra la lista de apoyo, por código."""
+def buscar_dato(
+    apoyo: list,
+    codigo_concepto: str,
+    excluir_ids: set[int] | None = None,
+) -> dict | None:
+    """Empareja el código del concepto XML contra la lista de apoyo, por código.
+    Si se proporciona excluir_ids, prioriza filas del apoyo que aún no hayan sido emparejadas.
+    """
     cod_norm = _normaliza(codigo_concepto)
     cod_comp = _normaliza_compacto(codigo_concepto)
     if not cod_norm:
         return None
-    # Prioridad 1: coincidencia exacta (o exacta sin espacios/guiones)
-    for dato in apoyo:
-        d_norm = dato.get("codigo_norm") or _normaliza(str(dato.get("codigo_txt") or dato.get("codigo") or ""))
-        if cod_norm == d_norm or (cod_comp and cod_comp == _normaliza_compacto(d_norm)):
-            return dato
-    # Prioridad 2: coincidencia por prefijo
-    for dato in apoyo:
-        if _coinciden(codigo_concepto, dato.get("codigo_norm") or _normaliza(str(dato.get("codigo_txt") or dato.get("codigo") or ""))):
-            return dato
+
+    conjuntos = (
+        [[d for d in apoyo if id(d) not in excluir_ids], apoyo]
+        if excluir_ids
+        else [apoyo]
+    )
+    for lista_candidatos in conjuntos:
+        # Prioridad 1: coincidencia exacta (o exacta sin espacios/guiones)
+        for dato in lista_candidatos:
+            d_norm = dato.get("codigo_norm") or _normaliza(
+                str(dato.get("codigo_txt") or dato.get("codigo") or "")
+            )
+            if cod_norm == d_norm or (
+                cod_comp and cod_comp == _normaliza_compacto(d_norm)
+            ):
+                return dato
+        # Prioridad 2: coincidencia por prefijo
+        for dato in lista_candidatos:
+            if _coinciden(
+                codigo_concepto,
+                dato.get("codigo_norm")
+                or _normaliza(str(dato.get("codigo_txt") or dato.get("codigo") or "")),
+            ):
+                return dato
     return None
 
 
@@ -355,9 +376,9 @@ def emparejar_conceptos_con_apoyo(conceptos: list[dict], apoyo: list[dict]) -> l
 
     for c in conceptos:
         cod_principal = c.get("no_identificacion") or c.get("codigo") or ""
-        d = buscar_dato(apoyo, cod_principal)
+        d = buscar_dato(apoyo, cod_principal, excluir_ids=usados_ids)
         if d is None and c.get("codigo_secundario"):
-            d = buscar_dato(apoyo, c["codigo_secundario"])
+            d = buscar_dato(apoyo, c["codigo_secundario"], excluir_ids=usados_ids)
         datos.append(d)
         if d is not None:
             usados_ids.add(id(d))

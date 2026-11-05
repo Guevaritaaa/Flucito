@@ -46,12 +46,198 @@ NOMBRE_ARCHIVO_RESUMEN = "BASE_ENTRADAS_ALMACEN_RESUMEN.json"
 
 # clave para no duplicar el mismo producto si vuelves a correr el script
 # Al ser catálogo de inventario, la Clave Artículo debe ser estrictamente única.
-# Si se vuelve a procesar el mismo producto, se actualiza costo y fecha (keep='last').
+# Si vienen códigos duplicados (ej. una partida comprada y otra de regalo a $0.01),
+# se conserva la fila con el PRECIO COMPRA más alto.
 CLAVES_DEDUPE = ["Clave Artículo"]
+UMBRAL_PRECIO_REGALO = 0.01
 
 PATRON_FECHA_CFDI = re.compile(r"^(\d{4})-(\d{2})-(\d{2})")
 _PATRON_FORMULA_DIVISION = re.compile(r"^=\s*(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)\s*$")
 logger = logging.getLogger(__name__)
+
+
+def _combinar_meta_por_clave(
+    meta_destino: dict[str, dict[str, object]],
+    meta_origen: dict[str, dict[str, object]] | None,
+) -> None:
+    """Combina diccionarios de meta_por_clave priorizando la entrada con mayor precio_compra."""
+    if not isinstance(meta_origen, dict):
+        return
+    for clave, info_nueva in meta_origen.items():
+        if not isinstance(info_nueva, dict):
+            continue
+        info_prev = meta_destino.get(clave)
+        if not isinstance(info_prev, dict):
+            meta_destino[clave] = dict(info_nueva)
+            continue
+        precio_prev = (
+            float(info_prev["precio_compra"])
+            if info_prev.get("precio_compra") is not None
+            else -1.0
+        )
+        precio_nuevo = (
+            float(info_nueva["precio_compra"])
+            if info_nueva.get("precio_compra") is not None
+            else -1.0
+        )
+        if precio_nuevo >= precio_prev or precio_nuevo == -1.0:
+            factor_efectivo = info_nueva.get("factor") or info_prev.get("factor")
+            fusion = dict(info_nueva)
+            fusion["factor"] = factor_efectivo
+            meta_destino[clave] = fusion
+        elif info_nueva.get("factor") and not info_prev.get("factor"):
+            info_prev["factor"] = info_nueva["factor"]
+
+
+def _extraer_productos_regalo_sin_precio(df: pd.DataFrame) -> list[dict[str, object]]:
+    """Detecta productos en el DataFrame deduplicado cuyo único/mayor precio de compra es de regalo (<= $0.01)."""
+    if df.empty or "PRECIO COMPRA" not in df.columns or "Clave Artículo" not in df.columns:
+        return []
+    regalos: list[dict[str, object]] = []
+    for _, fila in df.iterrows():
+        clave = fila.get("Clave Artículo")
+        if clave is None or pd.isna(clave) or not str(clave).strip():
+            continue
+        precio_raw = fila.get("PRECIO COMPRA")
+        if precio_raw is None or pd.isna(precio_raw):
+            continue
+        try:
+            precio_val = float(precio_raw)
+        except (TypeError, ValueError):
+            continue
+        if 0.0 <= precio_val <= UMBRAL_PRECIO_REGALO:
+            desc = (
+                str(fila.get("DESCRIPCION") or fila.get("Descripción CFDI") or "").strip()
+                if "DESCRIPCION" in df.columns or "Descripción CFDI" in df.columns
+                else ""
+            )
+            prov = (
+                str(fila.get("PROVEEDOR") or "").strip()
+                if "PROVEEDOR" in df.columns and pd.notna(fila.get("PROVEEDOR"))
+                else ""
+            )
+            regalos.append(
+                {
+                    "clave_articulo": str(clave).strip(),
+                    "descripcion": desc,
+                    "precio_compra": round(precio_val, 4),
+                    "proveedor": prov,
+                }
+            )
+    return regalos
+
+
+def construir_advertencia_productos_regalo(
+    productos_regalo: list[dict[str, object]] | None,
+) -> str | None:
+    """Construye el mensaje de aviso cuando un producto solo vino como regalo ($0.01) sin precio real de compra."""
+    if not productos_regalo:
+        return None
+    if len(productos_regalo) == 1:
+        item = productos_regalo[0]
+        clave = item.get("clave_articulo") or "desconocido"
+        desc = str(item.get("descripcion") or "").strip()
+        precio = float(item.get("precio_compra") or 0.0)
+        detalle_desc = f" ({desc})" if desc else ""
+        return (
+            f"🎁 **Aviso de producto de regalo:** Parece que te han regalado el producto "
+            f"**{clave}**{detalle_desc} (vino con precio de **${precio:.2f}**). "
+            "Se agregó al reporte, pero por favor ajusta sus precios manualmente porque no se encontró su precio real de compra."
+        )
+    lista_str = ", ".join(
+        f"**{p.get('clave_articulo')}** (${float(p.get('precio_compra') or 0.0):.2f})"
+        for p in productos_regalo
+    )
+    return (
+        f"🎁 **Aviso de productos de regalo:** Parece que te han regalado los siguientes productos: {lista_str}. "
+        "Se agregaron al reporte, pero por favor ajusta sus precios manualmente porque no se encontró su precio real de compra."
+    )
+
+
+def _deduplicar_conservando_precio_mayor(
+    df: pd.DataFrame,
+    meta_por_clave: dict[str, dict[str, object]] | None = None,
+) -> tuple[pd.DataFrame, int, list[dict[str, object]]]:
+    """Deduplica por Clave Artículo conservando la fila con el PRECIO COMPRA más alto
+    (y en caso de empate de precio, conserva la última aparición).
+    Si una fila duplicada tenía Línea resuelta y la fila ganadora no, rescata la Línea y recalcula precios.
+    """
+    if df.empty or "Clave Artículo" not in df.columns:
+        return df, 0, []
+
+    antes = len(df)
+    if "PRECIO COMPRA" not in df.columns:
+        dedup = df.drop_duplicates(subset=CLAVES_DEDUPE, keep="last").reset_index(drop=True)
+        return dedup, antes - len(dedup), []
+
+    df_trabajo = df.copy().reset_index(drop=True)
+    precios_num = pd.to_numeric(df_trabajo["PRECIO COMPRA"], errors="coerce").fillna(-1.0)
+
+    indices_ganadores: list[int] = []
+    grupos_vistos: dict[str, list[int]] = {}
+    orden_claves: list[str] = []
+
+    for idx in range(len(df_trabajo)):
+        val_clave = df_trabajo.at[idx, "Clave Artículo"]
+        clave_str = str(val_clave).strip() if pd.notna(val_clave) else f"__nan_{idx}"
+        if clave_str not in grupos_vistos:
+            grupos_vistos[clave_str] = []
+            orden_claves.append(clave_str)
+        grupos_vistos[clave_str].append(idx)
+
+    for clave_str in orden_claves:
+        idxs = grupos_vistos[clave_str]
+        if len(idxs) == 1:
+            indices_ganadores.append(idxs[0])
+            continue
+
+        # Elegir el índice con el mayor PRECIO COMPRA; en empate elegir el último (mayor idx)
+        idx_mejor = max(idxs, key=lambda i: (float(precios_num.iat[i]), i))
+
+        # Si otra fila del mismo código tenía Línea y la ganadora no, rescatarla y recalcular precios
+        if "Línea" in df_trabajo.columns:
+            linea_mejor = (
+                str(df_trabajo.at[idx_mejor, "Línea"] or "").strip()
+                if pd.notna(df_trabajo.at[idx_mejor, "Línea"])
+                else ""
+            )
+            if not linea_mejor:
+                for idx_alt in reversed(idxs):
+                    linea_alt = (
+                        str(df_trabajo.at[idx_alt, "Línea"] or "").strip()
+                        if pd.notna(df_trabajo.at[idx_alt, "Línea"])
+                        else ""
+                    )
+                    if linea_alt:
+                        df_trabajo.at[idx_mejor, "Línea"] = linea_alt
+                        precio_ganador = float(precios_num.iat[idx_mejor])
+                        factor = (
+                            meta_por_clave.get(clave_str, {}).get("factor")
+                            if isinstance(meta_por_clave, dict)
+                            else None
+                        )
+                        if not factor:
+                            factor = resolver_linea(
+                                linea_alt,
+                                proveedor=str(df_trabajo.at[idx_mejor, "PROVEEDOR"] or ""),
+                                descripcion=str(df_trabajo.at[idx_mejor, "DESCRIPCION"] or ""),
+                            )["factor"]
+                        if factor and precio_ganador > 0:
+                            nuevos_precios = calcular_precios_numericos(str(factor), precio_ganador)
+                            for col_p, val_p in nuevos_precios.items():
+                                if col_p in df_trabajo.columns:
+                                    df_trabajo.at[idx_mejor, col_p] = val_p
+                            if isinstance(meta_por_clave, dict) and clave_str in meta_por_clave:
+                                meta_por_clave[clave_str]["factor"] = factor
+                        break
+
+        indices_ganadores.append(idx_mejor)
+
+    indices_ganadores.sort()
+    resultado = df_trabajo.iloc[indices_ganadores].reset_index(drop=True)
+    duplicados_ignorados = antes - len(resultado)
+    regalos = _extraer_productos_regalo_sin_precio(resultado)
+    return resultado, duplicados_ignorados, regalos
 
 
 def _formatea_fecha(fecha_iso: str) -> str | None:
@@ -157,11 +343,17 @@ def _fila_desde_concepto(
     precios = calcular_precios_numericos(factor_nombre, precio_compra)
 
     if meta_por_clave is not None and clave_articulo:
-        meta_por_clave[str(clave_articulo)] = {
-            "factor": factor_nombre,
-            "precio_compra_bruto": precio_compra_bruto if divisor_metros else None,
-            "divisor_metros": divisor_metros,
-        }
+        _combinar_meta_por_clave(
+            meta_por_clave,
+            {
+                str(clave_articulo): {
+                    "factor": factor_nombre,
+                    "precio_compra": float(precio_compra or 0.0),
+                    "precio_compra_bruto": precio_compra_bruto if divisor_metros else None,
+                    "divisor_metros": divisor_metros,
+                }
+            },
+        )
 
     return {
         "ESTATUS": "A",
@@ -244,13 +436,20 @@ def procesar_xml(
         )
         for c, d in zip(conceptos, datos)
     ]
-    df = pd.DataFrame(filas, columns=COLUMNAS_ASPEL)
+    df_bruto = pd.DataFrame(filas, columns=COLUMNAS_ASPEL)
+    df, duplicados_xml, regalos_xml = _deduplicar_conservando_precio_mayor(
+        df_bruto,
+        meta_por_clave=meta_por_clave,
+    )
     df.attrs["tiene_apoyo"] = bool(apoyo)
     df.attrs["meta_por_clave"] = meta_por_clave
+    df.attrs["duplicados_ignorados"] = duplicados_xml
+    df.attrs["productos_regalo_sin_precio"] = regalos_xml
     logger.info(
-        "[%s] %s productos XML (apoyo: %s items, proveedor: %s)",
+        "[%s] %s productos XML (%s duplicados omitidos, apoyo: %s items, proveedor: %s)",
         os.path.basename(ruta_xml),
         len(df),
+        duplicados_xml,
         len(apoyo) if apoyo else "NO encontrado",
         num_proveedor or "por nombre",
     )
@@ -740,15 +939,24 @@ def guardar_en_base_acumulada(
 
     meta_combinada: dict[str, dict[str, object]] = {}
     if isinstance(existente.attrs.get("meta_por_clave"), dict):
-        meta_combinada.update(existente.attrs["meta_por_clave"])
+        _combinar_meta_por_clave(meta_combinada, existente.attrs["meta_por_clave"])
     if isinstance(df_nuevo.attrs.get("meta_por_clave"), dict):
-        meta_combinada.update(df_nuevo.attrs["meta_por_clave"])
+        _combinar_meta_por_clave(meta_combinada, df_nuevo.attrs["meta_por_clave"])
 
-    combinado = pd.concat([existente, df_nuevo], ignore_index=True)
-    antes = len(combinado)
-    combinado.drop_duplicates(subset=CLAVES_DEDUPE, keep="last", inplace=True)
-    combinado.reset_index(drop=True, inplace=True)
-    duplicados_ignorados = antes - len(combinado)
+    combinado_bruto = (
+        df_nuevo.copy()
+        if existente.empty
+        else pd.concat([existente, df_nuevo], ignore_index=True)
+    )
+    combinado, dup_combinado, regalos_combinado = _deduplicar_conservando_precio_mayor(
+        combinado_bruto,
+        meta_por_clave=meta_combinada,
+    )
+    dup_previos = int(df_nuevo.attrs.get("duplicados_ignorados", 0) or 0)
+    duplicados_ignorados = dup_previos + dup_combinado
+    combinado.attrs["meta_por_clave"] = meta_combinada
+    combinado.attrs["duplicados_ignorados"] = duplicados_ignorados
+    combinado.attrs["productos_regalo_sin_precio"] = regalos_combinado
     if duplicados_ignorados:
         logger.info("%s fila(s) duplicada(s) ignorada(s)", duplicados_ignorados)
 
@@ -793,6 +1001,7 @@ def procesar_carpeta(
 
     dfs = []
     meta_total: dict[str, dict[str, object]] = {}
+    duplicados_xmls = 0
     for ruta_xml in xmls:
         try:
             if factores_elegidos is None and decisiones_rollos is None:
@@ -805,7 +1014,8 @@ def procesar_carpeta(
                     decisiones_rollos=decisiones_rollos,
                 )
             if isinstance(df_xml.attrs.get("meta_por_clave"), dict):
-                meta_total.update(df_xml.attrs["meta_por_clave"])
+                _combinar_meta_por_clave(meta_total, df_xml.attrs["meta_por_clave"])
+            duplicados_xmls += int(df_xml.attrs.get("duplicados_ignorados", 0) or 0)
             dfs.append(df_xml)
         except Exception as error:
             logger.exception("[%s] ERROR al procesar XML: %s", os.path.basename(ruta_xml), error)
@@ -813,6 +1023,7 @@ def procesar_carpeta(
     if dfs:
         df_nuevo = pd.concat(dfs, ignore_index=True)
         df_nuevo.attrs["meta_por_clave"] = meta_total
+        df_nuevo.attrs["duplicados_ignorados"] = duplicados_xmls
         guardar_en_base_acumulada(df_nuevo, carpeta)
 
 
@@ -820,7 +1031,9 @@ __all__ = [
     "COLUMNAS_ASPEL",
     "CARPETA_DATOS",
     "NOMBRE_ARCHIVO_RESUMEN",
+    "UMBRAL_PRECIO_REGALO",
     "actualizar_precios_reporte_existente",
+    "construir_advertencia_productos_regalo",
     "guardar_en_base_acumulada",
     "procesar_carpeta",
     "procesar_xml",

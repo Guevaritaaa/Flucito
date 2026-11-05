@@ -16,6 +16,7 @@ from app.services.almacen.excel import (
     CARPETA_DATOS,
     NOMBRE_ARCHIVO_BASE,
     _buscar_decision_rollo,
+    _combinar_meta_por_clave,
     _precio_con_descuento,
     actualizar_precios_reporte_existente,
     guardar_en_base_acumulada,
@@ -70,11 +71,14 @@ def _nombre_drive_seguro(nombre: str) -> str:
 def _concatenar_con_meta(dfs: list[pd.DataFrame]) -> pd.DataFrame:
     """Concatena DataFrames preservando el diccionario meta_por_clave en attrs."""
     meta_combinada: dict[str, dict[str, object]] = {}
+    duplicados_previos = 0
     for df in dfs:
         if isinstance(df.attrs.get("meta_por_clave"), dict):
-            meta_combinada.update(df.attrs["meta_por_clave"])
+            _combinar_meta_por_clave(meta_combinada, df.attrs["meta_por_clave"])
+        duplicados_previos += int(df.attrs.get("duplicados_ignorados", 0) or 0)
     combinado = pd.concat(dfs, ignore_index=True)
     combinado.attrs["meta_por_clave"] = meta_combinada
+    combinado.attrs["duplicados_ignorados"] = duplicados_previos
     return combinado
 
 

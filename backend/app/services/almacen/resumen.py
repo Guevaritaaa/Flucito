@@ -225,6 +225,27 @@ def construir_resumen(
         "precio_compra_maximo": max(precios_compra_validos) if precios_compra_validos else None,
     }
 
+    productos_regalo = (
+        list(filas_acumuladas.attrs["productos_regalo_sin_precio"])
+        if isinstance(filas_acumuladas.attrs.get("productos_regalo_sin_precio"), list)
+        else []
+    )
+    if not productos_regalo:
+        for _, fila in filas_acumuladas.iterrows():
+            clave_art = _limpiar_texto(fila.get("Clave Artículo"))
+            p_compra = _limpiar_numero(fila.get("PRECIO COMPRA"))
+            if clave_art and p_compra is not None and 0.0 <= p_compra <= 0.01:
+                productos_regalo.append(
+                    {
+                        "clave_articulo": clave_art,
+                        "descripcion": _limpiar_texto(fila.get("DESCRIPCION"))
+                        or _limpiar_texto(fila.get("Descripción CFDI"))
+                        or "",
+                        "precio_compra": p_compra,
+                        "proveedor": _limpiar_texto(fila.get("PROVEEDOR")) or "",
+                    }
+                )
+
     resumen: dict[str, Any] = {
         "tipo": "entradas_almacen",
         "generado_en": datetime.now(timezone.utc).isoformat(),
@@ -244,9 +265,16 @@ def construir_resumen(
         "desglose_por_linea": desglose_lineas,
         "productos_detalle": productos_detalle,
         "mostrando_productos_detalle": len(productos_detalle),
+        "productos_regalo_sin_precio": productos_regalo,
         "archivo_excel": nombre_excel,
         "archivo_json": nombre_json,
     }
+    if productos_regalo:
+        from app.services.almacen.excel import construir_advertencia_productos_regalo
+
+        adv_regalo = construir_advertencia_productos_regalo(productos_regalo)
+        if adv_regalo:
+            resumen["advertencia_productos_regalo"] = adv_regalo
 
     if datos_sincronizacion:
         resumen.update(datos_sincronizacion)

@@ -693,6 +693,10 @@ def generar_entradas_almacen(
         salida["advertencia_ubicacion"] = construir_advertencia_ubicacion(
             carpetas_reubicadas
         )
+    if resumen.get("productos_regalo_sin_precio"):
+        salida["productos_regalo_sin_precio"] = resumen["productos_regalo_sin_precio"]
+        if resumen.get("advertencia_productos_regalo"):
+            salida["advertencia_productos_regalo"] = resumen["advertencia_productos_regalo"]
 
     logger.info("Tool 'generar_entradas_almacen' completada exitosamente.")
     return json.dumps(salida, ensure_ascii=False)

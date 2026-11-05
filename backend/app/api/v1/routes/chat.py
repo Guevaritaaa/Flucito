@@ -87,6 +87,7 @@ def _ejecutar_chat(request: ChatRequest) -> ChatResponse:
     advertencia_ubicacion: str | None = None
     advertencia_archivos_sueltos: str | None = None
     advertencia_xmls_sin_apoyo: str | None = None
+    advertencia_productos_regalo: str | None = None
     bloqueado_por_confirmacion = False
     for mensaje in reversed(resultado["messages"]):
         tipo_mensaje = getattr(mensaje, "type", None)
@@ -125,6 +126,13 @@ def _ejecutar_chat(request: ChatRequest) -> ChatResponse:
             advertencia_ubicacion = str(datos["advertencia_ubicacion"])
         if datos.get("ok") and datos.get("advertencia_xmls_sin_apoyo") and not advertencia_xmls_sin_apoyo:
             advertencia_xmls_sin_apoyo = str(datos["advertencia_xmls_sin_apoyo"])
+        aviso_regalo = datos.get("advertencia_productos_regalo") or (
+            (datos.get("resumen") or {}).get("advertencia_productos_regalo")
+            if isinstance(datos.get("resumen"), dict)
+            else None
+        )
+        if datos.get("ok") and aviso_regalo and not advertencia_productos_regalo:
+            advertencia_productos_regalo = str(aviso_regalo)
         if (
             datos.get("ok")
             and datos.get("tipo") == "actualizar_precios_reportes"
@@ -166,6 +174,13 @@ def _ejecutar_chat(request: ChatRequest) -> ChatResponse:
         and "sin archivo de apoyo" not in respuesta.lower()
     ):
         respuesta = f"{respuesta}\n\n{advertencia_xmls_sin_apoyo}"
+
+    if (
+        advertencia_productos_regalo
+        and "regalado" not in respuesta.lower()
+        and "regalo" not in respuesta.lower()
+    ):
+        respuesta = f"{respuesta}\n\n{advertencia_productos_regalo}"
 
     # Si la base física existe y el asistente la menciona o el usuario la pidió
     if (
