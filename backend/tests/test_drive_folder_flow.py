@@ -35,10 +35,12 @@ def test_subida_web_usa_entrada_y_fecha_bajo_docs(monkeypatch, tmp_path: Path) -
     resultado = subidor.subir_documentos_drive([xml, pdf])
 
     assert llamadas_carpetas == [
-        ("ENTRADAS AL INVENTARIO", "docs-root"),
-        ("18-03-2026", "id-1"),
+        ("DOCUMENTOS ENTRADA", "docs-root"),
+        ("2026", "id-1"),
+        ("MARZO", "id-2"),
+        ("18-03-2026", "id-3"),
     ]
-    assert {carpeta_id for _, carpeta_id in subidas} == {"id-2"}
+    assert {carpeta_id for _, carpeta_id in subidas} == {"id-4"}
     assert resultado["subidos"] == 2
 
 

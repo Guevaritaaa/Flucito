@@ -11,10 +11,11 @@ from typing import Iterable
 
 from app.core.config import settings
 from app.services.almacen.fuentes.google_drive_client import (
-    CARPETA_ENTRADAS_AL_INVENTARIO,
+    CARPETA_REPORTES_HISTORICOS,
     buscar_o_crear_carpeta,
     crear_cliente_drive,
     listar_archivos_carpeta,
+    obtener_o_crear_carpeta_mes_historico,
     subir_archivo,
 )
 
@@ -98,7 +99,7 @@ def _nombre_carpeta_carga(fecha: datetime | None = None) -> str:
 
 
 def subir_documentos_drive(rutas: Iterable[Path]) -> dict[str, int]:
-    """Crea carpeta por fecha actual de carga y sube solo archivos no existentes."""
+    """Crea carpeta por fecha actual bajo DOCUMENTOS ENTRADA/AÑO/MES y sube solo archivos no existentes."""
     if not settings.google_drive_folder_id:
         raise RuntimeError("Falta GOOGLE_DRIVE_FOLDER_ID")
 
@@ -108,15 +109,21 @@ def subir_documentos_drive(rutas: Iterable[Path]) -> dict[str, int]:
 
     cliente = crear_cliente_drive()
     nombre_carpeta = _nombre_carpeta_carga()
-    carpeta_entrada_id = buscar_o_crear_carpeta(
+    carpeta_historico_id = buscar_o_crear_carpeta(
         cliente,
-        CARPETA_ENTRADAS_AL_INVENTARIO,
+        CARPETA_REPORTES_HISTORICOS,
         settings.google_drive_folder_id,
+    )
+    carpeta_mes_id = obtener_o_crear_carpeta_mes_historico(
+        cliente,
+        carpeta_historico_id,
+        nombre_carpeta,
+        fn_buscar_o_crear=buscar_o_crear_carpeta,
     )
     carpeta_id = buscar_o_crear_carpeta(
         cliente,
         nombre_carpeta,
-        carpeta_entrada_id,
+        carpeta_mes_id,
     )
 
     existentes = {
