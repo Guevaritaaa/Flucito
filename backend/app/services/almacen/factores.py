@@ -163,6 +163,14 @@ CATALOGO_LINEAS_BASE: dict[str, dict[str, str | None]] = {
     "VARNE": {"descripcion": "VARIOS NEUMATICA", "factor": "COMPRAS GENERALES FORANEAS"},
 }
 
+# Líneas adicionales presentes en CLIN02 de SAE90EMPRE02.FDB (se integran en obtener_catalogo_lineas
+# conservando las 76 entradas originales de CATALOGO_LINEAS_BASE).
+CATALOGO_LINEAS_SAE_EXTRA: dict[str, dict[str, str | None]] = {
+    "CYBER": {"descripcion": "CYBERMATIC", "factor": "CYBERMATIC"},
+    "MYPC": {"descripcion": "MANGUERA YPC", "factor": None},
+    "ACERN": {"descripcion": "ACERO NEGRO", "factor": None},
+}
+
 ALIAS_CODIGOS_LINEA: dict[str, str] = {
     "KRUIY": "KURIY",
     "BAN": "BANDA",
@@ -239,7 +247,11 @@ def guardar_factor_personalizado(
 
     factor_normalizado = normalizar_eleccion_factor(factor)
     actuales = cargar_factores_personalizados(archivo)
-    desc_base = CATALOGO_LINEAS_BASE.get(codigo, {}).get("descripcion") or ""
+    desc_base = (
+        CATALOGO_LINEAS_BASE.get(codigo, {}).get("descripcion")
+        or CATALOGO_LINEAS_SAE_EXTRA.get(codigo, {}).get("descripcion")
+        or ""
+    )
     desc_final = descripcion.strip() or actuales.get(codigo, {}).get("descripcion") or desc_base
 
     actuales[codigo] = {
@@ -256,11 +268,14 @@ def guardar_factor_personalizado(
 def obtener_catalogo_lineas(
     ruta_personalizados: Path | None = None,
 ) -> dict[str, dict[str, str | None]]:
-    """Combina el catálogo base con los factores personalizados guardados en JSON."""
+    """Combina el catálogo base + líneas SAE extra con los factores personalizados guardados en JSON."""
     catalogo: dict[str, dict[str, str | None]] = {
         codigo: {"descripcion": datos["descripcion"], "factor": datos["factor"]}
         for codigo, datos in CATALOGO_LINEAS_BASE.items()
     }
+    for codigo, datos in CATALOGO_LINEAS_SAE_EXTRA.items():
+        if codigo not in catalogo:
+            catalogo[codigo] = {"descripcion": datos["descripcion"], "factor": datos["factor"]}
     personalizados = cargar_factores_personalizados(ruta_personalizados)
     for codigo, datos in personalizados.items():
         if codigo in catalogo:
@@ -409,24 +424,53 @@ def resolver_linea(
     }
 
 
-def recuperar_clave_truncada(clave_apoyo: str | None, clave_xml: str | None) -> str:
-    """Recupera la clave completa del XML cuando el TXT de Aspel SAE truncó caracteres finales."""
+def recuperar_clave_truncada(
+    clave_apoyo: str | None,
+    clave_xml: str | None,
+    cve_prov: str | None = None,
+    claves_usadas_lote: dict[str, str] | None = None,
+) -> str:
+    """
+    Resuelve la Clave Artículo de Aspel SAE:
+    1. Si existe coincidencia inequívoca en el Catálogo Maestro SAE (`INVE02` / `CVES_ALTER02`),
+       devuelve la `CVE_ART` oficial de SAE.
+    2. Si es un artículo nuevo y el TXT truncó caracteres finales que sí vienen en el XML,
+       recupera la clave del XML respetando el límite `VARCHAR(16)` sin colisiones.
+    """
+    from app.services.almacen.catalogo_sae import (
+        ajustar_clave_nueva_16_chars,
+        buscar_articulo_sae,
+    )
+
     apoyo_limpio = str(clave_apoyo or "").strip()
     xml_limpio = str(clave_xml or "").strip()
 
-    if not apoyo_limpio:
-        return xml_limpio
-    if not xml_limpio:
-        return apoyo_limpio
+    art_sae = buscar_articulo_sae(apoyo_limpio, xml_limpio, cve_prov=cve_prov)
+    if art_sae and art_sae.get("cve_art"):
+        cve_oficial = str(art_sae["cve_art"]).strip()
+        if claves_usadas_lote is not None:
+            claves_usadas_lote.setdefault(cve_oficial.upper(), (xml_limpio or apoyo_limpio).upper())
+        return cve_oficial
 
-    if (
+    if not apoyo_limpio:
+        candidata = xml_limpio
+    elif not xml_limpio:
+        candidata = apoyo_limpio
+    elif (
         len(apoyo_limpio) >= 8
         and len(xml_limpio) > len(apoyo_limpio)
         and xml_limpio.upper().startswith(apoyo_limpio.upper())
     ):
-        return xml_limpio
+        candidata = xml_limpio
+    else:
+        candidata = apoyo_limpio
 
-    return apoyo_limpio
+    clave_final, _ = ajustar_clave_nueva_16_chars(
+        candidata,
+        codigo_original_completo=xml_limpio or apoyo_limpio,
+        claves_usadas_lote=claves_usadas_lote,
+    )
+    return clave_final
 
 
 def detectar_rollo_metros(

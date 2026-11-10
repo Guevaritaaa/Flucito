@@ -66,6 +66,9 @@ def construir_resumen(
     precios_compra_validos: list[float] = []
     productos_con_precios_venta = 0
     productos_sin_precios_venta = 0
+    conteo_origen_clave: dict[str, int] = {}
+    conteo_origen_linea: dict[str, int] = {}
+    conteo_origen_proveedor: dict[str, int] = {}
 
     for _, fila in filas_acumuladas.iterrows():
         clave_articulo = _limpiar_texto(fila.get("Clave Artículo")) or ""
@@ -75,6 +78,19 @@ def construir_resumen(
             if isinstance(meta_por_clave.get(clave_articulo), dict)
             else {}
         )
+        origen_clave = _limpiar_texto(meta_item.get("origen_clave"))
+        origen_linea = _limpiar_texto(meta_item.get("origen_linea"))
+        origen_proveedor = _limpiar_texto(meta_item.get("origen_proveedor"))
+        codigo_xml_original = _limpiar_texto(meta_item.get("codigo_xml_original"))
+
+        if origen_clave:
+            conteo_origen_clave[origen_clave] = conteo_origen_clave.get(origen_clave, 0) + 1
+        if origen_linea:
+            conteo_origen_linea[origen_linea] = conteo_origen_linea.get(origen_linea, 0) + 1
+        if origen_proveedor:
+            conteo_origen_proveedor[origen_proveedor] = (
+                conteo_origen_proveedor.get(origen_proveedor, 0) + 1
+            )
         descripcion_cfdi = _limpiar_texto(fila.get("Descripción CFDI")) or _limpiar_texto(
             meta_item.get("descripcion_cfdi")
         )
@@ -161,33 +177,43 @@ def construir_resumen(
             )
 
         if len(productos_detalle) < 50:
-            productos_detalle.append(
-                {
-                    "clave_articulo": clave_articulo,
-                    "descripcion": descripcion,
-                    "descripcion_cfdi": (
-                        descripcion_cfdi
-                        if descripcion_cfdi and descripcion_cfdi != descripcion
+            detalle_prod: dict[str, Any] = {
+                "clave_articulo": clave_articulo,
+                "descripcion": descripcion,
+                "descripcion_cfdi": (
+                    descripcion_cfdi
+                    if descripcion_cfdi and descripcion_cfdi != descripcion
+                    else None
+                ),
+                "linea": linea_final,
+                "factor": factor_aplicado,
+                "unidad": unidad,
+                "clave_sat": clave_sat,
+                "proveedor": proveedor,
+                "moneda": moneda,
+                "precio_compra": precio_compra,
+                "precios_venta": {
+                    "publico": precio_publico,
+                    "mostrador": precio_mostrador,
+                    "mayoreo": precio_mayoreo,
+                    "distribuidor": precio_distribuidor,
+                    "minimo": precio_minimo,
+                    "liquidacion": precio_liquidacion,
+                },
+                "fecha_ultima_compra": fecha_compra,
+            }
+            if origen_clave or origen_linea or origen_proveedor:
+                detalle_prod["trazabilidad_sae"] = {
+                    "origen_clave": origen_clave,
+                    "origen_linea": origen_linea,
+                    "origen_proveedor": origen_proveedor,
+                    "codigo_xml_original": (
+                        codigo_xml_original
+                        if codigo_xml_original and codigo_xml_original != clave_articulo
                         else None
                     ),
-                    "linea": linea_final,
-                    "factor": factor_aplicado,
-                    "unidad": unidad,
-                    "clave_sat": clave_sat,
-                    "proveedor": proveedor,
-                    "moneda": moneda,
-                    "precio_compra": precio_compra,
-                    "precios_venta": {
-                        "publico": precio_publico,
-                        "mostrador": precio_mostrador,
-                        "mayoreo": precio_mayoreo,
-                        "distribuidor": precio_distribuidor,
-                        "minimo": precio_minimo,
-                        "liquidacion": precio_liquidacion,
-                    },
-                    "fecha_ultima_compra": fecha_compra,
                 }
-            )
+            productos_detalle.append(detalle_prod)
 
     lineas = sorted(lineas_resueltas)
 
@@ -261,6 +287,11 @@ def construir_resumen(
             "hasta": fechas.max().strftime("%Y-%m-%d") if not fechas.empty else None,
         },
         "estadisticas_precios": estadisticas_precios,
+        "trazabilidad_catalogo_sae": {
+            "origen_clave": conteo_origen_clave,
+            "origen_linea": conteo_origen_linea,
+            "origen_proveedor": conteo_origen_proveedor,
+        },
         "desglose_por_proveedor": desglose_proveedores,
         "desglose_por_linea": desglose_lineas,
         "productos_detalle": productos_detalle,

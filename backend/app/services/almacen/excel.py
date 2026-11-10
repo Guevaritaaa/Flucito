@@ -7,6 +7,7 @@ Modo borrador: sin diccionario de mapeo interno ni factores de precio todavía.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -16,6 +17,11 @@ import pandas as pd
 from openpyxl.styles import Alignment, Font, PatternFill
 
 from app.services.almacen.apoyo import buscar_dato, emparejar_conceptos_con_apoyo, obtener_apoyo_por_folio
+from app.services.almacen.catalogo_sae import (
+    buscar_articulo_sae,
+    inferir_linea_por_proveedor,
+    resolver_proveedor_sae,
+)
 from app.services.almacen.extractor import CARPETA_DATOS, extraer_conceptos, leer_meta
 from app.services.almacen.factores import (
     COLUMNAS_FACTORES,
@@ -288,20 +294,76 @@ def _fila_desde_concepto(
     factores_elegidos: dict[str, str | None] | None = None,
     decisiones_rollos: dict[str, dict[str, object]] | None = None,
     meta_por_clave: dict[str, dict[str, object]] | None = None,
+    claves_usadas_lote: dict[str, str] | None = None,
 ) -> dict:
-    clave_apoyo = dato["clave_articulo"] if dato else None
+    clave_apoyo = dato.get("clave_articulo") if dato else None
     clave_xml = c.get("no_identificacion")
-    clave_articulo = recuperar_clave_truncada(clave_apoyo, clave_xml) or clave_xml
+    codigo_sec = c.get("codigo_secundario")
+    num_prov_apoyo = (dato.get("numero_proveedor") if dato else None) or num_proveedor
 
-    # descripción corta: la del pdf/txt si la encontramos, si no, cae a la del XML
-    descripcion_corta = (dato.get("descripcion_corta") if dato else None) or c["descripcion"]
-    proveedor = (
-        (dato.get("numero_proveedor") if dato else None)
-        or num_proveedor
-        or c["proveedor_nombre"]
+    # 1. Buscar artículo en el Catálogo Maestro SAE (INVE02 / CVES_ALTER02)
+    art_sae = buscar_articulo_sae(
+        clave_apoyo,
+        clave_xml,
+        codigo_sec,
+        cve_prov=str(num_prov_apoyo) if num_prov_apoyo else None,
     )
 
-    linea_raw = (dato["linea"] if dato else None) or ""
+    if art_sae and art_sae.get("cve_art"):
+        clave_articulo = str(art_sae["cve_art"]).strip()
+        origen_clave = str(art_sae.get("origen_clave") or "INVE02_EXACTO")
+        if claves_usadas_lote is not None:
+            claves_usadas_lote.setdefault(
+                clave_articulo.upper(),
+                str(clave_xml or clave_apoyo or clave_articulo).strip().upper(),
+            )
+    else:
+        clave_articulo = (
+            recuperar_clave_truncada(
+                clave_apoyo,
+                clave_xml,
+                cve_prov=str(num_prov_apoyo) if num_prov_apoyo else None,
+                claves_usadas_lote=claves_usadas_lote,
+            )
+            or clave_xml
+        )
+        origen_clave = "TXT_APOYO" if clave_apoyo else "XML"
+
+    # 2. Resolver DESCRIPCION (Prioridad: INVE02 -> TXT/PDF -> XML)
+    if art_sae and art_sae.get("descr"):
+        descripcion_corta = art_sae["descr"]
+    elif dato and dato.get("descripcion_corta"):
+        descripcion_corta = dato["descripcion_corta"]
+    else:
+        descripcion_corta = c.get("descripcion") or ""
+
+    # 3. Resolver Línea (Prioridad: INVE02 -> TXT/PDF -> Historial SAE inequívoco)
+    linea_sae = str(art_sae.get("linea") or "").strip() if art_sae else ""
+    linea_txt = str(dato.get("linea") or "").strip() if dato else ""
+
+    if linea_sae:
+        linea_raw = linea_sae
+        origen_linea = "INVE02"
+    elif linea_txt:
+        linea_raw = linea_txt
+        origen_linea = "TXT_APOYO"
+    else:
+        prov_prelim, _ = resolver_proveedor_sae(
+            c.get("proveedor_rfc"),
+            num_prov_apoyo,
+            cve_art=clave_articulo,
+        )
+        linea_hist, nivel_hist = inferir_linea_por_proveedor(
+            prov_prelim,
+            descripcion=f"{c.get('descripcion') or ''} {descripcion_corta or ''}",
+        )
+        if linea_hist:
+            linea_raw = linea_hist
+            origen_linea = nivel_hist
+        else:
+            linea_raw = ""
+            origen_linea = "SIN_LINEA"
+
     info_linea = resolver_linea(
         linea_raw,
         proveedor=str(c.get("proveedor_nombre") or ""),
@@ -310,6 +372,19 @@ def _fila_desde_concepto(
     )
     linea = info_linea["linea_resuelta"] or ""
     factor_nombre = info_linea["factor"]
+
+    # 4. Resolver PROVEEDOR (Prioridad: TXT/PDF -> CVES_ALTER02 -> PROV02 por RFC -> Nombre XML)
+    cve_prov_resuelto, origen_proveedor = resolver_proveedor_sae(
+        c.get("proveedor_rfc"),
+        num_prov_apoyo,
+        linea=linea,
+        cve_art=clave_articulo,
+    )
+    if cve_prov_resuelto:
+        proveedor = cve_prov_resuelto
+    else:
+        proveedor = c.get("proveedor_nombre")
+        origen_proveedor = "XML_NOMBRE"
 
     clave_unidad = c["clave_unidad"]
     precio_compra_bruto = _precio_con_descuento(c)
@@ -351,6 +426,10 @@ def _fila_desde_concepto(
                     "precio_compra": float(precio_compra or 0.0),
                     "precio_compra_bruto": precio_compra_bruto if divisor_metros else None,
                     "divisor_metros": divisor_metros,
+                    "origen_clave": origen_clave,
+                    "origen_linea": origen_linea,
+                    "origen_proveedor": origen_proveedor,
+                    "codigo_xml_original": str(clave_xml or ""),
                 }
             },
         )
@@ -425,6 +504,7 @@ def procesar_xml(
     )
 
     meta_por_clave: dict[str, dict[str, object]] = {}
+    claves_usadas_lote: dict[str, str] = {}
     filas = [
         _fila_desde_concepto(
             c,
@@ -433,6 +513,7 @@ def procesar_xml(
             factores_elegidos=factores_elegidos,
             decisiones_rollos=decisiones_rollos,
             meta_por_clave=meta_por_clave,
+            claves_usadas_lote=claves_usadas_lote,
         )
         for c, d in zip(conceptos, datos)
     ]
@@ -666,6 +747,10 @@ def actualizar_precios_reporte_existente(
         info_apoyo = mapa_apoyo.get(clave.upper(), {}) if clave else {}
         if not linea_actual and info_apoyo.get("linea"):
             linea_actual = info_apoyo["linea"]
+        if not linea_actual and clave:
+            art_sae_existente = buscar_articulo_sae(clave)
+            if art_sae_existente and art_sae_existente.get("linea"):
+                linea_actual = str(art_sae_existente["linea"]).strip()
 
         precio_compra = df.at[idx, "PRECIO COMPRA"] if "PRECIO COMPRA" in df.columns else None
         bruto: float | None = None
@@ -985,31 +1070,38 @@ def guardar_en_base_acumulada(
     return ruta
 
 
-def procesar_carpeta(
-    carpeta: str = str(CARPETA_DATOS),
+_PATRON_CARPETA_FECHA_LOCAL = re.compile(r"^(\d{2})-(\d{2})-(\d{4})$")
+
+
+def _extraer_orden_fecha_nombre(nombre: str) -> tuple[int, int, int] | None:
+    """Devuelve (año, mes, día) si el nombre es DD-MM-YYYY."""
+    m = _PATRON_CARPETA_FECHA_LOCAL.match((nombre or "").strip())
+    if not m:
+        return None
+    dia, mes, anio = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    if 1 <= mes <= 12 and 1 <= dia <= 31:
+        return (anio, mes, dia)
+    return None
+
+
+def _procesar_xmls_de_un_dia(
+    rutas_xml: list[str],
     factores_elegidos: dict[str, str | None] | None = None,
     decisiones_rollos: dict[str, dict[str, object]] | None = None,
-) -> None:
-    xmls = [
-        os.path.join(carpeta, nombre)
-        for nombre in os.listdir(carpeta)
-        if os.path.splitext(nombre)[1].lower() == ".xml"
-    ]
-    if not xmls:
-        logger.info("No hay XML en %s", carpeta)
-        return
-
-    dfs = []
+) -> pd.DataFrame | None:
+    """Procesa una lista de XML pertenecientes a una misma fecha/carpeta y los combina."""
+    dfs: list[pd.DataFrame] = []
     meta_total: dict[str, dict[str, object]] = {}
     duplicados_xmls = 0
-    for ruta_xml in xmls:
+    for ruta_xml in rutas_xml:
+        carpeta_xml = os.path.dirname(ruta_xml)
         try:
             if factores_elegidos is None and decisiones_rollos is None:
-                df_xml = procesar_xml(ruta_xml, carpeta)
+                df_xml = procesar_xml(ruta_xml, carpeta_xml)
             else:
                 df_xml = procesar_xml(
                     ruta_xml,
-                    carpeta,
+                    carpeta_xml,
                     factores_elegidos=factores_elegidos,
                     decisiones_rollos=decisiones_rollos,
                 )
@@ -1020,10 +1112,110 @@ def procesar_carpeta(
         except Exception as error:
             logger.exception("[%s] ERROR al procesar XML: %s", os.path.basename(ruta_xml), error)
 
-    if dfs:
-        df_nuevo = pd.concat(dfs, ignore_index=True)
-        df_nuevo.attrs["meta_por_clave"] = meta_total
-        df_nuevo.attrs["duplicados_ignorados"] = duplicados_xmls
+    if not dfs:
+        return None
+    df_dia = pd.concat(dfs, ignore_index=True)
+    df_dia.attrs["meta_por_clave"] = meta_total
+    df_dia.attrs["duplicados_ignorados"] = duplicados_xmls
+    return df_dia
+
+
+def procesar_carpeta(
+    carpeta: str = str(CARPETA_DATOS),
+    factores_elegidos: dict[str, str | None] | None = None,
+    decisiones_rollos: dict[str, dict[str, object]] | None = None,
+) -> None:
+    """
+    Procesa los XML de una carpeta local.
+    - Si contiene subcarpetas de fecha (`DD-MM-YYYY`), procesa cada fecha por separado
+      (NO acumulativo entre fechas distintas), genera `ENTRADAS_ALMACEN_<fecha>.xlsx` en cada una
+      y guarda como `BASE_ENTRADAS_ALMACEN.xlsx` únicamente el reporte de la fecha más reciente.
+    - Si es una carpeta individual (con XML directos o subcarpetas de proveedor del mismo día),
+      acumula todas las facturas de ese mismo día en el reporte.
+    """
+    if not os.path.isdir(carpeta):
+        logger.info("No existe la carpeta %s", carpeta)
+        return
+
+    subcarpetas_fecha: list[tuple[tuple[int, int, int], str, str]] = []
+    for nombre in os.listdir(carpeta):
+        ruta_sub = os.path.join(carpeta, nombre)
+        if os.path.isdir(ruta_sub):
+            orden_f = _extraer_orden_fecha_nombre(nombre)
+            if orden_f is not None:
+                subcarpetas_fecha.append((orden_f, nombre, ruta_sub))
+
+    if subcarpetas_fecha:
+        subcarpetas_fecha.sort(key=lambda item: item[0])
+        ultimo_df: pd.DataFrame | None = None
+        ultima_fecha: str | None = None
+        fechas_procesadas: list[str] = []
+        for _, nombre_fecha, ruta_fecha in subcarpetas_fecha:
+            xmls_dia: list[str] = []
+            for raiz_actual, _, archivos in os.walk(ruta_fecha):
+                for arch in sorted(archivos):
+                    if os.path.splitext(arch)[1].lower() == ".xml" and not arch.upper().startswith(
+                        ("ENTRADAS_ALMACEN", "BASE_ENTRADAS_ALMACEN")
+                    ):
+                        xmls_dia.append(os.path.join(raiz_actual, arch))
+            if not xmls_dia:
+                continue
+            df_dia = _procesar_xmls_de_un_dia(
+                xmls_dia,
+                factores_elegidos=factores_elegidos,
+                decisiones_rollos=decisiones_rollos,
+            )
+            if df_dia is not None:
+                guardar_en_base_acumulada(
+                    df_dia,
+                    ruta_fecha,
+                    limpiar_previos=True,
+                    prefijo=f"ENTRADAS_ALMACEN_{nombre_fecha}",
+                    guardar_resumen=False,
+                )
+                ultimo_df = df_dia
+                ultima_fecha = nombre_fecha
+                fechas_procesadas.append(nombre_fecha)
+
+        if ultimo_df is not None:
+            guardar_en_base_acumulada(ultimo_df, carpeta)
+            ruta_resumen_base = os.path.join(carpeta, NOMBRE_ARCHIVO_RESUMEN)
+            if ultima_fecha and os.path.isfile(ruta_resumen_base):
+                try:
+                    with open(ruta_resumen_base, "r", encoding="utf-8") as fh:
+                        resumen_base = json.load(fh)
+                    resumen_base["fecha_reporte_base"] = ultima_fecha
+                    resumen_base["fechas_procesadas_en_corrida"] = fechas_procesadas
+                    guardar_resumen_json(resumen_base, ruta_resumen_base)
+                except Exception:
+                    pass
+        return
+
+    # Caso carpeta única (un solo día o carpeta plana)
+    xmls = [
+        os.path.join(carpeta, nombre)
+        for nombre in os.listdir(carpeta)
+        if os.path.splitext(nombre)[1].lower() == ".xml"
+    ]
+    if not xmls:
+        # Buscar en subcarpetas de proveedor del mismo día si ya estaban organizadas
+        for nombre in sorted(os.listdir(carpeta)):
+            ruta_sub = os.path.join(carpeta, nombre)
+            if os.path.isdir(ruta_sub):
+                for arch in sorted(os.listdir(ruta_sub)):
+                    if os.path.splitext(arch)[1].lower() == ".xml":
+                        xmls.append(os.path.join(ruta_sub, arch))
+
+    if not xmls:
+        logger.info("No hay XML en %s", carpeta)
+        return
+
+    df_nuevo = _procesar_xmls_de_un_dia(
+        xmls,
+        factores_elegidos=factores_elegidos,
+        decisiones_rollos=decisiones_rollos,
+    )
+    if df_nuevo is not None:
         guardar_en_base_acumulada(df_nuevo, carpeta)
 
 

@@ -379,6 +379,12 @@ def emparejar_conceptos_con_apoyo(conceptos: list[dict], apoyo: list[dict]) -> l
         d = buscar_dato(apoyo, cod_principal, excluir_ids=usados_ids)
         if d is None and c.get("codigo_secundario"):
             d = buscar_dato(apoyo, c["codigo_secundario"], excluir_ids=usados_ids)
+        if d is None:
+            from app.services.almacen.catalogo_sae import buscar_articulo_sae
+
+            art_sae = buscar_articulo_sae(cod_principal, c.get("codigo_secundario"))
+            if art_sae and art_sae.get("cve_art"):
+                d = buscar_dato(apoyo, art_sae["cve_art"], excluir_ids=usados_ids)
         datos.append(d)
         if d is not None:
             usados_ids.add(id(d))
