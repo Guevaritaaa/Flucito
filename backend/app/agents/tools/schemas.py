@@ -130,18 +130,20 @@ class GestionarArchivosDriveInput(BaseModel):
 
 
 class ConsultarAlmacenInput(BaseModel):
-    """Parámetros de entrada para consultar datos locales del almacén y catálogo de factores."""
+    """Parámetros de entrada para consultar datos locales del almacén, catálogo de factores y catálogo maestro SAE."""
 
     tipo_consulta: Literal[
         "resumen_general",
         "buscar_entradas",
         "catalogo_factores",
+        "catalogo_sae",
     ] = Field(
         default="resumen_general",
         description=(
             "'resumen_general' devuelve totales, proveedores y últimas entradas procesadas; "
-            "'buscar_entradas' filtra renglones de la base acumulada local; "
-            "'catalogo_factores' muestra factores de utilidad 1..8, líneas asociadas y personalizados."
+            "'buscar_entradas' filtra renglones del reporte base local; "
+            "'catalogo_factores' muestra factores de utilidad 1..8, líneas asociadas y personalizados; "
+            "'catalogo_sae' busca artículos (21,968), líneas (79), proveedores (512) y claves alternas en el catálogo maestro de Aspel SAE."
         ),
     )
     proveedor: str | None = Field(

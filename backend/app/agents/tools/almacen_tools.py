@@ -16,6 +16,7 @@ from app.agents.tools.schemas import (
     GenerarEntradasAlmacenInput,
 )
 from app.core.config import settings
+from app.services.almacen.catalogo_sae import buscar_en_catalogo_sae
 from app.services.almacen.excel import (
     CARPETA_DATOS as _CARPETA_DATOS_DEFAULT,
     NOMBRE_ARCHIVO_RESUMEN,
@@ -36,6 +37,7 @@ from app.services.almacen.fuentes.organizador import (
 from app.services.almacen.resumen import guardar_resumen_json
 from app.services.almacen.fuentes.sincronizador import (
     actualizar_precios_reportes_drive,
+    carpeta_solo_xml_resuelta_por_sae,
     construir_pregunta_interactiva,
     inspeccionar_pendientes_carpeta,
     sincronizar_drive,
@@ -113,6 +115,7 @@ def consultar_almacen(
         "resumen_general",
         "buscar_entradas",
         "catalogo_factores",
+        "catalogo_sae",
     ] = "resumen_general",
     proveedor: str | None = None,
     linea: str | None = None,
@@ -121,9 +124,26 @@ def consultar_almacen(
     fecha: str | None = None,
     limite: int = 25,
 ) -> str:
-    """Consulta en modo lectura el resumen general del almacén, busca entradas en la base acumulada o consulta el catálogo de factores de utilidad."""
+    """Consulta en modo lectura el resumen general del almacén, busca entradas en la base local, consulta el catálogo de factores de utilidad o el catálogo maestro de Aspel SAE."""
     carpeta_datos = _obtener_carpeta_datos()
     try:
+        if tipo_consulta == "catalogo_sae":
+            res_sae = buscar_en_catalogo_sae(
+                producto_o_clave=producto_o_clave,
+                linea=linea,
+                proveedor=proveedor,
+                limite=limite,
+            )
+            return json.dumps(
+                {
+                    "ok": True,
+                    "tipo": "consultar_almacen",
+                    "tipo_consulta": "catalogo_sae",
+                    **res_sae,
+                },
+                ensure_ascii=False,
+            )
+
         if tipo_consulta == "catalogo_factores":
             personalizados = cargar_factores_personalizados()
             if linea and linea.strip():
@@ -558,7 +578,7 @@ def generar_entradas_almacen(
     if not usar_drive:
         tiene_apoyo_local = any(
             p.is_file() and p.suffix.lower() in {".pdf", ".txt"} for p in carpeta.iterdir()
-        )
+        ) or carpeta_solo_xml_resuelta_por_sae(rutas_xml_locales)
         if not tiene_apoyo_local:
             if confirmar_solo_xml is False:
                 _limpiar_sesion_confirmacion(carpeta_datos)
@@ -662,6 +682,10 @@ def generar_entradas_almacen(
         resumen["archivos_drive"] = sincronizacion["archivos"]
         if sincronizacion.get("carpetas_procesadas"):
             resumen["carpetas_procesadas"] = sincronizacion["carpetas_procesadas"]
+        if sincronizacion.get("fecha_reporte_base"):
+            resumen["fecha_reporte_base"] = sincronizacion["fecha_reporte_base"]
+        if sincronizacion.get("fechas_procesadas_en_corrida"):
+            resumen["fechas_procesadas_en_corrida"] = sincronizacion["fechas_procesadas_en_corrida"]
         if sincronizacion.get("carpetas_omitidas_solo_xml"):
             resumen["carpetas_omitidas_solo_xml"] = sincronizacion["carpetas_omitidas_solo_xml"]
         if sincronizacion.get("xmls_sin_apoyo"):
