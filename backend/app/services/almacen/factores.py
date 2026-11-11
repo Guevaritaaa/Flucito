@@ -11,7 +11,8 @@ from app.services.almacen.extractor import CARPETA_DATOS
 
 logger = logging.getLogger(__name__)
 
-RUTA_FACTORES_PERSONALIZADOS = CARPETA_DATOS / "FACTORES_PERSONALIZADOS.json"
+_RUTA_FACTORES_DEFAULT = CARPETA_DATOS / "FACTORES_PERSONALIZADOS.json"
+RUTA_FACTORES_PERSONALIZADOS = _RUTA_FACTORES_DEFAULT
 SIN_FACTOR = "SIN_FACTOR"
 
 COLUMNAS_FACTORES: tuple[str, ...] = (
@@ -207,30 +208,52 @@ _RE_METROS_CONTEXTO = re.compile(
 
 def cargar_factores_personalizados(
     ruta: Path | None = None,
+    *,
+    incluir_bd: bool | None = None,
 ) -> dict[str, dict[str, str | None]]:
-    """Lee el archivo JSON de factores personalizados guardados por el usuario."""
+    """Lee los factores personalizados desde archivo JSON y desde la tabla factores_linea."""
     archivo = ruta or RUTA_FACTORES_PERSONALIZADOS
-    if not archivo.is_file():
-        return {}
-    try:
-        contenido = json.loads(archivo.read_text(encoding="utf-8"))
-        if not isinstance(contenido, dict):
-            return {}
-        resultado: dict[str, dict[str, str | None]] = {}
-        for clave, valor in contenido.items():
-            codigo_raw = str(clave).strip().upper()
-            codigo = ALIAS_CODIGOS_LINEA.get(codigo_raw, codigo_raw)
-            if isinstance(valor, dict):
-                resultado[codigo] = {
-                    "descripcion": str(valor.get("descripcion") or "").strip(),
-                    "factor": valor.get("factor"),
-                }
-            elif isinstance(valor, str):
-                resultado[codigo] = {"descripcion": "", "factor": valor}
-        return resultado
-    except (OSError, json.JSONDecodeError) as error:
-        logger.warning("No se pudo leer %s: %s", archivo, error)
-        return {}
+    usar_bd = incluir_bd if incluir_bd is not None else (archivo == _RUTA_FACTORES_DEFAULT)
+    resultado: dict[str, dict[str, str | None]] = {}
+
+    if archivo.is_file():
+        try:
+            contenido = json.loads(archivo.read_text(encoding="utf-8"))
+            if isinstance(contenido, dict):
+                for clave, valor in contenido.items():
+                    codigo_raw = str(clave).strip().upper()
+                    codigo = ALIAS_CODIGOS_LINEA.get(codigo_raw, codigo_raw)
+                    if isinstance(valor, dict):
+                        resultado[codigo] = {
+                            "descripcion": str(valor.get("descripcion") or "").strip(),
+                            "factor": valor.get("factor"),
+                        }
+                    elif isinstance(valor, str):
+                        resultado[codigo] = {"descripcion": "", "factor": valor}
+        except (OSError, json.JSONDecodeError) as error:
+            logger.warning("No se pudo leer %s: %s", archivo, error)
+
+    if usar_bd:
+        try:
+            from sqlalchemy import select
+            from app.core.database import SessionLocal
+            from app.models.almacen import FactorLinea
+
+            with SessionLocal() as db:
+                filas = db.scalars(
+                    select(FactorLinea).where(FactorLinea.es_personalizado.is_(True))
+                ).all()
+                for fila in filas:
+                    cod = ALIAS_CODIGOS_LINEA.get(fila.clave_linea, fila.clave_linea)
+                    desc_prev = resultado.get(cod, {}).get("descripcion") or ""
+                    resultado[cod] = {
+                        "descripcion": desc_prev,
+                        "factor": fila.nombre_factor,
+                    }
+        except Exception as exc:
+            logger.debug("Lectura de factores_linea desde BD omitida: %s", exc)
+
+    return resultado
 
 
 def guardar_factor_personalizado(
@@ -238,15 +261,19 @@ def guardar_factor_personalizado(
     factor: str | None,
     descripcion: str = "",
     ruta: Path | None = None,
+    usuario_id: int | None = None,
+    *,
+    sincronizar_bd: bool | None = None,
 ) -> None:
-    """Guarda o actualiza el factor asignado a una línea en FACTORES_PERSONALIZADOS.json."""
+    """Guarda o actualiza el factor asignado a una línea en JSON y en la tabla factores_linea."""
     archivo = ruta or RUTA_FACTORES_PERSONALIZADOS
+    usar_bd = sincronizar_bd if sincronizar_bd is not None else (archivo == _RUTA_FACTORES_DEFAULT)
     codigo = ALIAS_CODIGOS_LINEA.get(linea.strip().upper(), linea.strip().upper())
     if not codigo:
         return
 
     factor_normalizado = normalizar_eleccion_factor(factor)
-    actuales = cargar_factores_personalizados(archivo)
+    actuales = cargar_factores_personalizados(archivo, incluir_bd=False)
     desc_base = (
         CATALOGO_LINEAS_BASE.get(codigo, {}).get("descripcion")
         or CATALOGO_LINEAS_SAE_EXTRA.get(codigo, {}).get("descripcion")
@@ -263,6 +290,35 @@ def guardar_factor_personalizado(
         json.dumps(actuales, ensure_ascii=False, indent=2, sort_keys=True),
         encoding="utf-8",
     )
+
+    if usar_bd and factor_normalizado:
+        try:
+            from sqlalchemy import select
+            from app.core.database import Base, SessionLocal, engine
+            from app.models.almacen import FactorLinea
+
+            Base.metadata.create_all(bind=engine)
+            with SessionLocal() as db:
+                existente = db.scalar(
+                    select(FactorLinea).where(FactorLinea.clave_linea == codigo[:64])
+                )
+                if existente is None:
+                    db.add(
+                        FactorLinea(
+                            clave_linea=codigo[:64],
+                            nombre_factor=str(factor_normalizado)[:64],
+                            es_personalizado=True,
+                            actualizado_por_id=usuario_id,
+                        )
+                    )
+                else:
+                    existente.nombre_factor = str(factor_normalizado)[:64]
+                    existente.es_personalizado = True
+                    if usuario_id is not None:
+                        existente.actualizado_por_id = usuario_id
+                db.commit()
+        except Exception as exc:
+            logger.debug("Guardado de factor personalizado en BD omitido: %s", exc)
 
 
 def obtener_catalogo_lineas(

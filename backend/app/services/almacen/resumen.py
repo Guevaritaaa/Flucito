@@ -313,15 +313,72 @@ def construir_resumen(
     return resumen
 
 
+def registrar_reporte_en_bd(
+    resumen: dict[str, Any],
+    *,
+    usuario_id: int | None = None,
+) -> int | None:
+    """Guarda el resumen de un reporte y su desglose de artículos en la base de datos."""
+    try:
+        from app.core.database import Base, SessionLocal, engine
+        from app.models.almacen import DetalleEntradaAlmacen, ReporteAlmacen
+
+        Base.metadata.create_all(bind=engine)
+        periodo = resumen.get("periodo") if isinstance(resumen.get("periodo"), dict) else {}
+        fecha_carpeta = (
+            str(resumen.get("fecha_carpeta") or periodo.get("hasta") or periodo.get("desde") or "SIN_FECHA")
+            .strip()[:32]
+        )
+        productos = (
+            resumen.get("productos_detalle")
+            if isinstance(resumen.get("productos_detalle"), list)
+            else []
+        )
+
+        with SessionLocal() as db:
+            reporte = ReporteAlmacen(
+                fecha_carpeta=fecha_carpeta,
+                usuario_id=usuario_id,
+                total_articulos=int(resumen.get("productos_acumulados") or len(productos)),
+                resumen_json=json.dumps(resumen, ensure_ascii=False),
+            )
+            db.add(reporte)
+            db.flush()
+
+            for item in productos:
+                if not isinstance(item, dict):
+                    continue
+                db.add(
+                    DetalleEntradaAlmacen(
+                        reporte_id=reporte.id,
+                        clave_articulo=str(item.get("clave_articulo") or "")[:64],
+                        descripcion=str(item.get("descripcion") or "")[:500],
+                        linea=str(item.get("linea") or "")[:64],
+                        clave_proveedor=str(item.get("proveedor") or "")[:64],
+                        cantidad=float(item.get("cantidad") or 0.0),
+                        precio_compra=float(item.get("precio_compra") or 0.0),
+                        factor_aplicado=str(item.get("factor") or "")[:64],
+                        origen_clave=str(item.get("origen_clave") or "")[:64],
+                        origen_linea=str(item.get("origen_linea") or "")[:64],
+                        origen_proveedor=str(item.get("origen_proveedor") or "")[:64],
+                    )
+                )
+            db.commit()
+            return reporte.id
+    except Exception:
+        return None
+
+
 def guardar_resumen_json(resumen: dict, ruta: str | Path) -> Path:
-    """Guarda resumen legible y estable para consumo posterior del asistente."""
+    """Guarda resumen legible en disco y registra la corrida en la base de datos."""
     destino = Path(ruta)
     destino.parent.mkdir(parents=True, exist_ok=True)
     destino.write_text(
         json.dumps(resumen, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    registrar_reporte_en_bd(resumen)
     return destino
 
 
-__all__ = ["construir_resumen", "guardar_resumen_json"]
+__all__ = ["construir_resumen", "guardar_resumen_json", "registrar_reporte_en_bd"]

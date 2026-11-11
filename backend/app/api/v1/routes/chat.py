@@ -1,23 +1,31 @@
+from datetime import datetime, timezone
 import json
 import logging
 import re
 import threading
 import time
-import uuid
 from typing import Any
 from urllib.parse import urlencode
+import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
-from langchain_core.messages import HumanMessage
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from langchain_core.messages import AIMessage, HumanMessage
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from app.agents.graph import grafo
-from app.core.security import obtener_usuario_opcional
+from app.core.database import Base, SessionLocal, engine, get_db
+from app.core.security import obtener_usuario_actual, obtener_usuario_opcional
+from app.models.conversacion import Conversacion, MensajeChat
 from app.models.usuario import Usuario
 from app.schemas.chat import (
     ChatJobCreateResponse,
     ChatJobStatusResponse,
     ChatRequest,
     ChatResponse,
+    ConversacionDetalleOut,
+    ConversacionResumenOut,
+    MensajeChatOut,
 )
 from app.services.almacen.excel import CARPETA_DATOS, NOMBRE_ARCHIVO_BASE
 from app.services.almacen.txt_aspel import NOMBRE_TXT_COMAS, NOMBRE_TXT_TABS
@@ -54,10 +62,126 @@ def contenido_a_texto(mensaje) -> str:
     return contenido if isinstance(contenido, str) else str(contenido)
 
 
-def _ejecutar_chat(request: ChatRequest) -> ChatResponse:
-    """Ejecuta el grafo conversacional y construye el ChatResponse."""
-    estado = {"messages": [HumanMessage(content=request.mensaje)]}
+def _generar_titulo_conversacion(mensaje: str) -> str:
+    limpio = " ".join((mensaje or "").strip().split())
+    if not limpio:
+        return "Nueva conversación"
+    return limpio[:80] + ("..." if len(limpio) > 80 else "")
+
+
+def _obtener_mensajes_previos_bd(session_id: str, usuario_id: int | None) -> list[Any]:
+    """
+    Verifica permisos de la conversación y devuelve los mensajes previos guardados en BD
+    para reconstruir el contexto de LangGraph si el servidor se reinició.
+    """
+    try:
+        Base.metadata.create_all(bind=engine)
+        with SessionLocal() as db:
+            conv = db.scalar(select(Conversacion).where(Conversacion.id == session_id))
+            if conv is None:
+                return []
+            if conv.usuario_id is not None and usuario_id is not None and conv.usuario_id != usuario_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="No tienes permiso para acceder a una conversación de otro usuario.",
+                )
+            filas = db.scalars(
+                select(MensajeChat)
+                .where(MensajeChat.conversacion_id == session_id)
+                .order_by(MensajeChat.id.asc())
+            ).all()
+            historial = []
+            for fila in filas:
+                if fila.rol == "user":
+                    historial.append(HumanMessage(content=fila.contenido))
+                elif fila.rol == "assistant":
+                    historial.append(AIMessage(content=fila.contenido))
+            return historial
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("No se pudo leer historial previo de BD para %s: %s", session_id, exc)
+        return []
+
+
+def _guardar_interaccion_en_bd(
+    *,
+    session_id: str,
+    usuario_id: int | None,
+    mensaje_usuario: str,
+    respuesta_chat: ChatResponse,
+) -> None:
+    """Guarda la conversación y los mensajes del usuario y de Flucito en la base de datos."""
+    try:
+        Base.metadata.create_all(bind=engine)
+        ahora = datetime.now(timezone.utc)
+        with SessionLocal() as db:
+            conv = db.scalar(select(Conversacion).where(Conversacion.id == session_id))
+            if conv is None:
+                conv = Conversacion(
+                    id=session_id,
+                    usuario_id=usuario_id,
+                    titulo=_generar_titulo_conversacion(mensaje_usuario),
+                    creada_en=ahora,
+                    actualizada_en=ahora,
+                )
+                db.add(conv)
+            else:
+                if conv.usuario_id is None and usuario_id is not None:
+                    conv.usuario_id = usuario_id
+                conv.actualizada_en = ahora
+
+            db.add(
+                MensajeChat(
+                    conversacion_id=session_id,
+                    rol="user",
+                    contenido=mensaje_usuario,
+                    metadatos_json=None,
+                    creado_en=ahora,
+                )
+            )
+            metadatos = {
+                "archivo_almacen_url": respuesta_chat.archivo_almacen_url,
+                "archivo_txt_url": respuesta_chat.archivo_txt_url,
+                "reportes_historicos": respuesta_chat.reportes_historicos,
+            }
+            db.add(
+                MensajeChat(
+                    conversacion_id=session_id,
+                    rol="assistant",
+                    contenido=respuesta_chat.respuesta,
+                    metadatos_json=json.dumps(metadatos, ensure_ascii=False),
+                    creado_en=ahora,
+                )
+            )
+            db.commit()
+    except Exception as exc:
+        logger.warning("No se pudo guardar la conversación %s en BD: %s", session_id, exc)
+
+
+def _memoria_grafo_tiene_mensajes(config: dict[str, Any]) -> bool:
+    getter = getattr(grafo, "get_state", None)
+    if not callable(getter):
+        return True
+    try:
+        estado_actual = getter(config)
+        valores = getattr(estado_actual, "values", None) or {}
+        mensajes = valores.get("messages") if isinstance(valores, dict) else None
+        return bool(mensajes)
+    except Exception:
+        return True
+
+
+def _ejecutar_chat(request: ChatRequest, usuario_id: int | None = None) -> ChatResponse:
+    """Ejecuta el grafo conversacional, construye el ChatResponse y lo persiste en BD."""
+    mensajes_previos = _obtener_mensajes_previos_bd(request.session_id, usuario_id)
     config = {"configurable": {"thread_id": request.session_id}}
+
+    if mensajes_previos and not _memoria_grafo_tiene_mensajes(config):
+        estado = {"messages": [*mensajes_previos, HumanMessage(content=request.mensaje)]}
+    else:
+        estado = {"messages": [HumanMessage(content=request.mensaje)]}
+
     try:
         resultado = grafo.invoke(estado, config=config)
     except Exception as error_grafo:
@@ -218,17 +342,27 @@ def _ejecutar_chat(request: ChatRequest) -> ChatResponse:
         elif (CARPETA_DATOS / NOMBRE_TXT_COMAS).is_file():
             archivo_txt_url = "/api/v1/almacen/download/txt?separador=comas"
 
-    return ChatResponse(
+    respuesta_final = ChatResponse(
         respuesta=respuesta,
         archivo_almacen_url=archivo_almacen_url,
         archivo_txt_url=archivo_txt_url,
         reportes_historicos=reportes_historicos,
     )
+    _guardar_interaccion_en_bd(
+        session_id=request.session_id,
+        usuario_id=usuario_id,
+        mensaje_usuario=request.mensaje,
+        respuesta_chat=respuesta_final,
+    )
+    return respuesta_final
 
 
-def _trabajador_chat(job_id: str, request: ChatRequest) -> None:
+def _trabajador_chat(job_id: str, request: ChatRequest, usuario_id: int | None = None) -> None:
     try:
-        respuesta = _ejecutar_chat(request)
+        if usuario_id is None:
+            respuesta = _ejecutar_chat(request)
+        else:
+            respuesta = _ejecutar_chat(request, usuario_id=usuario_id)
         with _JOBS_LOCK:
             if job_id in _JOBS:
                 _JOBS[job_id]["status"] = "completed"
@@ -246,9 +380,11 @@ def chat(
     request: ChatRequest,
     usuario_actual: Usuario | None = Depends(obtener_usuario_opcional),
 ) -> ChatResponse:
-    """Procesa conversación del asistente y devuelve enlace de almacén."""
-    _ = usuario_actual
-    return _ejecutar_chat(request)
+    """Procesa conversación del asistente, la asocia al usuario y devuelve enlace de almacén."""
+    uid = getattr(usuario_actual, "id", None)
+    if uid is None:
+        return _ejecutar_chat(request)
+    return _ejecutar_chat(request, usuario_id=uid)
 
 
 @router.post("/chat/async", response_model=ChatJobCreateResponse)
@@ -257,7 +393,7 @@ def iniciar_chat_async(
     usuario_actual: Usuario | None = Depends(obtener_usuario_opcional),
 ) -> ChatJobCreateResponse:
     """Inicia una conversación en segundo plano para evitar timeouts HTTP (Cloudflare 524)."""
-    _ = usuario_actual
+    uid = getattr(usuario_actual, "id", None)
     _limpiar_jobs_expirados()
     job_id = str(uuid.uuid4())
     with _JOBS_LOCK:
@@ -267,7 +403,7 @@ def iniciar_chat_async(
             "result": None,
             "error": None,
         }
-    hilo = threading.Thread(target=_trabajador_chat, args=(job_id, request), daemon=True)
+    hilo = threading.Thread(target=_trabajador_chat, args=(job_id, request, uid), daemon=True)
     hilo.start()
     return ChatJobCreateResponse(job_id=job_id, status="running")
 
@@ -289,3 +425,122 @@ def consultar_estado_chat(
             result=job["result"],
             error=job["error"],
         )
+
+
+@router.get(
+    "/chat/conversaciones",
+    response_model=list[ConversacionResumenOut],
+    summary="Lista todas las conversaciones guardadas del usuario autenticado",
+)
+def listar_conversaciones_usuario(
+    usuario_actual: Usuario = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db),
+) -> list[ConversacionResumenOut]:
+    """Devuelve las conversaciones del usuario ordenadas de la más reciente a la más antigua."""
+    conversaciones = db.scalars(
+        select(Conversacion)
+        .where(Conversacion.usuario_id == usuario_actual.id)
+        .order_by(Conversacion.actualizada_en.desc())
+    ).all()
+
+    salida: list[ConversacionResumenOut] = []
+    for conv in conversaciones:
+        total_msgs = (
+            db.scalar(
+                select(func.count())
+                .select_from(MensajeChat)
+                .where(MensajeChat.conversacion_id == conv.id)
+            )
+            or 0
+        )
+        salida.append(
+            ConversacionResumenOut(
+                id=conv.id,
+                usuario_id=conv.usuario_id,
+                titulo=conv.titulo,
+                creada_en=conv.creada_en,
+                actualizada_en=conv.actualizada_en,
+                total_mensajes=int(total_msgs),
+            )
+        )
+    return salida
+
+
+@router.get(
+    "/chat/conversaciones/{session_id}",
+    response_model=ConversacionDetalleOut,
+    summary="Obtiene todos los mensajes de una conversación del usuario",
+)
+def obtener_detalle_conversacion(
+    session_id: str,
+    usuario_actual: Usuario = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db),
+) -> ConversacionDetalleOut:
+    """Devuelve los mensajes completos de una conversación verificando su dueño."""
+    conv = db.scalar(select(Conversacion).where(Conversacion.id == session_id))
+    if conv is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conversación no encontrada.",
+        )
+    if conv.usuario_id != usuario_actual.id and usuario_actual.rol != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para ver esta conversación.",
+        )
+
+    mensajes_out: list[MensajeChatOut] = []
+    for msg in conv.mensajes:
+        meta: dict[str, Any] = {}
+        if msg.metadatos_json:
+            try:
+                meta = json.loads(msg.metadatos_json)
+            except json.JSONDecodeError:
+                meta = {}
+        mensajes_out.append(
+            MensajeChatOut(
+                id=msg.id,
+                rol=msg.rol,
+                contenido=msg.contenido,
+                archivo_almacen_url=meta.get("archivo_almacen_url"),
+                archivo_txt_url=meta.get("archivo_txt_url"),
+                reportes_historicos=meta.get("reportes_historicos") or [],
+                creado_en=msg.creado_en,
+            )
+        )
+
+    return ConversacionDetalleOut(
+        id=conv.id,
+        usuario_id=conv.usuario_id,
+        titulo=conv.titulo,
+        creada_en=conv.creada_en,
+        actualizada_en=conv.actualizada_en,
+        mensajes=mensajes_out,
+    )
+
+
+@router.delete(
+    "/chat/conversaciones/{session_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Elimina una conversación y sus mensajes del historial del usuario",
+)
+def eliminar_conversacion(
+    session_id: str,
+    usuario_actual: Usuario = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db),
+) -> Response:
+    """Borra una conversación perteneciente al usuario autenticado."""
+    conv = db.scalar(select(Conversacion).where(Conversacion.id == session_id))
+    if conv is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conversación no encontrada.",
+        )
+    if conv.usuario_id != usuario_actual.id and usuario_actual.rol != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para eliminar esta conversación.",
+        )
+    db.delete(conv)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

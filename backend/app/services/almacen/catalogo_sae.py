@@ -50,15 +50,96 @@ def obtener_ruta_catalogo_sae() -> Path | None:
     return None
 
 
+def _cargar_raw_desde_bd() -> dict[str, Any] | None:
+    """
+    Intenta leer el catálogo maestro SAE desde las tablas de la base de datos.
+    Devuelve None si la tabla `sae_articulos` está vacía o si ocurre un error de conexión.
+    """
+    try:
+        from sqlalchemy import func, select
+        from app.core.database import SessionLocal
+        from app.models.catalogo_sae import (
+            SaeArticulo,
+            SaeClaveAlterna,
+            SaeHistorialCompra,
+            SaeLinea,
+            SaeProveedor,
+        )
+
+        with SessionLocal() as db:
+            total_art = db.scalar(select(func.count()).select_from(SaeArticulo)) or 0
+            if total_art == 0:
+                return None
+
+            lineas = {
+                fila.clave_linea: fila.descripcion
+                for fila in db.scalars(select(SaeLinea)).all()
+            }
+            proveedores: dict[str, dict[str, Any]] = {}
+            rfc_a_proveedor: dict[str, list[str]] = {}
+            for prov in db.scalars(select(SaeProveedor)).all():
+                proveedores[prov.clave_proveedor] = {
+                    "clave": prov.clave_proveedor,
+                    "nombre": prov.nombre,
+                    "rfc": prov.rfc,
+                }
+                if prov.rfc:
+                    rfc_a_proveedor.setdefault(prov.rfc.upper(), []).append(prov.clave_proveedor)
+
+            claves_alternas: dict[str, dict[str, Any]] = {}
+            for alt in db.scalars(select(SaeClaveAlterna)).all():
+                claves_alternas[alt.clave_alterna] = {
+                    "cve_art": alt.clave_articulo,
+                    "proveedor": alt.clave_proveedor,
+                }
+
+            compras_por_proveedor: dict[str, dict[str, Any]] = {}
+            for hist in db.scalars(select(SaeHistorialCompra)).all():
+                try:
+                    lineas_comp = json.loads(hist.lineas_compradas_json or "{}")
+                except json.JSONDecodeError:
+                    lineas_comp = {}
+                try:
+                    arts_comp = json.loads(hist.articulos_comprados_json or "[]")
+                except json.JSONDecodeError:
+                    arts_comp = []
+                compras_por_proveedor[hist.clave_proveedor] = {
+                    "lineas_compradas": lineas_comp,
+                    "articulos_comprados": arts_comp,
+                }
+
+            articulos: dict[str, dict[str, Any]] = {}
+            for art in db.scalars(select(SaeArticulo)).all():
+                articulos[art.clave_articulo] = {
+                    "cve_art": art.clave_articulo,
+                    "descr": art.descripcion,
+                    "linea": art.clave_linea or "",
+                    "uni_med": art.unidad_entrada,
+                    "cve_sat": art.cve_sat,
+                    "cve_unidad": art.cve_unidad,
+                }
+
+            return {
+                "origen_carga": "postgresql_db",
+                "lineas": lineas,
+                "proveedores": proveedores,
+                "rfc_a_proveedor": rfc_a_proveedor,
+                "claves_alternas": claves_alternas,
+                "compras_por_proveedor": compras_por_proveedor,
+                "articulos": articulos,
+            }
+    except Exception as exc:
+        logger.debug("Respaldo a JSON para catálogo SAE (BD no disponible): %s", exc)
+        return None
+
+
 @lru_cache(maxsize=1)
 def cargar_catalogo_sae() -> dict[str, Any]:
     """
-    Carga `catalogo_sae.json` una sola vez en RAM y construye índices O(1).
-
-    Si el archivo no está disponible (ej. entorno de pruebas aislado sin catálogo),
-    devuelve índices vacíos sin lanzar excepción.
+    Carga el catálogo SAE una sola vez en RAM y construye índices O(1).
+    Prioriza las tablas de la base de datos cuando están pobladas y no se forzó
+    `CATALOGO_SAE_PATH`; en caso contrario utiliza `catalogo_sae.json`.
     """
-    ruta = obtener_ruta_catalogo_sae()
     estructura_vacia: dict[str, Any] = {
         "disponible": False,
         "ruta": None,
@@ -73,16 +154,27 @@ def cargar_catalogo_sae() -> dict[str, Any]:
         "articulos_por_prefijo4": {},
     }
 
-    if ruta is None:
-        logger.warning("No se encontró catalogo_sae.json; operando con catálogo SAE vacío.")
-        return estructura_vacia
+    env_path = os.getenv("CATALOGO_SAE_PATH", "").strip()
+    raw: dict[str, Any] | None = None
+    origen_str = ""
 
-    try:
-        with ruta.open("r", encoding="utf-8") as fh:
-            raw = json.load(fh)
-    except Exception as exc:
-        logger.error("Error leyendo catalogo_sae.json en %s: %s", ruta, exc)
-        return estructura_vacia
+    if not env_path:
+        raw = _cargar_raw_desde_bd()
+        if raw is not None:
+            origen_str = "database:sae_articulos"
+
+    if raw is None:
+        ruta = obtener_ruta_catalogo_sae()
+        if ruta is None:
+            logger.warning("No se encontró catalogo_sae.json ni datos en BD; operando con catálogo SAE vacío.")
+            return estructura_vacia
+        try:
+            with ruta.open("r", encoding="utf-8") as fh:
+                raw = json.load(fh)
+            origen_str = str(ruta)
+        except Exception as exc:
+            logger.error("Error leyendo catalogo_sae.json en %s: %s", ruta, exc)
+            return estructura_vacia
 
     lineas_raw: dict[str, str] = raw.get("lineas") or {}
     proveedores_raw: dict[str, dict[str, Any]] = raw.get("proveedores") or {}
@@ -171,7 +263,7 @@ def cargar_catalogo_sae() -> dict[str, Any]:
 
     logger.info(
         "Catálogo SAE cargado desde %s: %d artículos, %d proveedores, %d líneas, %d claves alternas.",
-        ruta,
+        origen_str,
         len(articulos_exactos),
         len(proveedores_norm),
         len(lineas_norm),
@@ -180,7 +272,7 @@ def cargar_catalogo_sae() -> dict[str, Any]:
 
     return {
         "disponible": True,
-        "ruta": str(ruta),
+        "ruta": origen_str,
         "lineas": lineas_norm,
         "proveedores": proveedores_norm,
         "rfc_a_proveedor": rfc_a_proveedor,
