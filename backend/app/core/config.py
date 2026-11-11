@@ -17,7 +17,21 @@ class Settings(BaseSettings):
     google_service_account_json: str | None = None
     google_service_account_file: str | None = None
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    # Base de datos PostgreSQL
+    database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/flucito"
+
+    # Autenticación JWT y usuarios iniciales
+    jwt_secret_key: str = "flucito-clave-secreta-desarrollo-cambiar-en-produccion-2026"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 60 * 24 * 7  # 7 días
+    admin_initial_username: str = "robert"
+    admin_initial_password: str = "Interflu2026!"
+    admin_initial_name: str = "Robert (Administrador)"
+    operador_initial_username: str = "almacen"
+    operador_initial_password: str = "Almacen2026!"
+    operador_initial_name: str = "Operador de Almacén"
+
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 
 @lru_cache

@@ -1,4 +1,31 @@
 services:
+  db:
+    image: postgres:16-alpine
+    container_name: flucito-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-flucito}
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=128MB"
+      - "-c"
+      - "work_mem=8MB"
+      - "-c"
+      - "max_connections=50"
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-postgres} -d $${POSTGRES_DB:-flucito}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   flucito:
     build:
       context: .
@@ -6,10 +33,15 @@ services:
     container_name: flucito
     env_file:
       - ./backend/.env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://postgres:postgres@db:5432/flucito}
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
       - ./backend/datos:/app/backend/datos
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
     init: true
     healthcheck:
@@ -45,3 +77,6 @@ services:
       frontend:
         condition: service_started
     restart: unless-stopped
+
+volumes:
+  postgres_data:
