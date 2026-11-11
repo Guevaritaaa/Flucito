@@ -16,7 +16,11 @@ def _utc_now() -> datetime:
 class FactorLinea(Base):
     __tablename__ = "factores_linea"
 
-    clave_linea: Mapped[str] = mapped_column(String(64), primary_key=True)
+    clave_linea: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("sae_lineas.clave_linea", ondelete="CASCADE"),
+        primary_key=True,
+    )
     nombre_factor: Mapped[str] = mapped_column(String(64), nullable=False)
     es_personalizado: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     actualizado_por_id: Mapped[int | None] = mapped_column(
@@ -86,6 +90,12 @@ class ArchivoSincronizadoDrive(Base):
     __tablename__ = "archivos_sincronizados_drive"
 
     drive_file_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    reporte_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("reportes_almacen.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
     nombre: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     fecha_carpeta: Mapped[str] = mapped_column(String(32), default="", nullable=False)
     md5_checksum: Mapped[str] = mapped_column(String(128), default="", nullable=False)

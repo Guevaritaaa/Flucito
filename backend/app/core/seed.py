@@ -101,7 +101,11 @@ def _sembrar_catalogo_sae(db: Session, *, cargar_articulos: bool = True) -> dict
         return resumen
 
     if total_lineas == 0:
-        lineas_raw: dict[str, str] = raw.get("lineas") or {}
+        lineas_raw: dict[str, str] = dict(raw.get("lineas") or {})
+        for cod_base, info_base in CATALOGO_LINEAS_BASE.items():
+            cod_limpio = str(cod_base).strip().upper()[:32]
+            if cod_limpio and cod_limpio not in lineas_raw:
+                lineas_raw[cod_limpio] = str(info_base.get("descripcion") or "")
         filas_lineas = [
             {
                 "clave_linea": str(k).strip().upper()[:32],
@@ -132,8 +136,39 @@ def _sembrar_catalogo_sae(db: Session, *, cargar_articulos: bool = True) -> dict
             db.execute(insert(SaeProveedor), filas_proveedores)
             resumen["proveedores"] = len(filas_proveedores)
 
+    if cargar_articulos and total_articulos == 0:
+        articulos_raw: dict[str, dict[str, Any]] = raw.get("articulos") or {}
+        vistos: set[str] = set()
+        lote: list[dict[str, Any]] = []
+        insertados = 0
+        for cve_key, datos in articulos_raw.items():
+            cve_oficial = str(datos.get("cve_art") or cve_key).strip().upper()[:64]
+            if not cve_oficial or cve_oficial in vistos:
+                continue
+            vistos.add(cve_oficial)
+            lote.append(
+                {
+                    "clave_articulo": cve_oficial,
+                    "descripcion": str(datos.get("descr") or "").strip()[:500],
+                    "clave_linea": str(datos.get("linea") or "").strip().upper()[:32] or None,
+                    "unidad_entrada": str(datos.get("uni_med") or "PZ").strip()[:32] or "PZ",
+                    "cve_sat": str(datos.get("cve_sat") or "").strip()[:32],
+                    "cve_unidad": str(datos.get("cve_unidad") or "").strip()[:32],
+                    "ultimo_costo": float(datos.get("ult_costo") or 0.0),
+                    "estatus": "A",
+                }
+            )
+            if len(lote) >= _BATCH_SIZE:
+                db.execute(insert(SaeArticulo), lote)
+                insertados += len(lote)
+                lote.clear()
+        if lote:
+            db.execute(insert(SaeArticulo), lote)
+            insertados += len(lote)
+        resumen["articulos"] = insertados
+
     total_claves_alt = db.scalar(select(func.count()).select_from(SaeClaveAlterna)) or 0
-    if total_claves_alt == 0:
+    if cargar_articulos and total_claves_alt == 0:
         claves_alt_raw: dict[str, Any] = raw.get("claves_alternas") or {}
         filas_alt = []
         for cve_alt, info_alt in claves_alt_raw.items():
@@ -142,10 +177,10 @@ def _sembrar_catalogo_sae(db: Session, *, cargar_articulos: bool = True) -> dict
                 continue
             if isinstance(info_alt, dict):
                 cve_art_dest = str(info_alt.get("cve_art") or "").strip().upper()[:64]
-                prov_alt = str(info_alt.get("proveedor") or "").strip()[:32]
+                prov_alt = str(info_alt.get("proveedor") or "").strip()[:32] or None
             else:
                 cve_art_dest = str(info_alt or "").strip().upper()[:64]
-                prov_alt = ""
+                prov_alt = None
             if cve_art_dest:
                 filas_alt.append(
                     {
@@ -182,37 +217,6 @@ def _sembrar_catalogo_sae(db: Session, *, cargar_articulos: bool = True) -> dict
         if filas_hist:
             db.execute(insert(SaeHistorialCompra), filas_hist)
             resumen["historial_compras"] = len(filas_hist)
-
-    if cargar_articulos and total_articulos == 0:
-        articulos_raw: dict[str, dict[str, Any]] = raw.get("articulos") or {}
-        vistos: set[str] = set()
-        lote: list[dict[str, Any]] = []
-        insertados = 0
-        for cve_key, datos in articulos_raw.items():
-            cve_oficial = str(datos.get("cve_art") or cve_key).strip().upper()[:64]
-            if not cve_oficial or cve_oficial in vistos:
-                continue
-            vistos.add(cve_oficial)
-            lote.append(
-                {
-                    "clave_articulo": cve_oficial,
-                    "descripcion": str(datos.get("descr") or "").strip()[:500],
-                    "clave_linea": str(datos.get("linea") or "").strip().upper()[:32] or None,
-                    "unidad_entrada": str(datos.get("uni_med") or "PZ").strip()[:32] or "PZ",
-                    "cve_sat": str(datos.get("cve_sat") or "").strip()[:32],
-                    "cve_unidad": str(datos.get("cve_unidad") or "").strip()[:32],
-                    "ultimo_costo": float(datos.get("ult_costo") or 0.0),
-                    "estatus": "A",
-                }
-            )
-            if len(lote) >= _BATCH_SIZE:
-                db.execute(insert(SaeArticulo), lote)
-                insertados += len(lote)
-                lote.clear()
-        if lote:
-            db.execute(insert(SaeArticulo), lote)
-            insertados += len(lote)
-        resumen["articulos"] = insertados
 
     db.commit()
     return resumen

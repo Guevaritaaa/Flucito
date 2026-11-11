@@ -296,9 +296,22 @@ def guardar_factor_personalizado(
             from sqlalchemy import select
             from app.core.database import Base, SessionLocal, engine
             from app.models.almacen import FactorLinea
+            from app.models.catalogo_sae import SaeLinea
 
             Base.metadata.create_all(bind=engine)
             with SessionLocal() as db:
+                linea_sae = db.scalar(
+                    select(SaeLinea).where(SaeLinea.clave_linea == codigo[:32])
+                )
+                if linea_sae is None:
+                    db.add(
+                        SaeLinea(
+                            clave_linea=codigo[:32],
+                            descripcion=str(desc_final)[:255],
+                            estatus="A",
+                        )
+                    )
+                    db.flush()
                 existente = db.scalar(
                     select(FactorLinea).where(FactorLinea.clave_linea == codigo[:64])
                 )

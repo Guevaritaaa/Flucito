@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Float, Integer, String, Text
+from sqlalchemy import Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -30,7 +30,12 @@ class SaeArticulo(Base):
 
     clave_articulo: Mapped[str] = mapped_column(String(64), primary_key=True)
     descripcion: Mapped[str] = mapped_column(String(500), default="", nullable=False)
-    clave_linea: Mapped[str | None] = mapped_column(String(32), index=True, nullable=True)
+    clave_linea: Mapped[str | None] = mapped_column(
+        String(32),
+        ForeignKey("sae_lineas.clave_linea", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
     unidad_entrada: Mapped[str] = mapped_column(String(32), default="PZ", nullable=False)
     cve_sat: Mapped[str] = mapped_column(String(32), default="", nullable=False)
     cve_unidad: Mapped[str] = mapped_column(String(32), default="", nullable=False)
@@ -43,13 +48,27 @@ class SaeClaveAlterna(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     clave_alterna: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
-    clave_articulo: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
-    clave_proveedor: Mapped[str] = mapped_column(String(32), default="", nullable=False)
+    clave_articulo: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("sae_articulos.clave_articulo", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    clave_proveedor: Mapped[str | None] = mapped_column(
+        String(32),
+        ForeignKey("sae_proveedores.clave_proveedor", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
 
 
 class SaeHistorialCompra(Base):
     __tablename__ = "sae_historial_compras"
 
-    clave_proveedor: Mapped[str] = mapped_column(String(32), primary_key=True)
+    clave_proveedor: Mapped[str] = mapped_column(
+        String(32),
+        ForeignKey("sae_proveedores.clave_proveedor", ondelete="CASCADE"),
+        primary_key=True,
+    )
     lineas_compradas_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     articulos_comprados_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)

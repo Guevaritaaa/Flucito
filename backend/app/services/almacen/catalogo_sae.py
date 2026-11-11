@@ -90,7 +90,7 @@ def _cargar_raw_desde_bd() -> dict[str, Any] | None:
             for alt in db.scalars(select(SaeClaveAlterna)).all():
                 claves_alternas[alt.clave_alterna] = {
                     "cve_art": alt.clave_articulo,
-                    "proveedor": alt.clave_proveedor,
+                    "proveedor": alt.clave_proveedor or "",
                 }
 
             compras_por_proveedor: dict[str, dict[str, Any]] = {}

@@ -72,6 +72,7 @@ class ConfirmacionPendiente(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     conversacion_id: Mapped[str] = mapped_column(
         String(128),
+        ForeignKey("conversaciones.id", ondelete="CASCADE"),
         unique=True,
         index=True,
         nullable=False,

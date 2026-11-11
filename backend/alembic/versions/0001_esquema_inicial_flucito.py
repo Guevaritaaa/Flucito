@@ -63,6 +63,7 @@ def upgrade() -> None:
         sa.Column("usuario_id", sa.Integer(), nullable=True),
         sa.Column("datos_json", sa.Text(), nullable=False),
         sa.Column("actualizado_en", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(["conversacion_id"], ["conversaciones.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["usuario_id"], ["usuarios.id"], ondelete="SET NULL"),
         sa.PrimaryKeyConstraint("id"),
     )
@@ -107,6 +108,7 @@ def upgrade() -> None:
         sa.Column("cve_unidad", sa.String(length=32), nullable=False),
         sa.Column("ultimo_costo", sa.Float(), nullable=False),
         sa.Column("estatus", sa.String(length=8), nullable=False),
+        sa.ForeignKeyConstraint(["clave_linea"], ["sae_lineas.clave_linea"], ondelete="SET NULL"),
         sa.PrimaryKeyConstraint("clave_articulo"),
     )
     op.create_index("ix_sae_articulos_clave_linea", "sae_articulos", ["clave_linea"], unique=False)
@@ -116,17 +118,21 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("clave_alterna", sa.String(length=64), nullable=False),
         sa.Column("clave_articulo", sa.String(length=64), nullable=False),
-        sa.Column("clave_proveedor", sa.String(length=32), nullable=False),
+        sa.Column("clave_proveedor", sa.String(length=32), nullable=True),
+        sa.ForeignKeyConstraint(["clave_articulo"], ["sae_articulos.clave_articulo"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["clave_proveedor"], ["sae_proveedores.clave_proveedor"], ondelete="SET NULL"),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index("ix_sae_claves_alternas_clave_alterna", "sae_claves_alternas", ["clave_alterna"], unique=False)
     op.create_index("ix_sae_claves_alternas_clave_articulo", "sae_claves_alternas", ["clave_articulo"], unique=False)
+    op.create_index("ix_sae_claves_alternas_clave_proveedor", "sae_claves_alternas", ["clave_proveedor"], unique=False)
 
     op.create_table(
         "sae_historial_compras",
         sa.Column("clave_proveedor", sa.String(length=32), nullable=False),
         sa.Column("lineas_compradas_json", sa.Text(), nullable=False),
         sa.Column("articulos_comprados_json", sa.Text(), nullable=False),
+        sa.ForeignKeyConstraint(["clave_proveedor"], ["sae_proveedores.clave_proveedor"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("clave_proveedor"),
     )
 
@@ -137,6 +143,7 @@ def upgrade() -> None:
         sa.Column("es_personalizado", sa.Boolean(), nullable=False),
         sa.Column("actualizado_por_id", sa.Integer(), nullable=True),
         sa.Column("actualizado_en", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(["clave_linea"], ["sae_lineas.clave_linea"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["actualizado_por_id"], ["usuarios.id"], ondelete="SET NULL"),
         sa.PrimaryKeyConstraint("clave_linea"),
     )
@@ -178,12 +185,15 @@ def upgrade() -> None:
     op.create_table(
         "archivos_sincronizados_drive",
         sa.Column("drive_file_id", sa.String(length=128), nullable=False),
+        sa.Column("reporte_id", sa.Integer(), nullable=True),
         sa.Column("nombre", sa.String(length=255), nullable=False),
         sa.Column("fecha_carpeta", sa.String(length=32), nullable=False),
         sa.Column("md5_checksum", sa.String(length=128), nullable=False),
         sa.Column("procesado_en", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(["reporte_id"], ["reportes_almacen.id"], ondelete="SET NULL"),
         sa.PrimaryKeyConstraint("drive_file_id"),
     )
+    op.create_index("ix_archivos_sincronizados_drive_reporte_id", "archivos_sincronizados_drive", ["reporte_id"], unique=False)
 
 
 def downgrade() -> None:
