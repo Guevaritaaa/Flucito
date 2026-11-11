@@ -199,12 +199,19 @@ def _ejecutar_chat(request: ChatRequest, usuario_id: int | None = None) -> ChatR
             resultado = grafo.invoke(estado, config=config_limpio)
         except Exception as error_final:
             logger.exception("Error definitivo en grafo.invoke: %s", error_final)
-            return ChatResponse(
+            respuesta_error = ChatResponse(
                 respuesta=(
                     "Ocurrió una interrupción temporal al procesar tu solicitud. "
                     "Por favor intenta enviarla nuevamente en unos segundos."
                 ),
             )
+            _guardar_interaccion_en_bd(
+                session_id=request.session_id,
+                usuario_id=usuario_id,
+                mensaje_usuario=request.mensaje,
+                respuesta_chat=respuesta_error,
+            )
+            return respuesta_error
 
     respuesta = contenido_a_texto(resultado["messages"][-1])
 
