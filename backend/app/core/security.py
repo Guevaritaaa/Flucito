@@ -133,18 +133,20 @@ def obtener_usuario_opcional(
     token_query: str | None = Query(default=None, alias="token"),
     db: Session = Depends(get_db),
 ) -> Usuario | None:
-    """Devuelve el usuario autenticado si se envió un token válido, o None si no se envió."""
+    """
+    Si se envía un token, lo valida estrictamente (401/403 si es inválido o inactivo).
+    Si no se envía token, exige login si `settings.auth_required` está activo o devuelve None.
+    """
     token = token_header or token_query
     if not token:
+        if settings.auth_required:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Se requiere iniciar sesión para acceder a este recurso.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         return None
-    payload = decodificar_token_acceso(token)
-    username = str(payload.get("sub") or "").strip()
-    if not username:
-        return None
-    usuario = db.scalar(select(Usuario).where(Usuario.username == username))
-    if usuario is None or not usuario.activo:
-        return None
-    return usuario
+    return obtener_usuario_actual(token_header=token_header, token_query=token_query, db=db)
 
 
 def obtener_usuario_actual(

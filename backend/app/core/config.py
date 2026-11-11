@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/flucito"
 
     # Autenticación JWT y usuarios iniciales
+    auth_required: bool = False
     jwt_secret_key: str = "flucito-clave-secreta-desarrollo-cambiar-en-produccion-2026"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 24 * 7  # 7 días

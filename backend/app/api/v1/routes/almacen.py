@@ -7,11 +7,13 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
+from app.core.security import obtener_usuario_opcional
+from app.models.usuario import Usuario
 from app.services.almacen.excel import CARPETA_DATOS, NOMBRE_ARCHIVO_BASE
 from app.services.almacen.fuentes.subidor import subir_documentos_drive
 from app.services.almacen.fuentes.google_drive_client import (
@@ -28,7 +30,11 @@ MAX_ARCHIVOS = 150
 MAX_BYTES = 20 * 1024 * 1024
 
 
-router = APIRouter(prefix="/almacen", tags=["Almacén"])
+router = APIRouter(
+    prefix="/almacen",
+    tags=["Almacén"],
+    dependencies=[Depends(obtener_usuario_opcional)],
+)
 
 
 @router.get("/download", summary="Descarga base de entradas de almacén")

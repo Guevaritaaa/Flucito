@@ -7,10 +7,12 @@ import uuid
 from typing import Any
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from langchain_core.messages import HumanMessage
 
 from app.agents.graph import grafo
+from app.core.security import obtener_usuario_opcional
+from app.models.usuario import Usuario
 from app.schemas.chat import (
     ChatJobCreateResponse,
     ChatJobStatusResponse,
@@ -240,14 +242,22 @@ def _trabajador_chat(job_id: str, request: ChatRequest) -> None:
 
 
 @router.post("/chat", response_model=ChatResponse)
-def chat(request: ChatRequest) -> ChatResponse:
+def chat(
+    request: ChatRequest,
+    usuario_actual: Usuario | None = Depends(obtener_usuario_opcional),
+) -> ChatResponse:
     """Procesa conversación del asistente y devuelve enlace de almacén."""
+    _ = usuario_actual
     return _ejecutar_chat(request)
 
 
 @router.post("/chat/async", response_model=ChatJobCreateResponse)
-def iniciar_chat_async(request: ChatRequest) -> ChatJobCreateResponse:
+def iniciar_chat_async(
+    request: ChatRequest,
+    usuario_actual: Usuario | None = Depends(obtener_usuario_opcional),
+) -> ChatJobCreateResponse:
     """Inicia una conversación en segundo plano para evitar timeouts HTTP (Cloudflare 524)."""
+    _ = usuario_actual
     _limpiar_jobs_expirados()
     job_id = str(uuid.uuid4())
     with _JOBS_LOCK:
@@ -263,8 +273,12 @@ def iniciar_chat_async(request: ChatRequest) -> ChatJobCreateResponse:
 
 
 @router.get("/chat/status/{job_id}", response_model=ChatJobStatusResponse)
-def consultar_estado_chat(job_id: str) -> ChatJobStatusResponse:
+def consultar_estado_chat(
+    job_id: str,
+    usuario_actual: Usuario | None = Depends(obtener_usuario_opcional),
+) -> ChatJobStatusResponse:
     """Consulta el estado de una tarea de chat iniciada con /chat/async."""
+    _ = usuario_actual
     with _JOBS_LOCK:
         job = _JOBS.get(job_id)
         if not job:
