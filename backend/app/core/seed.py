@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 import json
 import logging
 from typing import Any
@@ -22,7 +23,10 @@ from app.models.catalogo_sae import (
     SaeProveedor,
 )
 from app.models.usuario import Usuario
-from app.services.almacen.catalogo_sae import obtener_ruta_catalogo_sae
+from app.services.almacen.catalogo_sae import (
+    limpiar_cache_catalogo_sae,
+    obtener_ruta_catalogo_sae,
+)
 from app.services.almacen.factores import (
     CATALOGO_LINEAS_BASE,
     RUTA_FACTORES_PERSONALIZADOS,
@@ -31,6 +35,15 @@ from app.services.almacen.factores import (
 logger = logging.getLogger(__name__)
 
 _BATCH_SIZE = 2500
+
+
+def _a_decimal(valor: Any) -> Decimal:
+    if valor is None:
+        return Decimal("0.000000")
+    try:
+        return Decimal(str(valor)).quantize(Decimal("0.000001"))
+    except (InvalidOperation, ValueError, TypeError):
+        return Decimal("0.000000")
 
 
 def _sembrar_usuarios_iniciales(db: Session) -> int:
@@ -154,7 +167,7 @@ def _sembrar_catalogo_sae(db: Session, *, cargar_articulos: bool = True) -> dict
                     "unidad_entrada": str(datos.get("uni_med") or "PZ").strip()[:32] or "PZ",
                     "cve_sat": str(datos.get("cve_sat") or "").strip()[:32],
                     "cve_unidad": str(datos.get("cve_unidad") or "").strip()[:32],
-                    "ultimo_costo": float(datos.get("ult_costo") or 0.0),
+                    "ultimo_costo": _a_decimal(datos.get("ult_costo")),
                     "estatus": "A",
                 }
             )
@@ -171,6 +184,7 @@ def _sembrar_catalogo_sae(db: Session, *, cargar_articulos: bool = True) -> dict
     if cargar_articulos and total_claves_alt == 0:
         claves_alt_raw: dict[str, Any] = raw.get("claves_alternas") or {}
         filas_alt = []
+        vistos_alt: set[tuple[str | None, str, str]] = set()
         for cve_alt, info_alt in claves_alt_raw.items():
             alt_upper = str(cve_alt).strip().upper()[:64]
             if not alt_upper:
@@ -181,7 +195,9 @@ def _sembrar_catalogo_sae(db: Session, *, cargar_articulos: bool = True) -> dict
             else:
                 cve_art_dest = str(info_alt or "").strip().upper()[:64]
                 prov_alt = None
-            if cve_art_dest:
+            llave_unica = (prov_alt, alt_upper, cve_art_dest)
+            if cve_art_dest and llave_unica not in vistos_alt:
+                vistos_alt.add(llave_unica)
                 filas_alt.append(
                     {
                         "clave_alterna": alt_upper,
@@ -287,6 +303,8 @@ def inicializar_base_de_datos(
         usuarios_creados = _sembrar_usuarios_iniciales(db)
         sae_resumen = _sembrar_catalogo_sae(db, cargar_articulos=cargar_articulos_sae)
         factores_creados = _sembrar_factores_linea(db)
+        if any(sae_resumen.values()):
+            limpiar_cache_catalogo_sae()
         return {
             "usuarios_creados": usuarios_creados,
             "factores_creados": factores_creados,

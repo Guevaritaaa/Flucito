@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -313,6 +314,27 @@ def construir_resumen(
     return resumen
 
 
+def _parsear_fecha_reporte(texto_fecha: str | None) -> date | None:
+    if not texto_fecha:
+        return None
+    limpio = str(texto_fecha).strip()
+    for fmt in ("%d-%m-%Y", "%Y-%m-%d", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(limpio, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _a_decimal_seguro(valor: Any) -> Decimal:
+    if valor is None:
+        return Decimal("0.000000")
+    try:
+        return Decimal(str(valor)).quantize(Decimal("0.000001"))
+    except (InvalidOperation, ValueError, TypeError):
+        return Decimal("0.000000")
+
+
 def registrar_reporte_en_bd(
     resumen: dict[str, Any],
     *,
@@ -329,6 +351,11 @@ def registrar_reporte_en_bd(
             str(resumen.get("fecha_carpeta") or periodo.get("hasta") or periodo.get("desde") or "SIN_FECHA")
             .strip()[:32]
         )
+        fecha_date = (
+            _parsear_fecha_reporte(resumen.get("fecha_carpeta"))
+            or _parsear_fecha_reporte(periodo.get("hasta"))
+            or _parsear_fecha_reporte(periodo.get("desde"))
+        )
         productos = (
             resumen.get("productos_detalle")
             if isinstance(resumen.get("productos_detalle"), list)
@@ -338,6 +365,7 @@ def registrar_reporte_en_bd(
         with SessionLocal() as db:
             reporte = ReporteAlmacen(
                 fecha_carpeta=fecha_carpeta,
+                fecha_reporte=fecha_date,
                 usuario_id=usuario_id,
                 total_articulos=int(resumen.get("productos_acumulados") or len(productos)),
                 resumen_json=json.dumps(resumen, ensure_ascii=False),
@@ -348,16 +376,20 @@ def registrar_reporte_en_bd(
             for item in productos:
                 if not isinstance(item, dict):
                     continue
+                precios_venta = item.get("precios_venta") if isinstance(item.get("precios_venta"), dict) else {}
                 db.add(
                     DetalleEntradaAlmacen(
                         reporte_id=reporte.id,
                         clave_articulo=str(item.get("clave_articulo") or "")[:64],
+                        codigo_xml_original=str(item.get("codigo_xml_original") or "")[:128],
                         descripcion=str(item.get("descripcion") or "")[:500],
                         linea=str(item.get("linea") or "")[:64],
                         clave_proveedor=str(item.get("proveedor") or "")[:64],
-                        cantidad=float(item.get("cantidad") or 0.0),
-                        precio_compra=float(item.get("precio_compra") or 0.0),
+                        unidad_procesada=str(item.get("unidad") or "")[:32],
+                        cantidad=_a_decimal_seguro(item.get("cantidad")),
+                        precio_compra=_a_decimal_seguro(item.get("precio_compra")),
                         factor_aplicado=str(item.get("factor") or "")[:64],
+                        precios_venta_json=json.dumps(precios_venta, ensure_ascii=False),
                         origen_clave=str(item.get("origen_clave") or "")[:64],
                         origen_linea=str(item.get("origen_linea") or "")[:64],
                         origen_proveedor=str(item.get("origen_proveedor") or "")[:64],

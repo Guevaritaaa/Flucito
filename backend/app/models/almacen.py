@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from datetime import date, datetime, timezone
+from decimal import Decimal
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -41,6 +42,7 @@ class ReporteAlmacen(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     fecha_carpeta: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    fecha_reporte: Mapped[date | None] = mapped_column(Date, index=True, nullable=True)
     usuario_id: Mapped[int | None] = mapped_column(
         Integer,
         ForeignKey("usuarios.id", ondelete="SET NULL"),
@@ -73,12 +75,23 @@ class DetalleEntradaAlmacen(Base):
         nullable=False,
     )
     clave_articulo: Mapped[str] = mapped_column(String(64), index=True, default="", nullable=False)
+    codigo_xml_original: Mapped[str] = mapped_column(String(128), default="", nullable=False)
     descripcion: Mapped[str] = mapped_column(String(500), default="", nullable=False)
     linea: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     clave_proveedor: Mapped[str] = mapped_column(String(64), default="", nullable=False)
-    cantidad: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
-    precio_compra: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    unidad_procesada: Mapped[str] = mapped_column(String(32), default="", nullable=False)
+    cantidad: Mapped[Decimal] = mapped_column(
+        Numeric(18, 6),
+        default=Decimal("0.000000"),
+        nullable=False,
+    )
+    precio_compra: Mapped[Decimal] = mapped_column(
+        Numeric(18, 6),
+        default=Decimal("0.000000"),
+        nullable=False,
+    )
     factor_aplicado: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    precios_venta_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     origen_clave: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     origen_linea: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     origen_proveedor: Mapped[str] = mapped_column(String(64), default="", nullable=False)

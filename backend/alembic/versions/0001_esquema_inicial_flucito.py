@@ -106,7 +106,7 @@ def upgrade() -> None:
         sa.Column("unidad_entrada", sa.String(length=32), nullable=False),
         sa.Column("cve_sat", sa.String(length=32), nullable=False),
         sa.Column("cve_unidad", sa.String(length=32), nullable=False),
-        sa.Column("ultimo_costo", sa.Float(), nullable=False),
+        sa.Column("ultimo_costo", sa.Numeric(precision=18, scale=6), nullable=False),
         sa.Column("estatus", sa.String(length=8), nullable=False),
         sa.ForeignKeyConstraint(["clave_linea"], ["sae_lineas.clave_linea"], ondelete="SET NULL"),
         sa.PrimaryKeyConstraint("clave_articulo"),
@@ -122,6 +122,12 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["clave_articulo"], ["sae_articulos.clave_articulo"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["clave_proveedor"], ["sae_proveedores.clave_proveedor"], ondelete="SET NULL"),
         sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint(
+            "clave_proveedor",
+            "clave_alterna",
+            "clave_articulo",
+            name="uq_sae_claves_alternas_prov_alt_art",
+        ),
     )
     op.create_index("ix_sae_claves_alternas_clave_alterna", "sae_claves_alternas", ["clave_alterna"], unique=False)
     op.create_index("ix_sae_claves_alternas_clave_articulo", "sae_claves_alternas", ["clave_articulo"], unique=False)
@@ -152,6 +158,7 @@ def upgrade() -> None:
         "reportes_almacen",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("fecha_carpeta", sa.String(length=32), nullable=False),
+        sa.Column("fecha_reporte", sa.Date(), nullable=True),
         sa.Column("usuario_id", sa.Integer(), nullable=True),
         sa.Column("total_articulos", sa.Integer(), nullable=False),
         sa.Column("resumen_json", sa.Text(), nullable=False),
@@ -160,6 +167,7 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index("ix_reportes_almacen_fecha_carpeta", "reportes_almacen", ["fecha_carpeta"], unique=False)
+    op.create_index("ix_reportes_almacen_fecha_reporte", "reportes_almacen", ["fecha_reporte"], unique=False)
     op.create_index("ix_reportes_almacen_usuario_id", "reportes_almacen", ["usuario_id"], unique=False)
 
     op.create_table(
@@ -167,12 +175,15 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("reporte_id", sa.Integer(), nullable=False),
         sa.Column("clave_articulo", sa.String(length=64), nullable=False),
+        sa.Column("codigo_xml_original", sa.String(length=128), nullable=False),
         sa.Column("descripcion", sa.String(length=500), nullable=False),
         sa.Column("linea", sa.String(length=64), nullable=False),
         sa.Column("clave_proveedor", sa.String(length=64), nullable=False),
-        sa.Column("cantidad", sa.Float(), nullable=False),
-        sa.Column("precio_compra", sa.Float(), nullable=False),
+        sa.Column("unidad_procesada", sa.String(length=32), nullable=False),
+        sa.Column("cantidad", sa.Numeric(precision=18, scale=6), nullable=False),
+        sa.Column("precio_compra", sa.Numeric(precision=18, scale=6), nullable=False),
         sa.Column("factor_aplicado", sa.String(length=64), nullable=False),
+        sa.Column("precios_venta_json", sa.Text(), nullable=False),
         sa.Column("origen_clave", sa.String(length=64), nullable=False),
         sa.Column("origen_linea", sa.String(length=64), nullable=False),
         sa.Column("origen_proveedor", sa.String(length=64), nullable=False),

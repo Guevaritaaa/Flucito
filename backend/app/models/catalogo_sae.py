@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Float, ForeignKey, Integer, String, Text
+from decimal import Decimal
+from sqlalchemy import ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -39,12 +40,24 @@ class SaeArticulo(Base):
     unidad_entrada: Mapped[str] = mapped_column(String(32), default="PZ", nullable=False)
     cve_sat: Mapped[str] = mapped_column(String(32), default="", nullable=False)
     cve_unidad: Mapped[str] = mapped_column(String(32), default="", nullable=False)
-    ultimo_costo: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    ultimo_costo: Mapped[Decimal] = mapped_column(
+        Numeric(18, 6),
+        default=Decimal("0.000000"),
+        nullable=False,
+    )
     estatus: Mapped[str] = mapped_column(String(8), default="A", nullable=False)
 
 
 class SaeClaveAlterna(Base):
     __tablename__ = "sae_claves_alternas"
+    __table_args__ = (
+        UniqueConstraint(
+            "clave_proveedor",
+            "clave_alterna",
+            "clave_articulo",
+            name="uq_sae_claves_alternas_prov_alt_art",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     clave_alterna: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
