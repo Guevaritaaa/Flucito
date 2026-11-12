@@ -1,7 +1,10 @@
 @import "tailwindcss";
 
+/* Habilitar variante dark controlada por clase .dark en <html> (Tailwind CSS v4) */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
-  /* Paleta corporativa Interflu (Cobalt) */
+  /* Paleta exacta del prototipo Interflu (Cobalt) */
   --color-cobalt-50: #f0f4ff;
   --color-cobalt-100: #e0eaff;
   --color-cobalt-200: #c2d5ff;
@@ -14,27 +17,32 @@
   --color-cobalt-900: #06195e;
   --color-cobalt-950: #030d36;
 
-  /* Superficies semánticas */
+  /* Superficies exactas del prototipo */
   --color-canvas: #f4f6fa;
   --color-surface: #ffffff;
   --color-sidebar: #0018cc;
   --color-sidebar-border: #0014a8;
   --color-sidebar-active: #0070f3;
 
-  /* Tipografía principal */
-  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* Superficies de Modo Oscuro (descanso visual nocturno con tinte cobalto profundo) */
+  --color-dark-canvas: #0b1120;
+  --color-dark-surface: #131c31;
+  --color-dark-elevated: #1a2642;
+  --color-dark-sidebar: #061244;
 
-  /* Sombras con offset real (Impeccable & Antigravity Design) */
+  /* Tipografía principal */
+  --font-sans: "Plus Jakarta Sans", "Inter", system-ui, -apple-system, sans-serif;
+
+  /* Sombras del prototipo */
   --shadow-subtle: 0 4px 20px -2px rgba(6, 25, 94, 0.06);
   --shadow-elevation: 0 10px 25px -3px rgba(6, 25, 94, 0.08);
-  --shadow-floating: 0 20px 40px -8px rgba(6, 25, 94, 0.12);
+  --shadow-floating: 0 20px 40px -8px rgba(6, 25, 94, 0.14);
 
   /* Curvas de animación (Emil Kowalski Design Engineering) */
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
 }
 
-/* Superficies del navegador y números tabulares (Craft Floor) */
 @layer base {
   html {
     font-variant-numeric: tabular-nums;
@@ -64,6 +72,14 @@
 
 .custom-scroll::-webkit-scrollbar-thumb:hover {
   background-color: #94a3b8;
+}
+
+.dark .custom-scroll::-webkit-scrollbar-thumb {
+  background-color: #334155;
+}
+
+.dark .custom-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: #475569;
 }
 
 .sidebar-scroll::-webkit-scrollbar {
