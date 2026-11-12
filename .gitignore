@@ -19,3 +19,10 @@ backend/token_drive*.json
 **/*client_secret*.json
 **/*token*.json
 backend/datos/
+
+# Frontend (Node / Vite) y Skills locales de agente
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+.agents/
+
