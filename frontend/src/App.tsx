@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { ArrowRight, CheckCircle2, MessageSquare } from "lucide-react";
+import { ArrowRight, CheckCircle2, Settings as SettingsIcon } from "lucide-react";
 import { LoginView } from "./components/auth/LoginView";
+import { ChatWorkspace } from "./components/chat/ChatWorkspace";
 import { Header } from "./components/layout/Header";
 import { Sidebar, type AppTab } from "./components/layout/Sidebar";
 import { ASSETS } from "./core/config";
@@ -89,7 +90,17 @@ export default function App() {
           }}
         />
 
-        {/* Vista de Inicio (del prototipo) */}
+        {/* TAB 1: ChatWorkspace (Principal) */}
+        {tabActiva === "chat" && (
+          <ChatWorkspace
+            sessionId={sessionIdActivo}
+            existeEnHistorial={Boolean(conversacionActiva)}
+            tituloConversacion={conversacionActiva?.titulo}
+            onConversacionActualizada={() => void refrescarConversaciones(true)}
+          />
+        )}
+
+        {/* TAB 2: Inicio (Bienvenida amigable del prototipo) */}
         {tabActiva === "inicio" && (
           <main className="flex-1 w-full max-w-4xl mx-auto px-4 sm:px-6 py-12 flex flex-col items-center justify-center text-center overflow-y-auto">
             <div className="bg-white dark:bg-dark-surface border border-slate-200 dark:border-slate-800 rounded-3xl p-10 shadow-elevation max-w-xl space-y-6">
@@ -122,22 +133,18 @@ export default function App() {
           </main>
         )}
 
-        {/* Contenedor temporal de Chat y Configuración listos para Fases 5 y 6 */}
-        {tabActiva !== "inicio" && (
-          <main className="flex-1 w-full max-w-5xl mx-auto px-4 sm:px-6 py-8 flex flex-col items-center justify-center overflow-y-auto">
+        {/* TAB 3: Configuración (Pendiente Fase 6) */}
+        {tabActiva === "configuracion" && (
+          <main className="flex-1 w-full max-w-4xl mx-auto px-4 sm:px-6 py-8 flex flex-col items-center justify-center overflow-y-auto">
             <div className="w-full max-w-xl rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-dark-surface p-6 shadow-subtle space-y-4">
               <div className="flex items-center gap-2.5 text-sm font-bold text-cobalt-700 dark:text-cobalt-300">
-                <MessageSquare className="h-4 w-4" />
-                <span>
-                  {tabActiva === "chat"
-                    ? `Sesión activa: ${conversacionActiva?.titulo || sessionIdActivo.slice(0, 8)}`
-                    : "Configuración del Sistema"}
-                </span>
+                <SettingsIcon className="h-4 w-4" />
+                <span>Configuración del Sistema</span>
               </div>
               <div className="flex items-center gap-2 rounded-xl border border-emerald-200/80 dark:border-emerald-800/50 bg-emerald-50/80 dark:bg-emerald-950/30 px-4 py-3 text-xs text-emerald-800 dark:text-emerald-200">
                 <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
                 <span>
-                  Fase 4 completada: Sidebar colapsable, Historial de conversaciones y Header listos. Siguiente paso: ChatWorkspace (Fase 5).
+                  Fase 5 completada. Siguiente y última fase: Panel de Configuración y Gestión de Usuarios para Admin (Fase 6).
                 </span>
               </div>
             </div>
