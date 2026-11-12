@@ -27,21 +27,10 @@ def _puerto_accesible(host: str, port: int, timeout: float = 0.6) -> bool:
 
 
 def _normalizar_driver_postgres(url: str) -> str:
-    """Usa psycopg si está disponible; si Windows Smart App Control lo bloquea, usa pg8000."""
-    if not url.startswith("postgresql"):
-        return url
-    try:
-        import psycopg  # noqa: F401
-
-        if url.startswith("postgresql://"):
-            return url.replace("postgresql://", "postgresql+psycopg://", 1)
-        return url
-    except Exception:
-        if "postgresql+psycopg://" in url:
-            return url.replace("postgresql+psycopg://", "postgresql+pg8000://", 1)
-        if url.startswith("postgresql://"):
-            return url.replace("postgresql://", "postgresql+pg8000://", 1)
-        return url
+    """Normaliza la URL de conexión para usar siempre el driver oficial psycopg v3."""
+    if url.startswith("postgresql://"):
+        return url.replace("postgresql://", "postgresql+psycopg://", 1)
+    return url
 
 
 def resolver_database_url(database_url: str | None = None) -> str:

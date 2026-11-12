@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import threading
+import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
@@ -25,6 +27,53 @@ from app.schemas.auth import (
 )
 
 router = APIRouter(prefix="/auth", tags=["Autenticación y Usuarios"])
+
+MAX_INTENTOS_FALLIDOS = 5
+VENTANA_INTENTOS_SEGUNDOS = 60.0
+_INTENTOS_FALLIDOS: dict[str, list[float]] = {}
+_LOCK_INTENTOS = threading.Lock()
+
+
+def limpiar_intentos_login() -> None:
+    """Limpia el registro en memoria de intentos fallidos de login (útil para pruebas)."""
+    with _LOCK_INTENTOS:
+        _INTENTOS_FALLIDOS.clear()
+
+
+def _llave_intento(request: Request, username: str) -> str:
+    ip = (request.client.host if request.client else None) or "unknown"
+    return f"{ip}:{username.lower()}"
+
+
+def _verificar_limite_intentos(llave: str) -> None:
+    ahora = time.monotonic()
+    with _LOCK_INTENTOS:
+        recientes = [
+            ts for ts in _INTENTOS_FALLIDOS.get(llave, [])
+            if ahora - ts < VENTANA_INTENTOS_SEGUNDOS
+        ]
+        _INTENTOS_FALLIDOS[llave] = recientes
+        if len(recientes) >= MAX_INTENTOS_FALLIDOS:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Demasiados intentos fallidos de inicio de sesión. Espera un minuto antes de intentar de nuevo.",
+            )
+
+
+def _registrar_intento_fallido(llave: str) -> None:
+    ahora = time.monotonic()
+    with _LOCK_INTENTOS:
+        recientes = [
+            ts for ts in _INTENTOS_FALLIDOS.get(llave, [])
+            if ahora - ts < VENTANA_INTENTOS_SEGUNDOS
+        ]
+        recientes.append(ahora)
+        _INTENTOS_FALLIDOS[llave] = recientes
+
+
+def _limpiar_intento_exitoso(llave: str) -> None:
+    with _LOCK_INTENTOS:
+        _INTENTOS_FALLIDOS.pop(llave, None)
 
 
 async def _extraer_credenciales(request: Request) -> tuple[str, str]:
@@ -96,8 +145,12 @@ async def iniciar_sesion(
             detail="Debes ingresar usuario y contraseña.",
         )
 
+    llave_rate_limit = _llave_intento(request, username)
+    _verificar_limite_intentos(llave_rate_limit)
+
     usuario = db.scalar(select(Usuario).where(Usuario.username == username))
     if usuario is None or not verificar_password(password, usuario.password_hash):
+        _registrar_intento_fallido(llave_rate_limit)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Usuario o contraseña incorrectos.",
@@ -110,6 +163,7 @@ async def iniciar_sesion(
             detail="Tu cuenta de usuario está desactivada. Contacta al administrador.",
         )
 
+    _limpiar_intento_exitoso(llave_rate_limit)
     usuario.ultimo_login = datetime.now(timezone.utc)
     db.commit()
     db.refresh(usuario)

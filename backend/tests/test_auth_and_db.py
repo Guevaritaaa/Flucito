@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import date
+from decimal import Decimal
+import json
+
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage
 import pytest
@@ -9,6 +13,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.api.v1.routes import auth as auth_route
 from app.api.v1.routes import chat as chat_route
 from app.core import database as db_module
 from app.core.config import settings
@@ -46,6 +51,7 @@ def entorno_bd(monkeypatch):
             yield session
 
     app.dependency_overrides[db_module.get_db] = _override_get_db
+    auth_route.limpiar_intentos_login()
     with TestSessionLocal() as session:
         inicializar_base_de_datos(session, cargar_articulos_sae=False)
 
@@ -54,6 +60,7 @@ def entorno_bd(monkeypatch):
         yield client, TestSessionLocal
     finally:
         app.dependency_overrides.clear()
+        auth_route.limpiar_intentos_login()
         limpiar_cache_catalogo_sae()
 
 
@@ -115,6 +122,20 @@ def test_login_credenciales_invalidas_y_acceso_sin_token(entorno_bd) -> None:
         headers={"Authorization": "Bearer token.falso.invalido"},
     )
     assert resp_bad_token.status_code == 401
+
+    # Tras alcanzar 5 intentos fallidos seguidos, el 6to devuelve 429 Too Many Requests
+    for _ in range(4):
+        r_fail = client.post(
+            "/api/v1/auth/login",
+            json={"username": settings.admin_initial_username, "password": "PasswordIncorrecta123"},
+        )
+        assert r_fail.status_code == 401
+
+    resp_rate_limit = client.post(
+        "/api/v1/auth/login",
+        json={"username": settings.admin_initial_username, "password": "PasswordIncorrecta123"},
+    )
+    assert resp_rate_limit.status_code == 429
 
 
 def test_roles_admin_vs_operador_y_desactivacion_inmediata(entorno_bd) -> None:
@@ -345,12 +366,21 @@ def test_catalogo_sae_factores_y_reportes_desde_base_de_datos(entorno_bd, tmp_pa
             "productos_detalle": [
                 {
                     "clave_articulo": "PU14TRANSBLUE",
+                    "codigo_xml_original": "PU1/4-TRANSBLUE-100M",
                     "descripcion": "MANGUERA POLIURETANO 1/4 AZUL",
                     "linea": "CYBER",
                     "proveedor": "491",
+                    "unidad": "MTR",
                     "cantidad": 100.0,
                     "precio_compra": 14.5,
                     "factor": "CYBERMATIC",
+                    "precios_venta": {
+                        "PUBLICO": 32.2222,
+                        "MINIMO": 25.7778,
+                        "MOSTRADOR": 32.2222,
+                        "MAYOREO": 29.0,
+                        "DISTRIBUIDOR": 25.7778,
+                    },
                     "origen_clave": "INVE02_EXACTA",
                     "origen_linea": "INVE02",
                     "origen_proveedor": "PROV02_RFC",
@@ -368,6 +398,13 @@ def test_catalogo_sae_factores_y_reportes_desde_base_de_datos(entorno_bd, tmp_pa
         ).all()
         assert rep is not None
         assert rep.fecha_carpeta == "06-11-2026"
+        assert rep.fecha_reporte == date(2026, 11, 6)
         assert len(detalles) == 1
         assert detalles[0].clave_articulo == "PU14TRANSBLUE"
+        assert detalles[0].codigo_xml_original == "PU1/4-TRANSBLUE-100M"
+        assert detalles[0].unidad_procesada == "MTR"
+        assert detalles[0].cantidad == Decimal("100.000000")
+        assert detalles[0].precio_compra == Decimal("14.500000")
+        precios_guardados = json.loads(detalles[0].precios_venta_json)
+        assert precios_guardados["PUBLICO"] == 32.2222
         assert detalles[0].origen_clave == "INVE02_EXACTA"
