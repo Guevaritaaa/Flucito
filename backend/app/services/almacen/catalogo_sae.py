@@ -109,14 +109,22 @@ def _cargar_raw_desde_bd() -> dict[str, Any] | None:
                 }
 
             articulos: dict[str, dict[str, Any]] = {}
-            for art in db.scalars(select(SaeArticulo)).all():
-                articulos[art.clave_articulo] = {
-                    "cve_art": art.clave_articulo,
-                    "descr": art.descripcion,
-                    "linea": art.clave_linea or "",
-                    "uni_med": art.unidad_entrada,
-                    "cve_sat": art.cve_sat,
-                    "cve_unidad": art.cve_unidad,
+            stmt_art = select(
+                SaeArticulo.clave_articulo,
+                SaeArticulo.descripcion,
+                SaeArticulo.clave_linea,
+                SaeArticulo.unidad_entrada,
+                SaeArticulo.cve_sat,
+                SaeArticulo.cve_unidad,
+            )
+            for cve_art, descr, clave_linea, uni_med, cve_sat, cve_unidad in db.execute(stmt_art).all():
+                articulos[cve_art] = {
+                    "cve_art": cve_art,
+                    "descr": descr,
+                    "linea": clave_linea or "",
+                    "uni_med": uni_med,
+                    "cve_sat": cve_sat,
+                    "cve_unidad": cve_unidad,
                 }
 
             return {
