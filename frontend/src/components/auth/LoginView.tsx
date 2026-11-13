@@ -56,26 +56,26 @@ export function LoginView() {
 
   return (
     <div className="relative flex min-h-full w-full flex-col justify-center bg-[#f4f6fa] dark:bg-dark-canvas px-4 py-10 sm:px-6 lg:px-8 transition-colors duration-200">
-      {/* Botón superior derecho para alternar Modo Claro / Modo Oscuro */}
-      <div className="absolute top-5 right-5 z-20">
+      {/* Botón superior derecho solo ícono con tooltip en hover para Modo Oscuro / Claro */}
+      <div className="absolute top-5 right-5 z-20 group">
         <button
           type="button"
           onClick={toggleTheme}
-          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-dark-surface px-3.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 shadow-subtle hover:bg-slate-50 dark:hover:bg-dark-elevated active:scale-[0.98] transition-all cursor-pointer"
-          title={esOscuro ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
+          aria-label={esOscuro ? "Activar modo claro" : "Activar modo oscuro"}
+          className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-dark-surface text-slate-700 dark:text-slate-200 shadow-subtle hover:bg-slate-50 dark:hover:bg-dark-elevated active:scale-[0.96] transition-all duration-150 cursor-pointer"
         >
           {esOscuro ? (
-            <>
-              <Sun className="h-4 w-4 text-amber-400" />
-              <span>Modo claro</span>
-            </>
+            <Sun className="h-4 w-4 text-amber-400 transition-transform duration-200 group-hover:rotate-12" />
           ) : (
-            <>
-              <Moon className="h-4 w-4 text-cobalt-700" />
-              <span>Modo oscuro</span>
-            </>
+            <Moon className="h-4 w-4 text-cobalt-700 transition-transform duration-200 group-hover:-rotate-12" />
           )}
         </button>
+        <span
+          role="tooltip"
+          className="pointer-events-none absolute right-0 top-full mt-2 z-50 whitespace-nowrap rounded-lg bg-slate-900 dark:bg-slate-800 border border-slate-700/80 px-2.5 py-1 text-[11px] font-medium text-white shadow-md opacity-0 scale-95 origin-top-right group-hover:opacity-100 group-hover:scale-100 group-focus-within:opacity-100 group-focus-within:scale-100 transition-all duration-150 ease-out"
+        >
+          {esOscuro ? "Activar modo claro" : "Activar modo oscuro"}
+        </span>
       </div>
 
       <div className="mx-auto w-full max-w-md">

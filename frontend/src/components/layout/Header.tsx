@@ -5,12 +5,14 @@ import type { AppTab } from "./Sidebar";
 
 interface HeaderProps {
   tabActiva: AppTab;
+  sidebarAbierto: boolean;
   tituloConversacionActiva?: string | null;
   onNuevaConversacion: () => void;
 }
 
 export function Header({
   tabActiva,
+  sidebarAbierto,
   tituloConversacionActiva,
   onNuevaConversacion,
 }: HeaderProps) {
@@ -22,6 +24,8 @@ export function Header({
       : tabActiva === "configuracion"
         ? "Preferencias del sistema y administración de cuentas"
         : "Portal de bienvenida y acceso rápido";
+
+  const etiquetaModo = esOscuro ? "Activar modo claro" : "Activar modo oscuro";
 
   return (
     <header
@@ -55,9 +59,9 @@ export function Header({
           </div>
         </div>
 
-        {/* Controles derechos: Estado de conexión, Modo Oscuro y Nueva Conversación */}
-        <div className="flex items-center gap-2.5">
-          {/* Indicador de estado de conexión del prototipo */}
+        {/* Controles derechos minimalistas y sin duplicación */}
+        <div className="flex items-center gap-2">
+          {/* Indicador de estado de conexión */}
           <div
             className="flex items-center gap-2 rounded-full border border-emerald-200/80 dark:border-emerald-800/60 bg-emerald-50 dark:bg-emerald-950/50 px-3 py-1.5"
             title="Conectado al servidor de Flucito"
@@ -71,39 +75,47 @@ export function Header({
             </span>
           </div>
 
-          {/* Botón Modo Claro / Modo Oscuro */}
-          <button
-            type="button"
-            onClick={toggleTheme}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-dark-elevated hover:bg-slate-100 dark:hover:bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-200 active:scale-[0.97] transition-all cursor-pointer"
-            title={esOscuro ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
-            aria-label={esOscuro ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
-          >
-            {esOscuro ? (
-              <>
-                <Sun className="h-3.5 w-3.5 text-amber-400" />
-                <span className="hidden md:inline">Claro</span>
-              </>
-            ) : (
-              <>
-                <Moon className="h-3.5 w-3.5 text-slate-600" />
-                <span className="hidden md:inline">Oscuro</span>
-              </>
-            )}
-          </button>
+          {/* Botón Nueva Conversación: SOLO aparece en el Header cuando la Sidebar está oculta */}
+          {tabActiva === "chat" && !sidebarAbierto && (
+            <div className="group relative">
+              <button
+                type="button"
+                onClick={onNuevaConversacion}
+                aria-label="Nueva conversación"
+                className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-dark-elevated text-cobalt-600 dark:text-cobalt-400 hover:bg-cobalt-50 dark:hover:bg-slate-800 active:scale-[0.96] transition-all duration-150 cursor-pointer"
+              >
+                <MessageSquarePlus className="h-4 w-4" />
+              </button>
+              <span
+                role="tooltip"
+                className="pointer-events-none absolute right-0 top-full mt-2 z-50 whitespace-nowrap rounded-lg bg-slate-900 dark:bg-slate-800 border border-slate-700/80 px-2.5 py-1 text-[11px] font-medium text-white shadow-md opacity-0 scale-95 origin-top-right group-hover:opacity-100 group-hover:scale-100 group-focus-within:opacity-100 group-focus-within:scale-100 transition-all duration-150 ease-out"
+              >
+                Nueva conversación
+              </span>
+            </div>
+          )}
 
-          {/* Botón para iniciar una nueva sesión limpia en el Chat */}
-          {tabActiva === "chat" && (
+          {/* Botón de Modo Oscuro / Claro: Solo ícono con tooltip en hover */}
+          <div className="group relative">
             <button
               type="button"
-              onClick={onNuevaConversacion}
-              title="Iniciar nueva conversación limpia"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-dark-elevated hover:bg-slate-100 dark:hover:bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-200 active:scale-[0.97] transition-all cursor-pointer"
+              onClick={toggleTheme}
+              aria-label={etiquetaModo}
+              className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-dark-elevated text-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-cobalt-700 dark:hover:text-amber-300 active:scale-[0.96] transition-all duration-150 cursor-pointer"
             >
-              <MessageSquarePlus className="h-3.5 w-3.5 text-cobalt-600 dark:text-cobalt-400" />
-              <span className="hidden sm:inline">Nuevo chat</span>
+              {esOscuro ? (
+                <Sun className="h-4 w-4 text-amber-400 transition-transform duration-200 group-hover:rotate-12" />
+              ) : (
+                <Moon className="h-4 w-4 text-slate-600 group-hover:text-cobalt-700 transition-transform duration-200 group-hover:-rotate-12" />
+              )}
             </button>
-          )}
+            <span
+              role="tooltip"
+              className="pointer-events-none absolute right-0 top-full mt-2 z-50 whitespace-nowrap rounded-lg bg-slate-900 dark:bg-slate-800 border border-slate-700/80 px-2.5 py-1 text-[11px] font-medium text-white shadow-md opacity-0 scale-95 origin-top-right group-hover:opacity-100 group-hover:scale-100 group-focus-within:opacity-100 group-focus-within:scale-100 transition-all duration-150 ease-out"
+            >
+              {etiquetaModo}
+            </span>
+          </div>
         </div>
       </div>
     </header>

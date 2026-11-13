@@ -84,6 +84,7 @@ export default function App() {
       <div className="flex flex-1 flex-col h-full overflow-hidden">
         <Header
           tabActiva={tabActiva}
+          sidebarAbierto={sidebarAbierto}
           tituloConversacionActiva={conversacionActiva?.titulo}
           onNuevaConversacion={() => {
             iniciarNuevaConversacion();
