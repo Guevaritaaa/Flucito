@@ -201,15 +201,15 @@ export function UserManagementSection({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <h3 className="text-base font-bold text-slate-900 dark:text-white">
+            <h2 className="text-base font-extrabold tracking-tight text-slate-900 dark:text-white">
               Administración de Cuentas de Usuario
-            </h3>
-            <span className="inline-flex items-center gap-1 rounded-md border border-cobalt-200 dark:border-cobalt-800 bg-cobalt-50 dark:bg-cobalt-950/80 px-2 py-0.5 text-[11px] font-semibold text-cobalt-700 dark:text-cobalt-300">
+            </h2>
+            <span className="inline-flex items-center gap-1 rounded-md border border-[#0022e6]/20 dark:border-sky-400/25 bg-[#0022e6]/10 dark:bg-sky-400/15 px-2 py-0.5 text-[11px] font-semibold text-[#0018cc] dark:text-sky-200">
               <Shield className="h-3 w-3" />
               <span>Solo Admin</span>
             </span>
           </div>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+          <p className="text-xs font-medium text-slate-600 dark:text-sky-100/75 mt-0.5">
             Gestiona quién puede iniciar sesión en Flucito y su nivel de acceso.
           </p>
         </div>
@@ -219,7 +219,7 @@ export function UserManagementSection({
             type="button"
             onClick={() => void cargarListaUsuarios()}
             disabled={cargando}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-dark-surface hover:bg-slate-50 dark:hover:bg-dark-elevated px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 active:scale-[0.98] transition-all cursor-pointer"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-white/85 dark:border-sky-300/20 bg-white/75 dark:bg-[#0e2248]/75 hover:bg-white dark:hover:bg-[#152f61]/90 backdrop-blur-md px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-100 active:scale-[0.98] transition-all cursor-pointer"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${cargando ? "animate-spin" : ""}`} />
             <span>Actualizar</span>
@@ -231,7 +231,7 @@ export function UserManagementSection({
               setMostrarFormNuevo((prev) => !prev);
               setError(null);
             }}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-cobalt-600 hover:bg-cobalt-700 active:scale-[0.98] px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition-all cursor-pointer"
+            className="inline-flex items-center gap-1.5 rounded-xl bg-[#0022e6] hover:bg-[#0018cc] dark:bg-[#1d4ed8] dark:hover:bg-[#2563eb] active:scale-[0.98] px-3.5 py-2 text-xs font-semibold text-white shadow-[0_6px_18px_rgba(0,34,230,0.28)] transition-all cursor-pointer"
           >
             {mostrarFormNuevo ? (
               <>
@@ -252,7 +252,7 @@ export function UserManagementSection({
       {error && (
         <div
           role="alert"
-          className="flex items-center gap-2.5 rounded-xl border border-red-200 dark:border-red-800/60 bg-red-50 dark:bg-red-950/40 px-4 py-3 text-xs font-medium text-red-800 dark:text-red-200"
+          className="flex items-center gap-2.5 rounded-xl border border-red-300/90 dark:border-red-800/60 bg-red-50/90 dark:bg-red-950/60 px-4 py-3 text-xs font-medium text-red-800 dark:text-red-200"
         >
           <AlertCircle className="h-4 w-4 flex-shrink-0 text-red-600 dark:text-red-400" />
           <span>{error}</span>
@@ -262,7 +262,7 @@ export function UserManagementSection({
       {mensajeExito && (
         <div
           role="status"
-          className="flex items-center gap-2.5 rounded-xl border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50 dark:bg-emerald-950/40 px-4 py-3 text-xs font-medium text-emerald-800 dark:text-emerald-200"
+          className="flex items-center gap-2.5 rounded-xl border border-emerald-300/80 dark:border-emerald-800/60 bg-emerald-50/90 dark:bg-emerald-950/60 px-4 py-3 text-xs font-medium text-emerald-800 dark:text-emerald-200"
         >
           <Check className="h-4 w-4 flex-shrink-0 text-emerald-600 dark:text-emerald-400" />
           <span>{mensajeExito}</span>
@@ -273,12 +273,12 @@ export function UserManagementSection({
       {mostrarFormNuevo && (
         <form
           onSubmit={(e) => void manejarCrearUsuario(e)}
-          className="rounded-2xl border border-cobalt-200 dark:border-cobalt-800/70 bg-cobalt-50/40 dark:bg-dark-surface p-5 shadow-subtle space-y-4"
+          className="rounded-2xl border border-white/85 dark:border-sky-300/20 bg-white/78 dark:bg-[#0a1936]/82 backdrop-blur-xl p-5 shadow-[0_12px_32px_rgba(12,50,110,0.08)] space-y-4"
         >
           <div className="flex items-center justify-between">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-cobalt-800 dark:text-cobalt-300">
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white">
               Registrar nueva cuenta
-            </h4>
+            </h3>
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
