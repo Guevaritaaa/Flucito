@@ -4,6 +4,7 @@ import { ASSETS } from "../../core/config";
 import type { ActividadChat } from "../../schemas/chat";
 import type { MensajeUI } from "../../hooks/useChat";
 import { descargarArchivo } from "../../services/almacenService";
+import { ChatMarkdown } from "./ChatMarkdown";
 
 interface MessageBubbleProps {
   mensaje: MensajeUI;
@@ -81,7 +82,7 @@ export function MessageBubble({ mensaje }: MessageBubbleProps) {
                 : "text-slate-800 dark:text-slate-100"
             }`}
           >
-            <p className="whitespace-pre-wrap break-words">{mensaje.contenido}</p>
+            <ChatMarkdown contenido={mensaje.contenido} />
           </div>
 
           {/* Botones reales de descarga de archivos generados (Excel, TXT Aspel, Históricos) */}
@@ -193,7 +194,7 @@ export function FlucitoLoadingBubble({ actividades, etapa, textoProvisional }: {
       <div className="max-w-[calc(100%-3rem)] rounded-2xl rounded-tl-sm border border-white/85 dark:border-sky-200/18 bg-white/78 dark:bg-[#0a1936]/82 backdrop-blur-xl px-4 py-3 shadow-[0_8px_24px_rgba(12,50,110,0.06)]">
         <span className="sr-only" role="status" aria-live="polite">{etapa === "trabajando" ? "Flucito está trabajando" : "Flucito está pensando"}</span>
         <ActividadDesplegable actividades={actividades} etapa={etapa} enCurso />
-        {textoProvisional && <div className="mt-4 border-t border-slate-900/10 pt-3 dark:border-sky-200/15"><p className="mb-2 text-xs font-medium text-slate-600 dark:text-sky-100/70">Redactando respuesta...</p><p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-800 dark:text-slate-100">{textoProvisional}</p></div>}
+        {textoProvisional && <div className="mt-4 border-t border-slate-900/10 pt-3 dark:border-sky-200/15"><p className="mb-2 text-xs font-medium text-slate-600 dark:text-sky-100/70">Redactando respuesta...</p><ChatMarkdown contenido={textoProvisional} /></div>}
       </div>
     </div>
   );
