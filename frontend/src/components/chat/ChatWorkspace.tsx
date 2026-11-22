@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { ASSETS } from "../../core/config";
 import { useChat } from "../../hooks/useChat";
 import { ChatComposer } from "./ChatComposer";
 import { FlucitoLoadingBubble, MessageBubble } from "./MessageBubble";
@@ -6,14 +7,12 @@ import { FlucitoLoadingBubble, MessageBubble } from "./MessageBubble";
 interface ChatWorkspaceProps {
   sessionId: string;
   existeEnHistorial: boolean;
-  tituloConversacion?: string | null;
   onConversacionActualizada: () => void;
 }
 
 export function ChatWorkspace({
   sessionId,
   existeEnHistorial,
-  tituloConversacion,
   onConversacionActualizada,
 }: ChatWorkspaceProps) {
   const { mensajes, enviando, cargandoMensajes, enviarMensaje } = useChat({
@@ -30,56 +29,100 @@ export function ChatWorkspace({
     el.scrollTop = el.scrollHeight;
   }, [mensajes, enviando]);
 
-  const mostrarSugerencias = mensajes.length <= 1 && !existeEnHistorial;
+  const esEstadoInicial =
+    !cargandoMensajes && !existeEnHistorial && mensajes.length === 0 && !enviando;
 
   return (
     <main
-      className="mx-auto flex flex-1 w-full max-w-5xl flex-col justify-between overflow-hidden px-4 sm:px-6 pt-5 pb-3"
+      className="relative flex flex-1 w-full flex-col justify-between overflow-hidden px-4 sm:px-6 pb-3"
       data-purpose="chat-container"
     >
-      {/* Hilo de mensajes */}
-      <div
-        ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto custom-scroll space-y-6 pr-2 mb-4"
-        data-purpose="message-history"
-      >
-        {/* Píldora superior de estado de sesión */}
-        <div className="text-center my-1.5">
-          <span className="inline-block rounded-full bg-slate-200/70 dark:bg-dark-elevated px-3.5 py-1 text-[11px] font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            {tituloConversacion ? tituloConversacion : "Sesión activa"}
-          </span>
-        </div>
-
-        {cargandoMensajes ? (
-          <div className="space-y-4 py-6" aria-label="Cargando mensajes de la conversación">
-            <div className="flex justify-end">
-              <div className="h-12 w-64 rounded-2xl bg-slate-200/70 dark:bg-dark-elevated animate-pulse" />
-            </div>
-            <div className="flex items-start gap-3">
-              <div className="h-8 w-8 rounded-full bg-slate-200/70 dark:bg-dark-elevated animate-pulse" />
-              <div className="h-24 w-96 max-w-full rounded-2xl bg-slate-200/70 dark:bg-dark-elevated animate-pulse" />
+      {esEstadoInicial ? (
+        /* ESTADO 1: Escena centrada estilo ChatGPT en Glassmorphism (Nuevo chat vacío) */
+        <div className="flex flex-1 min-h-0 w-full overflow-y-auto custom-scroll">
+          <div className="flex w-full max-w-2xl flex-col items-center justify-center m-auto py-6 animate-stage-in">
+          {/* Retrato espacial de Flucito 3D con halo refractivo */}
+          <div className="relative mb-4 flex items-center justify-center">
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute -inset-3 rounded-full bg-cyan-300/45 dark:bg-sky-400/25 blur-xl"
+            />
+            <div className="relative h-24 w-24 sm:h-28 sm:w-28 overflow-hidden rounded-full border-2 border-white/90 dark:border-sky-300/35 bg-gradient-to-b from-sky-100/90 via-white/80 to-cyan-100/85 dark:from-[#163870] dark:via-[#0e244d] dark:to-[#0a1936] shadow-[0_14px_34px_rgba(14,90,170,0.18)] dark:shadow-[0_16px_38px_rgba(0,0,0,0.5)]">
+              <img
+                src={ASSETS.FLUCITO_3D}
+                alt="Flucito - Asistente Virtual de Interflu"
+                width={112}
+                height={112}
+                className="h-full w-full object-cover object-top scale-[1.22] translate-y-1.5 select-none pointer-events-none"
+              />
             </div>
           </div>
-        ) : (
-          <>
-            {mensajes.map((msg) => (
-              <MessageBubble key={msg.id} mensaje={msg} />
-            ))}
-            {enviando && <FlucitoLoadingBubble />}
-          </>
-        )}
-      </div>
 
-      {/* Compositor de mensajes */}
-      <ChatComposer
-        deshabilitado={enviando || cargandoMensajes}
-        mostrarSugerencias={mostrarSugerencias}
-        onEnviar={enviarMensaje}
-      />
+          {/* Saludo centrado */}
+          <div className="text-center space-y-1.5 mb-6 sm:mb-7">
+            <h1 className="text-2xl sm:text-[30px] font-extrabold tracking-tight text-slate-900 dark:text-white leading-tight">
+              ¡Hola! Soy Flucito
+            </h1>
+            <p className="text-sm sm:text-[15px] font-medium text-slate-600 dark:text-sky-100/80">
+              ¿Cómo te puedo ayudar hoy en Interflu?
+            </p>
+          </div>
 
-      {/* Nota legal y pie de advertencia del prototipo */}
+          {/* Compositor centrado + chips reales justo debajo */}
+          <ChatComposer
+            variante="hero"
+            autoFocus
+            deshabilitado={enviando || cargandoMensajes}
+            onEnviar={enviarMensaje}
+          />
+          </div>
+        </div>
+      ) : (
+        /* ESTADO 2: Conversación activa estilo ChatGPT (hilo centrado + barra anclada al pie) */
+        <>
+          <div
+            ref={scrollContainerRef}
+            className="flex-1 w-full overflow-y-auto custom-scroll pt-3 pb-4"
+            data-purpose="message-history"
+          >
+            <div className="mx-auto w-full max-w-3xl space-y-5 pr-1">
+              {cargandoMensajes ? (
+                <div
+                  className="space-y-4 py-6"
+                  aria-label="Cargando mensajes de la conversación"
+                >
+                  <div className="flex justify-end">
+                    <div className="h-12 w-60 rounded-2xl bg-white/55 dark:bg-white/10 animate-pulse" />
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <div className="h-9 w-9 rounded-full bg-white/55 dark:bg-white/10 animate-pulse" />
+                    <div className="h-24 w-96 max-w-full rounded-2xl bg-white/60 dark:bg-white/10 animate-pulse" />
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {mensajes.map((msg) => (
+                    <MessageBubble key={msg.id} mensaje={msg} />
+                  ))}
+                  {enviando && <FlucitoLoadingBubble />}
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="mx-auto w-full max-w-3xl pt-1">
+            <ChatComposer
+              variante="docked"
+              deshabilitado={enviando || cargandoMensajes}
+              onEnviar={enviarMensaje}
+            />
+          </div>
+        </>
+      )}
+
+      {/* Pie informativo */}
       <div className="text-center pt-2">
-        <p className="text-[11px] text-slate-400 dark:text-slate-500">
+        <p className="text-[11px] font-medium text-slate-600 dark:text-sky-200/65">
           Flucito puede cometer errores. Verifica la información. • Interflu AI
         </p>
       </div>

@@ -1,5 +1,4 @@
-import { MessageSquarePlus, Moon, Sun } from "lucide-react";
-import { ASSETS } from "../../core/config";
+import { Moon, PanelLeftOpen, SquarePen, Sun } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 import type { AppTab } from "./Sidebar";
 
@@ -7,6 +6,7 @@ interface HeaderProps {
   tabActiva: AppTab;
   sidebarAbierto: boolean;
   tituloConversacionActiva?: string | null;
+  onToggleSidebar: () => void;
   onNuevaConversacion: () => void;
 }
 
@@ -14,108 +14,91 @@ export function Header({
   tabActiva,
   sidebarAbierto,
   tituloConversacionActiva,
+  onToggleSidebar,
   onNuevaConversacion,
 }: HeaderProps) {
   const { esOscuro, toggleTheme } = useTheme();
 
-  const subtitulo =
-    tabActiva === "chat"
-      ? tituloConversacionActiva || "Nueva sesión de conversación"
-      : tabActiva === "configuracion"
-        ? "Preferencias del sistema y administración de cuentas"
-        : "Portal de bienvenida y acceso rápido";
-
   const etiquetaModo = esOscuro ? "Activar modo claro" : "Activar modo oscuro";
+
+  const etiquetaCentral =
+    tabActiva === "configuracion"
+      ? "Configuración • Interflu AI"
+      : tabActiva === "inicio"
+        ? "Inicio • Interflu AI"
+        : tituloConversacionActiva
+          ? `Flucito • ${tituloConversacionActiva}`
+          : "Flucito • Interflu AI";
 
   return (
     <header
-      className="sticky top-0 z-30 w-full flex-shrink-0 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-dark-surface shadow-2xs transition-colors duration-200"
+      className="relative z-20 flex h-14 w-full flex-shrink-0 items-center justify-between px-3.5 sm:px-6 pt-1"
       data-purpose="app-header"
     >
-      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6 lg:px-8">
-        {/* Identidad y Branding de Interflu / Flucito */}
-        <div className="flex items-center gap-3.5 min-w-0">
-          <div className="h-10 w-10 flex-shrink-0 overflow-hidden rounded-xl bg-white shadow-md ring-2 ring-cobalt-100 dark:ring-cobalt-900">
-            <img
-              src={ASSETS.FLUCITO_AVATAR}
-              alt="Flucito"
-              width={40}
-              height={40}
-              className="h-full w-full object-cover"
-            />
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white leading-tight">
-                Flucito
-              </h1>
-              <span className="inline-flex items-center rounded border border-cobalt-100 dark:border-cobalt-800 bg-cobalt-50 dark:bg-cobalt-950/80 px-2 py-0.5 text-[11px] font-semibold text-cobalt-700 dark:text-cobalt-300">
-                Interflu AI
-              </span>
-            </div>
-            <p className="truncate text-xs font-medium text-slate-500 dark:text-slate-400 hidden sm:block">
-              {subtitulo}
-            </p>
-          </div>
-        </div>
+      {/* Controles izquierdos estilo ChatGPT: visibles en móvil o cuando el sidebar está colapsado */}
+      <div className="flex min-w-[76px] items-center gap-1.5">
+        <button
+          type="button"
+          onClick={onToggleSidebar}
+          aria-label="Mostrar barra lateral"
+          aria-controls="sidebar"
+          aria-expanded={sidebarAbierto}
+          title="Mostrar barra lateral"
+          className={`flex h-9 w-9 items-center justify-center rounded-xl border border-white/75 dark:border-sky-300/20 bg-white/60 dark:bg-[#0e2248]/65 backdrop-blur-md text-slate-700 dark:text-slate-100 hover:bg-white/90 dark:hover:bg-[#152f61]/85 active:scale-[0.96] transition-all duration-150 cursor-pointer ${
+            sidebarAbierto ? "md:hidden" : ""
+          }`}
+        >
+          <PanelLeftOpen className="h-4 w-4" />
+        </button>
 
-        {/* Controles derechos minimalistas y sin duplicación */}
-        <div className="flex items-center gap-2">
-          {/* Indicador de estado de conexión */}
-          <div
-            className="flex items-center gap-2 rounded-full border border-emerald-200/80 dark:border-emerald-800/60 bg-emerald-50 dark:bg-emerald-950/50 px-3 py-1.5"
-            title="Conectado al servidor de Flucito"
+        {(
+          <button
+            type="button"
+            onClick={onNuevaConversacion}
+            aria-label="Nuevo chat"
+            title="Nuevo chat"
+            className={`flex h-9 w-9 items-center justify-center rounded-xl border border-white/75 dark:border-sky-300/20 bg-white/60 dark:bg-[#0e2248]/65 backdrop-blur-md text-[#0022e6] dark:text-sky-300 hover:bg-white/90 dark:hover:bg-[#152f61]/85 active:scale-[0.96] transition-all duration-150 cursor-pointer ${
+              sidebarAbierto ? "md:hidden" : ""
+            }`}
           >
-            <span className="relative flex h-2.5 w-2.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
-            </span>
-            <span className="text-xs font-semibold text-emerald-800 dark:text-emerald-300 hidden xs:inline">
-              Conectado
-            </span>
-          </div>
+            <SquarePen className="h-4 w-4" />
+          </button>
+        )}
+      </div>
 
-          {/* Botón Nueva Conversación: SOLO aparece en el Header cuando la Sidebar está oculta */}
-          {tabActiva === "chat" && !sidebarAbierto && (
-            <div className="group relative">
-              <button
-                type="button"
-                onClick={onNuevaConversacion}
-                aria-label="Nueva conversación"
-                className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-dark-elevated text-cobalt-600 dark:text-cobalt-400 hover:bg-cobalt-50 dark:hover:bg-slate-800 active:scale-[0.96] transition-all duration-150 cursor-pointer"
-              >
-                <MessageSquarePlus className="h-4 w-4" />
-              </button>
-              <span
-                role="tooltip"
-                className="pointer-events-none absolute right-0 top-full mt-2 z-50 whitespace-nowrap rounded-lg bg-slate-900 dark:bg-slate-800 border border-slate-700/80 px-2.5 py-1 text-[11px] font-medium text-white shadow-md opacity-0 scale-95 origin-top-right group-hover:opacity-100 group-hover:scale-100 group-focus-within:opacity-100 group-focus-within:scale-100 transition-all duration-150 ease-out"
-              >
-                Nueva conversación
-              </span>
-            </div>
-          )}
+      {/* Cápsula central de identidad (solo elementos reales, sin desplegables ficticios) */}
+      <div className="flex min-w-0 max-w-[55%] items-center justify-center">
+        <div
+          className="inline-flex max-w-full items-center gap-2 rounded-full border border-white/80 dark:border-sky-300/20 bg-white/68 dark:bg-[#0e2248]/70 backdrop-blur-md px-4 py-1.5 shadow-[0_4px_14px_rgba(12,50,110,0.06)]"
+          title={etiquetaCentral}
+        >
+          <span className="truncate text-xs sm:text-[13px] font-semibold tracking-tight text-slate-800 dark:text-slate-100">
+            {etiquetaCentral}
+          </span>
+        </div>
+      </div>
 
-          {/* Botón de Modo Oscuro / Claro: Solo ícono con tooltip en hover */}
-          <div className="group relative">
-            <button
-              type="button"
-              onClick={toggleTheme}
-              aria-label={etiquetaModo}
-              className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-dark-elevated text-slate-600 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-cobalt-700 dark:hover:text-amber-300 active:scale-[0.96] transition-all duration-150 cursor-pointer"
-            >
-              {esOscuro ? (
-                <Sun className="h-4 w-4 text-amber-400 transition-transform duration-200 group-hover:rotate-12" />
-              ) : (
-                <Moon className="h-4 w-4 text-slate-600 group-hover:text-cobalt-700 transition-transform duration-200 group-hover:-rotate-12" />
-              )}
-            </button>
-            <span
-              role="tooltip"
-              className="pointer-events-none absolute right-0 top-full mt-2 z-50 whitespace-nowrap rounded-lg bg-slate-900 dark:bg-slate-800 border border-slate-700/80 px-2.5 py-1 text-[11px] font-medium text-white shadow-md opacity-0 scale-95 origin-top-right group-hover:opacity-100 group-hover:scale-100 group-focus-within:opacity-100 group-focus-within:scale-100 transition-all duration-150 ease-out"
-            >
-              {etiquetaModo}
-            </span>
-          </div>
+      {/* Controles derechos: Estado Conectado + Modo Claro/Oscuro (mismo estilo que LoginView) */}
+      <div className="flex min-w-[76px] items-center justify-end gap-2">
+        <div className="group relative">
+          <button
+            type="button"
+            onClick={toggleTheme}
+            aria-label={etiquetaModo}
+            className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/75 dark:border-sky-300/25 bg-white/60 dark:bg-[#0e2248]/65 backdrop-blur-md text-slate-700 dark:text-slate-100 hover:bg-white/90 dark:hover:bg-[#152f61]/85 active:scale-[0.96] transition-all duration-150 cursor-pointer"
+          >
+            {esOscuro ? (
+              <Sun className="h-4 w-4 text-amber-300 transition-transform duration-200 group-hover:rotate-12" />
+            ) : (
+              <Moon className="h-4 w-4 text-[#0018cc] transition-transform duration-200 group-hover:-rotate-12" />
+            )}
+          </button>
+          <span
+            role="tooltip"
+            className="pointer-events-none absolute right-0 top-full mt-2 z-50 whitespace-nowrap rounded-lg bg-slate-900/95 border border-white/15 px-2.5 py-1 text-[11px] font-medium text-white shadow-md opacity-0 scale-95 origin-top-right group-hover:opacity-100 group-hover:scale-100 group-focus-within:opacity-100 group-focus-within:scale-100 transition-all duration-150 ease-out"
+          >
+            {etiquetaModo}
+          </span>
         </div>
       </div>
     </header>

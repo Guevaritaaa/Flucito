@@ -17,9 +17,6 @@ export interface MensajeUI {
   esError?: boolean;
 }
 
-const MENSAJE_BIENVENIDA_TEXTO =
-  "¡Hola! Soy Flucito :), tu asistente en Interflu. Estoy conectado al catálogo maestro de Aspel SAE y a las carpetas de Google Drive para ayudarte a consultar artículos, factores de precio y generar tus reportes de almacén. ¿En qué te puedo ayudar hoy?";
-
 function formatearHora(isoOrDate?: string | Date): string {
   try {
     const fecha = isoOrDate ? new Date(isoOrDate) : new Date();
@@ -30,15 +27,6 @@ function formatearHora(isoOrDate?: string | Date): string {
   } catch {
     return "";
   }
-}
-
-function crearMensajeBienvenida(): MensajeUI {
-  return {
-    id: "welcome-msg",
-    rol: "assistant",
-    contenido: MENSAJE_BIENVENIDA_TEXTO,
-    hora: formatearHora(),
-  };
 }
 
 interface UseChatOptions {
@@ -52,9 +40,7 @@ export function useChat({
   existeEnHistorial,
   onConversacionActualizada,
 }: UseChatOptions) {
-  const [mensajes, setMensajes] = useState<MensajeUI[]>(() => [
-    crearMensajeBienvenida(),
-  ]);
+  const [mensajes, setMensajes] = useState<MensajeUI[]>([]);
   const [enviando, setEnviando] = useState(false);
   const [cargandoMensajes, setCargandoMensajes] = useState(false);
 
@@ -68,7 +54,7 @@ export function useChat({
 
     if (!existeEnHistorial) {
       ultimaSesionCargadaRef.current = sessionId;
-      setMensajes([crearMensajeBienvenida()]);
+      setMensajes([]);
       setCargandoMensajes(false);
       return;
     }
@@ -81,7 +67,7 @@ export function useChat({
         if (cancelado) return;
         ultimaSesionCargadaRef.current = sessionId;
         if (!detalle.mensajes || detalle.mensajes.length === 0) {
-          setMensajes([crearMensajeBienvenida()]);
+          setMensajes([]);
           return;
         }
         const mapeados: MensajeUI[] = detalle.mensajes.map((m) => ({
@@ -98,10 +84,9 @@ export function useChat({
       .catch((err) => {
         if (cancelado) return;
         if (err instanceof ApiError && err.status === 404) {
-          setMensajes([crearMensajeBienvenida()]);
+          setMensajes([]);
         } else {
           setMensajes([
-            crearMensajeBienvenida(),
             {
               id: `err-load-${Date.now()}`,
               rol: "assistant",

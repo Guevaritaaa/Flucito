@@ -1,12 +1,11 @@
 import { useState } from "react";
 import {
   Check,
-  ChevronLeft,
-  ChevronRight,
   Home,
   LogOut,
   MessageSquare,
-  MessageSquarePlus,
+  PanelLeftClose,
+  Plus,
   RefreshCw,
   Settings,
   Shield,
@@ -14,6 +13,7 @@ import {
   User as UserIcon,
   X,
 } from "lucide-react";
+import { useTheme } from "../../context/ThemeContext";
 import { ASSETS } from "../../core/config";
 import type { UsuarioOut } from "../../schemas/auth";
 import type { ConversacionResumenOut } from "../../schemas/chat";
@@ -75,6 +75,7 @@ export function Sidebar({
   onBorrarConversacion,
   onRefrescarHistorial,
 }: SidebarProps) {
+  const { esOscuro } = useTheme();
   const [confirmandoBorradoId, setConfirmandoBorradoId] = useState<string | null>(
     null
   );
@@ -85,6 +86,12 @@ export function Sidebar({
     { id: "chat", label: "Chat", icon: MessageSquare },
     { id: "configuracion", label: "Configuración", icon: Settings },
   ];
+
+  function cerrarEnMovil() {
+    if (typeof window !== "undefined" && window.innerWidth < 768 && abierto) {
+      onToggle();
+    }
+  }
 
   async function confirmarEliminacion(sessionId: string) {
     setBorrandoId(sessionId);
@@ -98,51 +105,60 @@ export function Sidebar({
 
   return (
     <>
-      {/* Fondo oscuro traslúcido en móvil cuando el sidebar está abierto */}
+      {/* Velo translúcido en móvil cuando el panel lateral está desplegado */}
       {abierto && (
         <div
           onClick={onToggle}
           aria-hidden="true"
-          className="fixed inset-0 z-30 bg-slate-950/40 backdrop-blur-[1px] md:hidden transition-opacity"
+          className="fixed inset-0 z-30 bg-slate-950/35 backdrop-blur-[2px] md:hidden transition-opacity"
         />
       )}
 
       <aside
         id="sidebar"
+        aria-label="Barra lateral de navegación e historial"
         style={{
-          marginLeft: abierto ? "0rem" : "-16rem",
+          marginLeft: abierto ? "0rem" : "-16.75rem",
           transition: "margin-left 240ms cubic-bezier(0.32, 0.72, 0, 1)",
         }}
-        className="fixed md:relative z-40 flex h-full w-64 flex-shrink-0 flex-col justify-between bg-[#0018CC] dark:bg-dark-sidebar border-r border-[#0014a8] dark:border-cobalt-900/80 text-white select-none shadow-2xl md:shadow-none"
+        className="fixed inset-y-0 left-0 md:relative z-40 flex h-full w-[268px] flex-shrink-0 flex-col justify-between border-r border-white/65 dark:border-sky-200/15 bg-white/55 dark:bg-[#081530]/78 backdrop-blur-2xl text-slate-800 dark:text-slate-100 select-none shadow-[12px_0_36px_rgba(12,50,110,0.12)] md:shadow-none"
       >
-        {/* Bloque Superior: Logo + Nueva Conversación + Navegación Principal */}
-        <div className="flex flex-col p-4 pb-2 space-y-4">
-          {/* Logotipo Interflu en contenedor translúcido del prototipo */}
-          <div className="flex items-center pt-0.5">
-            <div className="w-full flex items-center justify-center rounded-xl border border-white/30 bg-white/10 p-2 backdrop-blur-xs">
-              <img
-                src={ASSETS.INTERFLU_LOGO}
-                alt="Interflu Logo"
-                className="w-full h-auto max-h-12 object-contain"
-              />
-            </div>
+        {/* Cabecera estilo ChatGPT: Logo Interflu + botón discreto de colapsar */}
+        <div className="flex flex-col px-3.5 pt-4 pb-2.5 space-y-3.5">
+          <div className="flex items-center justify-between gap-2 px-1">
+            <img
+              src={esOscuro ? ASSETS.INTERFLU_LOGO_DARK : ASSETS.INTERFLU_LOGO}
+              alt="Interflu - Internacional de Fluidos, S.A. de C.V."
+              className="w-[148px] h-auto object-contain select-none"
+            />
+
+            <button
+              type="button"
+              onClick={onToggle}
+              aria-label="Ocultar barra lateral"
+              title="Ocultar barra lateral"
+              className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl text-slate-600 dark:text-sky-200/80 hover:bg-white/65 dark:hover:bg-sky-400/15 hover:text-slate-900 dark:hover:text-white active:scale-[0.96] transition-all duration-150 cursor-pointer"
+            >
+              <PanelLeftClose className="h-4 w-4" />
+            </button>
           </div>
 
-          {/* Acción Primaria: Nueva Conversación */}
+          {/* Botón Primario: + Nuevo chat (cápsula blanca elevada en claro / cristal celeste en oscuro) */}
           <button
             type="button"
             onClick={() => {
               onNuevaConversacion();
               onSelectTab("chat");
+              cerrarEnMovil();
             }}
-            className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/25 bg-white/12 hover:bg-white/20 active:scale-[0.98] px-3.5 py-2.5 text-xs font-semibold text-white shadow-sm transition-all duration-150 cursor-pointer"
+            className="flex w-full items-center justify-center gap-2 rounded-2xl border border-white/90 dark:border-sky-300/25 bg-white/92 hover:bg-white dark:bg-[#10254c]/85 dark:hover:bg-[#163266]/95 active:scale-[0.98] px-4 py-2.5 text-xs sm:text-[13px] font-bold text-slate-900 dark:text-white shadow-[0_6px_18px_rgba(12,50,110,0.08)] dark:shadow-[0_8px_20px_rgba(2,8,24,0.45)] transition-all duration-150 cursor-pointer"
           >
-            <MessageSquarePlus className="h-4 w-4 text-blue-100" />
-            <span>Nueva conversación</span>
+            <Plus className="h-4 w-4 stroke-[2.4] text-[#0022e6] dark:text-sky-300" />
+            <span>Nuevo chat</span>
           </button>
 
-          {/* Navegación de 3 pestañas (Inicio, Chat, Configuración) */}
-          <nav className="space-y-1" aria-label="Navegación principal">
+          {/* Navegación principal */}
+          <nav className="space-y-0.5 pt-0.5" aria-label="Navegación principal">
             {navItems.map((item) => {
               const Icon = item.icon;
               const activo = tabActiva === item.id;
@@ -150,18 +166,21 @@ export function Sidebar({
                 <button
                   key={item.id}
                   type="button"
-                  onClick={() => onSelectTab(item.id)}
-                  className={`group flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm transition-all duration-150 active:scale-[0.99] cursor-pointer ${
+                  onClick={() => {
+                    onSelectTab(item.id);
+                    cerrarEnMovil();
+                  }}
+                  className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-[13px] transition-all duration-150 active:scale-[0.99] cursor-pointer ${
                     activo
-                      ? "bg-[#0070F3] font-semibold text-white shadow-sm"
-                      : "font-medium text-blue-100 hover:bg-white/10 hover:text-white"
+                      ? "bg-[#0022e6]/11 dark:bg-sky-400/18 font-semibold text-[#0018cc] dark:text-white"
+                      : "font-medium text-slate-700 dark:text-sky-100/80 hover:bg-white/55 dark:hover:bg-white/8 hover:text-slate-950 dark:hover:text-white"
                   }`}
                 >
                   <Icon
-                    className={`h-4 w-4 flex-shrink-0 ${
+                    className={`h-4 w-4 flex-shrink-0 transition-colors ${
                       activo
-                        ? "text-white"
-                        : "text-blue-200 group-hover:text-white"
+                        ? "text-[#0022e6] dark:text-sky-300"
+                        : "text-slate-500 dark:text-sky-200/70 group-hover:text-slate-800 dark:group-hover:text-white"
                     }`}
                   />
                   <span>{item.label}</span>
@@ -171,18 +190,19 @@ export function Sidebar({
           </nav>
         </div>
 
-        {/* Bloque Central: Historial de Conversaciones del Usuario */}
-        <div className="flex flex-1 flex-col overflow-hidden px-4 py-2 border-t border-blue-800/50">
-          <div className="flex items-center justify-between px-1.5 py-1.5">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-blue-200/80">
-              Tus conversaciones ({conversaciones.length})
+        {/* Bloque Central: Chats recientes */}
+        <div className="flex flex-1 flex-col overflow-hidden px-3.5 py-2 border-t border-slate-900/7 dark:border-sky-200/10">
+          <div className="flex items-center justify-between px-2 py-1.5">
+            <span className="text-xs font-bold text-slate-700 dark:text-sky-100/85">
+              Chats recientes
+              {conversaciones.length > 0 ? ` (${conversaciones.length})` : ""}
             </span>
             <button
               type="button"
               onClick={onRefrescarHistorial}
               title="Actualizar historial"
               aria-label="Actualizar historial de conversaciones"
-              className="rounded-md p-1 text-blue-200/80 hover:bg-white/10 hover:text-white transition-colors cursor-pointer"
+              className="rounded-lg p-1 text-slate-500 dark:text-sky-200/70 hover:bg-white/60 dark:hover:bg-white/10 hover:text-slate-800 dark:hover:text-white transition-colors cursor-pointer"
             >
               <RefreshCw
                 className={`h-3.5 w-3.5 ${cargandoHistorial ? "animate-spin" : ""}`}
@@ -190,20 +210,20 @@ export function Sidebar({
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto sidebar-scroll space-y-1 pr-1 mt-1">
+          <div className="flex-1 overflow-y-auto sidebar-scroll space-y-0.5 pr-1 mt-0.5">
             {cargandoHistorial && conversaciones.length === 0 ? (
-              <div className="space-y-2 py-2 px-1" aria-label="Cargando conversaciones">
-                <div className="h-9 rounded-lg bg-white/10 animate-pulse" />
-                <div className="h-9 rounded-lg bg-white/10 animate-pulse" />
-                <div className="h-9 rounded-lg bg-white/10 animate-pulse" />
+              <div className="space-y-1.5 py-2 px-1" aria-label="Cargando conversaciones">
+                <div className="h-9 rounded-xl bg-white/50 dark:bg-white/8 animate-pulse" />
+                <div className="h-9 rounded-xl bg-white/50 dark:bg-white/8 animate-pulse" />
+                <div className="h-9 rounded-xl bg-white/50 dark:bg-white/8 animate-pulse" />
               </div>
             ) : conversaciones.length === 0 ? (
-              <div className="rounded-xl border border-white/10 bg-white/5 p-3.5 text-left space-y-1 my-1">
-                <p className="text-xs font-medium text-blue-100">
-                  Sin conversaciones guardadas
+              <div className="rounded-2xl bg-white/45 dark:bg-white/5 px-3.5 py-3 text-left space-y-1 my-1">
+                <p className="text-xs font-semibold text-slate-700 dark:text-sky-100">
+                  Sin chats recientes
                 </p>
-                <p className="text-[11px] text-blue-200/75 leading-relaxed">
-                  Escribe un mensaje a Flucito y tu sesión se guardará automáticamente aquí.
+                <p className="text-[11px] text-slate-600 dark:text-sky-200/70 leading-relaxed">
+                  Envía un mensaje a Flucito y tu conversación aparecerá aquí automáticamente.
                 </p>
               </div>
             ) : (
@@ -218,21 +238,21 @@ export function Sidebar({
                     key={conv.id}
                     className={`group relative flex items-center justify-between rounded-xl px-2.5 py-2 text-xs transition-colors duration-150 ${
                       esActiva
-                        ? "bg-white/18 text-white font-semibold shadow-2xs ring-1 ring-white/25"
-                        : "text-blue-100 hover:bg-white/10 hover:text-white"
+                        ? "bg-[#0022e6]/12 dark:bg-sky-400/20 text-slate-950 dark:text-white font-semibold"
+                        : "text-slate-700 dark:text-sky-100/80 hover:bg-white/55 dark:hover:bg-white/8 hover:text-slate-950 dark:hover:text-white"
                     }`}
                   >
                     {confirmando ? (
                       <div className="flex w-full items-center justify-between gap-1.5 py-0.5">
-                        <span className="truncate text-[11px] font-medium text-amber-200">
-                          ¿Eliminar este chat?
+                        <span className="truncate text-[11px] font-semibold text-red-700 dark:text-amber-200">
+                          ¿Eliminar chat?
                         </span>
                         <div className="flex items-center gap-1 flex-shrink-0">
                           <button
                             type="button"
                             disabled={borrando}
                             onClick={() => void confirmarEliminacion(conv.id)}
-                            className="inline-flex items-center gap-1 rounded-md bg-red-500/90 hover:bg-red-500 px-2 py-1 text-[11px] font-semibold text-white transition-colors cursor-pointer"
+                            className="inline-flex items-center gap-1 rounded-lg bg-red-600 hover:bg-red-700 px-2 py-1 text-[11px] font-semibold text-white transition-colors cursor-pointer"
                             title="Confirmar eliminación"
                           >
                             <Check className="h-3 w-3" />
@@ -242,7 +262,7 @@ export function Sidebar({
                             type="button"
                             disabled={borrando}
                             onClick={() => setConfirmandoBorradoId(null)}
-                            className="inline-flex items-center rounded-md bg-white/15 hover:bg-white/25 p-1 text-white transition-colors cursor-pointer"
+                            className="inline-flex items-center rounded-lg bg-slate-900/10 dark:bg-white/15 hover:bg-slate-900/18 dark:hover:bg-white/25 p-1 text-slate-700 dark:text-white transition-colors cursor-pointer"
                             title="Cancelar"
                           >
                             <X className="h-3 w-3" />
@@ -256,18 +276,28 @@ export function Sidebar({
                           onClick={() => {
                             onSeleccionarConversacion(conv.id);
                             onSelectTab("chat");
+                            cerrarEnMovil();
                           }}
-                          className="flex flex-1 flex-col items-start overflow-hidden pr-2 text-left cursor-pointer"
+                          className="flex flex-1 items-start gap-2.5 overflow-hidden pr-1.5 text-left cursor-pointer"
                           title={conv.titulo}
                         >
-                          <span className="w-full truncate leading-snug">
-                            {conv.titulo || "Conversación sin título"}
-                          </span>
-                          <span className="text-[10px] text-blue-200/75 font-normal mt-0.5">
-                            {formatearFechaRelativa(conv.actualizada_en)} •{" "}
-                            {conv.total_mensajes}{" "}
-                            {conv.total_mensajes === 1 ? "msj" : "msjs"}
-                          </span>
+                          <MessageSquare
+                            className={`mt-0.5 h-3.5 w-3.5 flex-shrink-0 ${
+                              esActiva
+                                ? "text-[#0022e6] dark:text-sky-300"
+                                : "text-slate-500 dark:text-sky-200/60"
+                            }`}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <span className="block w-full truncate leading-snug">
+                              {conv.titulo || "Conversación sin título"}
+                            </span>
+                            <span className="block text-[10px] text-slate-500 dark:text-sky-200/65 font-normal mt-0.5">
+                              {formatearFechaRelativa(conv.actualizada_en)} •{" "}
+                              {conv.total_mensajes}{" "}
+                              {conv.total_mensajes === 1 ? "msj" : "msjs"}
+                            </span>
+                          </div>
                         </button>
 
                         <button
@@ -278,7 +308,7 @@ export function Sidebar({
                           }}
                           aria-label={`Eliminar conversación ${conv.titulo}`}
                           title="Eliminar conversación"
-                          className="opacity-0 group-hover:opacity-100 focus:opacity-100 rounded-lg p-1.5 text-blue-200 hover:bg-red-500/25 hover:text-red-200 transition-all cursor-pointer flex-shrink-0"
+                          className="opacity-0 group-hover:opacity-100 focus:opacity-100 rounded-lg p-1.5 text-slate-500 dark:text-sky-200/70 hover:bg-red-500/15 hover:text-red-700 dark:hover:bg-red-500/25 dark:hover:text-red-200 transition-all cursor-pointer flex-shrink-0"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
@@ -291,28 +321,26 @@ export function Sidebar({
           </div>
         </div>
 
-        {/* Bloque Inferior: Perfil del Usuario Autenticado + Cerrar Sesión */}
-        <div className="p-3.5 border-t border-blue-800/60 bg-[#0014a8]/40 dark:bg-slate-950/40">
-          <div className="flex items-center justify-between gap-2 rounded-xl px-2 py-1.5">
+        {/* Pie de Perfil: Tarjeta de cristal esmerilado con usuario y Cerrar sesión */}
+        <div className="p-3 border-t border-slate-900/7 dark:border-sky-200/10">
+          <div className="flex items-center justify-between gap-2 rounded-2xl border border-white/75 dark:border-sky-300/15 bg-white/65 dark:bg-[#0a1936]/75 px-2.5 py-2">
             <div className="flex items-center gap-2.5 min-w-0">
-              <div className="h-8 w-8 flex-shrink-0 rounded-full bg-white/20 flex items-center justify-center text-white ring-1 ring-white/30">
+              <div className="h-8 w-8 flex-shrink-0 rounded-full bg-[#0022e6]/10 dark:bg-sky-400/15 flex items-center justify-center text-[#0022e6] dark:text-sky-300">
                 {usuario.rol === "admin" ? (
-                  <Shield className="h-4 w-4 text-amber-300" />
+                  <Shield className="h-4 w-4" />
                 ) : (
-                  <UserIcon className="h-4 w-4 text-blue-100" />
+                  <UserIcon className="h-4 w-4" />
                 )}
               </div>
-              <div className="truncate">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-semibold text-white truncate">
-                    {usuario.nombre_completo}
-                  </span>
-                </div>
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                  {usuario.nombre_completo}
+                </p>
                 <div className="flex items-center gap-1.5 mt-0.5">
-                  <span className="text-[10px] text-blue-200 truncate">
+                  <span className="text-[11px] text-slate-600 dark:text-sky-200/75 truncate">
                     @{usuario.username}
                   </span>
-                  <span className="inline-flex items-center rounded bg-white/15 px-1.5 py-0.2 text-[9px] font-semibold uppercase tracking-wide text-blue-100">
+                  <span className="inline-flex items-center rounded-md bg-[#0022e6]/10 dark:bg-sky-400/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#0018cc] dark:text-sky-200">
                     {usuario.rol}
                   </span>
                 </div>
@@ -324,27 +352,12 @@ export function Sidebar({
               onClick={onLogout}
               title="Cerrar sesión"
               aria-label="Cerrar sesión"
-              className="rounded-lg p-2 text-blue-200 hover:bg-white/15 hover:text-white active:scale-95 transition-all cursor-pointer flex-shrink-0"
+              className="rounded-xl p-2 text-slate-600 dark:text-sky-200/80 hover:bg-slate-900/8 dark:hover:bg-white/12 hover:text-slate-900 dark:hover:text-white active:scale-95 transition-all cursor-pointer flex-shrink-0"
             >
               <LogOut className="h-4 w-4" />
             </button>
           </div>
         </div>
-
-        {/* Botón de media luna del prototipo para colapsar/expandir el Sidebar */}
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-label={abierto ? "Ocultar barra lateral" : "Mostrar barra lateral"}
-          title={abierto ? "Ocultar menú lateral" : "Mostrar menú lateral"}
-          className="absolute -right-5 top-1/2 -translate-y-1/2 z-50 flex h-12 w-5 items-center justify-center rounded-r-full bg-[#0018CC] dark:bg-dark-sidebar hover:bg-[#1a3fd8] dark:hover:bg-cobalt-800 border-y border-r border-[#0014a8] dark:border-cobalt-800 text-blue-300 hover:text-white transition-colors cursor-pointer"
-        >
-          {abierto ? (
-            <ChevronLeft className="h-3.5 w-3.5 stroke-[2.5]" />
-          ) : (
-            <ChevronRight className="h-3.5 w-3.5 stroke-[2.5]" />
-          )}
-        </button>
       </aside>
     </>
   );

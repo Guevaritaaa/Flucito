@@ -13,82 +13,84 @@ import type { AppTab } from "../layout/Sidebar";
 interface HomeViewProps {
   usuario: UsuarioOut;
   onSelectTab: (tab: AppTab) => void;
-  onIniciarConPrompt?: (prompt: string) => void;
+  onNuevaConversacion: () => void;
 }
 
-export function HomeView({ usuario, onSelectTab }: HomeViewProps) {
+export function HomeView({ usuario, onSelectTab, onNuevaConversacion }: HomeViewProps) {
   return (
     <main
-      className="flex-1 w-full max-w-4xl mx-auto px-4 sm:px-6 py-10 flex flex-col items-center justify-center overflow-y-auto custom-scroll"
+      className="flex-1 w-full max-w-4xl mx-auto px-4 sm:px-6 py-8 flex flex-col items-center justify-center overflow-y-auto custom-scroll"
       id="tab-inicio-content"
     >
-      <div className="w-full max-w-2xl rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-dark-surface p-8 sm:p-10 shadow-elevation space-y-7 text-center transition-colors duration-200">
-        {/* Avatar central de Flucito como en el prototipo */}
-        <div className="mx-auto flex h-20 w-20 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-lg ring-4 ring-cobalt-100 dark:ring-cobalt-900">
-          <img
-            src={ASSETS.FLUCITO_AVATAR}
-            alt="Flucito"
-            width={80}
-            height={80}
-            className="h-full w-full object-cover"
+      <div className="w-full max-w-2xl space-y-7 text-center animate-stage-in">
+        {/* Retrato central de Flucito 3D en armonía con Login y Chat */}
+        <div className="relative mx-auto flex h-24 w-24 items-center justify-center">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute -inset-2.5 rounded-full bg-cyan-300/40 dark:bg-sky-400/25 blur-xl"
           />
+          <div className="relative flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border-2 border-white/90 dark:border-sky-300/35 bg-gradient-to-b from-sky-100/90 via-white/80 to-cyan-100/85 dark:from-[#163870] dark:via-[#0e244d] dark:to-[#0a1936] shadow-[0_14px_34px_rgba(14,90,170,0.18)]">
+            <img
+              src={ASSETS.FLUCITO_3D}
+              alt="Flucito"
+              width={96}
+              height={96}
+              className="h-full w-full object-cover object-top scale-[1.22] translate-y-1.5 select-none pointer-events-none"
+            />
+          </div>
         </div>
 
-        <div className="space-y-2.5">
-          <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+        <div className="space-y-2">
+          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
             ¡Bienvenido, {usuario.nombre_completo}!
-          </h2>
-          <p className="mx-auto max-w-lg text-sm leading-relaxed text-slate-600 dark:text-slate-300">
-            ¡Hola! Soy Flucito, tu asistente virtual en Interflu. Ve a la pestaña de{" "}
-            <strong className="font-semibold text-cobalt-700 dark:text-cobalt-300">
-              Chat
-            </strong>{" "}
-            para procesar facturas de entrada, consultar el catálogo de Aspel SAE o descargar tus reportes de almacén.
+          </h1>
+          <p className="mx-auto max-w-lg text-sm sm:text-[15px] leading-relaxed text-slate-700 dark:text-sky-100/85">
+            Soy Flucito, el asistente de Interflu. Inicia una nueva conversación para generar reportes a partir de los documentos en Drive, consultar el catálogo de Aspel SAE o descargar reportes anteriores.
           </p>
         </div>
 
-        {/* Resumen rápido de capacidades conectadas */}
-        <div className="grid grid-cols-1 gap-3 text-left sm:grid-cols-3">
-          <div className="rounded-2xl border border-slate-200/80 dark:border-slate-700/70 bg-slate-50/70 dark:bg-dark-canvas p-4 space-y-1.5">
-            <div className="flex items-center gap-2 text-xs font-semibold text-cobalt-700 dark:text-cobalt-300">
+        {/* Panel unificado de estado de conexiones en cristal esmerilado (sin tarjetas anidadas) */}
+        <div className="rounded-2xl border border-white/85 dark:border-sky-300/20 bg-white/75 dark:bg-[#0a1936]/80 backdrop-blur-xl divide-y sm:divide-y-0 sm:divide-x divide-slate-900/8 dark:divide-sky-200/12 grid grid-cols-1 sm:grid-cols-3 text-left shadow-[0_12px_32px_rgba(12,50,110,0.08)] dark:shadow-[0_16px_40px_rgba(2,8,26,0.5)]">
+          <div className="p-4 sm:p-5 space-y-1.5">
+            <div className="flex items-center gap-2 text-xs font-bold text-[#0018cc] dark:text-sky-300">
               <Database className="h-4 w-4 flex-shrink-0" />
               <span>Catálogo Aspel SAE</span>
             </div>
-            <p className="text-[11px] leading-relaxed text-slate-600 dark:text-slate-400">
-              21,967 artículos, 80 líneas y 512 proveedores sincronizados en PostgreSQL.
+            <p className="text-xs leading-relaxed text-slate-600 dark:text-sky-100/75">
+              Consulta artículos, líneas y proveedores del catálogo de Aspel SAE.
             </p>
           </div>
 
-          <div className="rounded-2xl border border-slate-200/80 dark:border-slate-700/70 bg-slate-50/70 dark:bg-dark-canvas p-4 space-y-1.5">
-            <div className="flex items-center gap-2 text-xs font-semibold text-cobalt-700 dark:text-cobalt-300">
+          <div className="p-4 sm:p-5 space-y-1.5">
+            <div className="flex items-center gap-2 text-xs font-bold text-[#0018cc] dark:text-sky-300">
               <FolderSync className="h-4 w-4 flex-shrink-0" />
               <span>Flujo en Drive</span>
             </div>
-            <p className="text-[11px] leading-relaxed text-slate-600 dark:text-slate-400">
-              Lectura directa de <code className="font-semibold">DOCUMENTOS ENTRADA</code> y organización por fecha.
+            <p className="text-xs leading-relaxed text-slate-600 dark:text-sky-100/75">
+              Consulta los documentos de entrada en Drive y organízalos por fecha.
             </p>
           </div>
 
-          <div className="rounded-2xl border border-slate-200/80 dark:border-slate-700/70 bg-slate-50/70 dark:bg-dark-canvas p-4 space-y-1.5">
-            <div className="flex items-center gap-2 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+          <div className="p-4 sm:p-5 space-y-1.5">
+            <div className="flex items-center gap-2 text-xs font-bold text-emerald-800 dark:text-emerald-300">
               <FileSpreadsheet className="h-4 w-4 flex-shrink-0" />
-              <span>Excel y TXT SAE</span>
+              <span>Reportes de entradas</span>
             </div>
-            <p className="text-[11px] leading-relaxed text-slate-600 dark:text-slate-400">
-              Cálculo automático de los 5 precios por línea y exportación lista para SAE.
+            <p className="text-xs leading-relaxed text-slate-600 dark:text-sky-100/75">
+              Genera reportes de almacén con precios calculados y descárgalos para SAE.
             </p>
           </div>
         </div>
 
-        {/* Botones de acción */}
+        {/* Acciones principales */}
         <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
           <button
             type="button"
-            onClick={() => onSelectTab("chat")}
-            className="inline-flex items-center gap-2 rounded-xl bg-cobalt-600 hover:bg-cobalt-700 active:scale-[0.97] px-6 py-3 text-sm font-semibold text-white shadow-md hover:shadow-lg transition-all cursor-pointer"
+            onClick={onNuevaConversacion}
+            className="inline-flex items-center gap-2 rounded-xl bg-[#0022e6] hover:bg-[#0018cc] dark:bg-[#1d4ed8] dark:hover:bg-[#2563eb] active:scale-[0.98] px-6 py-3 text-sm font-semibold text-white shadow-[0_6px_20px_rgba(0,34,230,0.32)] dark:shadow-[0_6px_22px_rgba(29,78,216,0.45)] transition-all cursor-pointer"
           >
             <MessageSquare className="h-4 w-4" />
-            <span>Ir al Chat</span>
+            <span>Nueva conversación</span>
             <ArrowRight className="h-4 w-4" />
           </button>
 
@@ -96,9 +98,9 @@ export function HomeView({ usuario, onSelectTab }: HomeViewProps) {
             <button
               type="button"
               onClick={() => onSelectTab("configuracion")}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-dark-elevated hover:bg-slate-50 dark:hover:bg-slate-800 active:scale-[0.97] px-5 py-3 text-sm font-semibold text-slate-700 dark:text-slate-200 transition-all cursor-pointer"
+              className="inline-flex items-center gap-2 rounded-xl border border-white/85 dark:border-sky-300/22 bg-white/75 dark:bg-[#0e2248]/75 hover:bg-white dark:hover:bg-[#152f61]/90 backdrop-blur-md active:scale-[0.98] px-5 py-3 text-sm font-semibold text-slate-800 dark:text-slate-100 transition-all cursor-pointer"
             >
-              <Shield className="h-4 w-4 text-cobalt-600 dark:text-cobalt-400" />
+              <Shield className="h-4 w-4 text-[#0022e6] dark:text-sky-300" />
               <span>Administrar Usuarios</span>
             </button>
           )}
