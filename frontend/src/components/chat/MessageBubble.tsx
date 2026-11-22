@@ -1,13 +1,29 @@
 import { Download, FileSpreadsheet, FileText } from "lucide-react";
+import { useState } from "react";
 import { ASSETS } from "../../core/config";
 import type { MensajeUI } from "../../hooks/useChat";
-import { resolverUrlDescarga } from "../../services/almacenService";
+import { descargarArchivo } from "../../services/almacenService";
 
 interface MessageBubbleProps {
   mensaje: MensajeUI;
 }
 
 export function MessageBubble({ mensaje }: MessageBubbleProps) {
+  const [errorDescarga, setErrorDescarga] = useState("");
+  const [descargando, setDescargando] = useState(false);
+
+  async function iniciarDescarga(url: string, nombre: string) {
+    setErrorDescarga("");
+    setDescargando(true);
+    try {
+      await descargarArchivo(url, nombre);
+    } catch (error) {
+      setErrorDescarga(error instanceof Error ? error.message : "No se pudo descargar el archivo.");
+    } finally {
+      setDescargando(false);
+    }
+  }
+
   if (mensaje.rol === "user") {
     return (
       <div className="flex flex-col items-end" data-role="user-message">
@@ -68,42 +84,44 @@ export function MessageBubble({ mensaje }: MessageBubbleProps) {
           {tieneAdjuntos && (
             <div className="flex flex-wrap items-center gap-2 pt-2.5 border-t border-slate-900/10 dark:border-sky-200/15">
               {mensaje.archivo_almacen_url && (
-                <a
-                  href={resolverUrlDescarga(mensaje.archivo_almacen_url)}
-                  download="BASE_ENTRADAS_ALMACEN.xlsx"
+                <button
+                  type="button"
+                  disabled={descargando}
+                  onClick={() => void iniciarDescarga(mensaje.archivo_almacen_url!, "BASE_ENTRADAS_ALMACEN.xlsx")}
                   className="inline-flex items-center gap-1.5 rounded-xl bg-[#0022e6]/10 hover:bg-[#0022e6]/18 dark:bg-sky-400/15 dark:hover:bg-sky-400/25 px-3.5 py-2 text-xs font-semibold text-[#0018cc] dark:text-sky-200 active:scale-[0.98] transition-all"
                 >
                   <FileSpreadsheet className="h-4 w-4 text-[#0022e6] dark:text-sky-300 flex-shrink-0" />
                   <span>Descargar Excel de almacén</span>
-                </a>
+                </button>
               )}
 
               {mensaje.archivo_txt_url && (
-                <a
-                  href={resolverUrlDescarga(mensaje.archivo_txt_url)}
-                  download={
-                    esTxtTabs
-                      ? "BASE_ENTRADAS_ALMACEN_TABS.txt"
-                      : "BASE_ENTRADAS_ALMACEN_COMAS.txt"
-                  }
+                <button
+                  type="button"
+                  disabled={descargando}
+                  onClick={() => void iniciarDescarga(mensaje.archivo_txt_url!, esTxtTabs
+                    ? "BASE_ENTRADAS_ALMACEN_TABS.txt"
+                    : "BASE_ENTRADAS_ALMACEN_COMAS.txt")}
                   className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-500/14 hover:bg-emerald-500/22 dark:bg-emerald-400/15 dark:hover:bg-emerald-400/25 px-3.5 py-2 text-xs font-semibold text-emerald-900 dark:text-emerald-200 active:scale-[0.98] transition-all"
                 >
                   <FileText className="h-4 w-4 text-emerald-700 dark:text-emerald-300 flex-shrink-0" />
                   <span>Descargar TXT para Aspel</span>
-                </a>
+                </button>
               )}
 
               {mensaje.reportes_historicos?.map((reporte, idx) => (
-                <a
+                <button
                   key={`${reporte.url}-${idx}`}
-                  href={resolverUrlDescarga(reporte.url)}
-                  download={reporte.nombre}
+                  type="button"
+                  disabled={descargando}
+                  onClick={() => void iniciarDescarga(reporte.url, reporte.nombre)}
                   className="inline-flex items-center gap-1.5 rounded-xl bg-[#0022e6]/10 hover:bg-[#0022e6]/18 dark:bg-sky-400/15 dark:hover:bg-sky-400/25 px-3.5 py-2 text-xs font-semibold text-[#0018cc] dark:text-sky-200 active:scale-[0.98] transition-all"
                 >
                   <Download className="h-3.5 w-3.5 text-[#0022e6] dark:text-sky-300 flex-shrink-0" />
                   <span>Descargar {reporte.nombre}</span>
-                </a>
+                </button>
               ))}
+              {errorDescarga && <p role="alert" className="w-full text-xs text-red-700 dark:text-red-300">{errorDescarga}</p>}
             </div>
           )}
         </div>

@@ -38,13 +38,14 @@ export interface ApiFetchOptions extends Omit<RequestInit, "body"> {
   body?: unknown;
   skipAuth?: boolean;
   skipUnauthorizedHook?: boolean;
+  responseType?: "blob";
 }
 
 export async function apiFetch<T>(
   endpoint: string,
   options: ApiFetchOptions = {}
 ): Promise<T> {
-  const { body, headers: customHeaders, skipAuth = false, skipUnauthorizedHook = false, ...rest } =
+  const { body, headers: customHeaders, skipAuth = false, skipUnauthorizedHook = false, responseType, ...rest } =
     options;
 
   const url = endpoint.startsWith("http")
@@ -76,6 +77,10 @@ export async function apiFetch<T>(
 
   if (response.status === 204) {
     return undefined as T;
+  }
+
+  if (response.ok && responseType === "blob") {
+    return (await response.blob()) as T;
   }
 
   let data: unknown = null;
