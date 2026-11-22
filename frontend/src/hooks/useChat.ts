@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ReporteHistoricoItem } from "../schemas/chat";
+import type { ActividadChat, ReporteHistoricoItem } from "../schemas/chat";
 import {
   enviarMensajeChat,
   obtenerDetalleConversacion,
@@ -15,6 +15,7 @@ export interface MensajeUI {
   archivo_txt_url?: string | null;
   reportes_historicos?: ReporteHistoricoItem[];
   esError?: boolean;
+  actividades?: ActividadChat[];
 }
 
 function formatearHora(isoOrDate?: string | Date): string {
@@ -42,6 +43,8 @@ export function useChat({
 }: UseChatOptions) {
   const [mensajes, setMensajes] = useState<MensajeUI[]>([]);
   const [enviando, setEnviando] = useState(false);
+  const [actividades, setActividades] = useState<ActividadChat[]>([]);
+  const [etapa, setEtapa] = useState<"pensando" | "trabajando">("pensando");
   const [cargandoMensajes, setCargandoMensajes] = useState(false);
 
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -51,6 +54,8 @@ export function useChat({
   useEffect(() => {
     abortControllerRef.current?.abort();
     setEnviando(false);
+    setActividades([]);
+    setEtapa("pensando");
 
     if (!existeEnHistorial) {
       ultimaSesionCargadaRef.current = sessionId;
@@ -78,6 +83,7 @@ export function useChat({
           archivo_almacen_url: m.archivo_almacen_url,
           archivo_txt_url: m.archivo_txt_url,
           reportes_historicos: m.reportes_historicos ?? [],
+          actividades: m.actividades ?? [],
         }));
         setMensajes(mapeados);
       })
@@ -123,6 +129,8 @@ export function useChat({
 
       setMensajes((prev) => [...prev, msgUsuario]);
       setEnviando(true);
+      setActividades([]);
+      setEtapa("pensando");
 
       const controller = new AbortController();
       abortControllerRef.current = controller;
@@ -133,8 +141,14 @@ export function useChat({
             mensaje: texto,
             session_id: sessionId,
           },
-          controller.signal
+          controller.signal,
+          (progreso) => {
+            if (abortControllerRef.current !== controller || controller.signal.aborted) return;
+            setEtapa(progreso.etapa ?? "pensando");
+            setActividades(progreso.actividades ?? []);
+          }
         );
+        if (controller.signal.aborted) return;
 
         const msgAsistente: MensajeUI = {
           id: `assistant-${Date.now()}`,
@@ -144,6 +158,7 @@ export function useChat({
           archivo_almacen_url: respuesta.archivo_almacen_url,
           archivo_txt_url: respuesta.archivo_txt_url,
           reportes_historicos: respuesta.reportes_historicos ?? [],
+          actividades: respuesta.actividades ?? [],
         };
 
         setMensajes((prev) => [...prev, msgAsistente]);
@@ -179,6 +194,8 @@ export function useChat({
   return {
     mensajes,
     enviando,
+    actividades,
+    etapa,
     cargandoMensajes,
     enviarMensaje,
   };

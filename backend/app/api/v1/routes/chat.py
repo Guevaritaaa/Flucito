@@ -10,6 +10,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.callbacks import BaseCallbackHandler
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -37,6 +38,70 @@ logger = logging.getLogger(__name__)
 _JOBS: dict[str, dict[str, Any]] = {}
 _JOBS_LOCK = threading.Lock()
 _JOB_TTL_SECONDS = 3600
+_CONTEXTO_JOB = threading.local()
+_NOMBRES_HERRAMIENTAS = {
+    "consultar_drive": "Consultando Drive",
+    "gestionar_archivos_drive": "Organizando archivos en Drive",
+    "consultar_almacen": "Consultando almacén",
+    "generar_entradas_almacen": "Generando reporte de almacén",
+    "actualizar_precios_reportes_generados": "Actualizando precios de reportes",
+    "preparar_entorno_pruebas": "Preparando el entorno de pruebas",
+}
+
+
+class ActividadHandler(BaseCallbackHandler):
+    """Registra solo etapas y nombres conocidos, nunca entradas ni resultados."""
+
+    def __init__(self, job_id: str | None = None):
+        self.job_id = job_id
+        self.lock = threading.Lock()
+        self.actividades: list[dict[str, str]] = []
+        self.runs: dict[str, int] = {}
+        self.etapa = "pensando"
+
+    def _publicar(self):
+        if self.job_id:
+            with _JOBS_LOCK:
+                job = _JOBS.get(self.job_id)
+                if job is not None:
+                    job["etapa"] = self.etapa
+                    job["actividades"] = [dict(item) for item in self.actividades]
+
+    def _iniciar(self, run_id, texto: str, etapa: str):
+        with self.lock:
+            self.etapa = etapa
+            self.runs[str(run_id)] = len(self.actividades)
+            self.actividades.append({"texto": texto, "estado": "en_curso"})
+            self._publicar()
+
+    def _terminar(self, run_id, estado: str):
+        with self.lock:
+            indice = self.runs.pop(str(run_id), None)
+            if indice is not None:
+                self.actividades[indice]["estado"] = estado
+            if not self.runs:
+                self.etapa = "pensando"
+            self._publicar()
+
+    def on_chat_model_start(self, serialized, messages, *, run_id, **kwargs):
+        self._iniciar(run_id, "Analizando la solicitud", "pensando")
+
+    def on_llm_end(self, response, *, run_id, **kwargs):
+        self._terminar(run_id, "completado")
+
+    def on_llm_error(self, error, *, run_id, **kwargs):
+        self._terminar(run_id, "error")
+
+    def on_tool_start(self, serialized, input_str, *, run_id, name=None, **kwargs):
+        nombre = name or (serialized or {}).get("name", "")
+        self._iniciar(run_id, _NOMBRES_HERRAMIENTAS.get(nombre, "Procesando información"), "trabajando")
+
+    def on_tool_end(self, output, *, run_id, **kwargs):
+        self._terminar(run_id, "error" if getattr(output, "status", None) == "error" else "completado")
+
+    def on_tool_error(self, error, *, run_id, **kwargs):
+        self._terminar(run_id, "error")
+
 
 
 def _limpiar_jobs_expirados() -> None:
@@ -144,6 +209,7 @@ def _guardar_interaccion_en_bd(
                 "archivo_almacen_url": respuesta_chat.archivo_almacen_url,
                 "archivo_txt_url": respuesta_chat.archivo_txt_url,
                 "reportes_historicos": respuesta_chat.reportes_historicos,
+                "actividades": [a.model_dump() for a in respuesta_chat.actividades],
             }
             db.add(
                 MensajeChat(
@@ -175,7 +241,8 @@ def _memoria_grafo_tiene_mensajes(config: dict[str, Any]) -> bool:
 def _ejecutar_chat(request: ChatRequest, usuario_id: int | None = None) -> ChatResponse:
     """Ejecuta el grafo conversacional, construye el ChatResponse y lo persiste en BD."""
     mensajes_previos = _obtener_mensajes_previos_bd(request.session_id, usuario_id)
-    config = {"configurable": {"thread_id": request.session_id}}
+    actividad = ActividadHandler(getattr(_CONTEXTO_JOB, "job_id", None))
+    config = {"configurable": {"thread_id": request.session_id}, "callbacks": [actividad]}
 
     if mensajes_previos and not _memoria_grafo_tiene_mensajes(config):
         estado = {"messages": [*mensajes_previos, HumanMessage(content=request.mensaje)]}
@@ -194,7 +261,8 @@ def _ejecutar_chat(request: ChatRequest, usuario_id: int | None = None) -> ChatR
             config_limpio = {
                 "configurable": {
                     "thread_id": f"{request.session_id}-recovery-{uuid.uuid4().hex[:8]}"
-                }
+                },
+                "callbacks": [actividad],
             }
             resultado = grafo.invoke(estado, config=config_limpio)
         except Exception as error_final:
@@ -204,6 +272,7 @@ def _ejecutar_chat(request: ChatRequest, usuario_id: int | None = None) -> ChatR
                     "Ocurrió una interrupción temporal al procesar tu solicitud. "
                     "Por favor intenta enviarla nuevamente en unos segundos."
                 ),
+                actividades=actividad.actividades,
             )
             _guardar_interaccion_en_bd(
                 session_id=request.session_id,
@@ -354,6 +423,7 @@ def _ejecutar_chat(request: ChatRequest, usuario_id: int | None = None) -> ChatR
         archivo_almacen_url=archivo_almacen_url,
         archivo_txt_url=archivo_txt_url,
         reportes_historicos=reportes_historicos,
+        actividades=actividad.actividades,
     )
     _guardar_interaccion_en_bd(
         session_id=request.session_id,
@@ -366,6 +436,7 @@ def _ejecutar_chat(request: ChatRequest, usuario_id: int | None = None) -> ChatR
 
 def _trabajador_chat(job_id: str, request: ChatRequest, usuario_id: int | None = None) -> None:
     try:
+        _CONTEXTO_JOB.job_id = job_id
         if usuario_id is None:
             respuesta = _ejecutar_chat(request)
         else:
@@ -409,6 +480,8 @@ def iniciar_chat_async(
             "created_at": time.time(),
             "result": None,
             "error": None,
+            "etapa": "pensando",
+            "actividades": [],
         }
     hilo = threading.Thread(target=_trabajador_chat, args=(job_id, request, uid), daemon=True)
     hilo.start()
@@ -431,6 +504,8 @@ def consultar_estado_chat(
             status=job["status"],
             result=job["result"],
             error=job["error"],
+            etapa=job.get("etapa", "pensando"),
+            actividades=job.get("actividades", []),
         )
 
 
@@ -512,6 +587,7 @@ def obtener_detalle_conversacion(
                 archivo_almacen_url=meta.get("archivo_almacen_url"),
                 archivo_txt_url=meta.get("archivo_txt_url"),
                 reportes_historicos=meta.get("reportes_historicos") or [],
+                actividades=meta.get("actividades") or [],
                 creado_en=msg.creado_en,
             )
         )

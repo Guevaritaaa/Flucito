@@ -1,6 +1,7 @@
-import { Download, FileSpreadsheet, FileText } from "lucide-react";
+import { ChevronDown, Download, FileSpreadsheet, FileText } from "lucide-react";
 import { useState } from "react";
 import { ASSETS } from "../../core/config";
+import type { ActividadChat } from "../../schemas/chat";
 import type { MensajeUI } from "../../hooks/useChat";
 import { descargarArchivo } from "../../services/almacenService";
 
@@ -70,6 +71,9 @@ export function MessageBubble({ mensaje }: MessageBubbleProps) {
               : "border border-white/85 dark:border-sky-200/18 bg-white/78 dark:bg-[#0a1936]/82 text-slate-800 dark:text-slate-100 shadow-[0_10px_28px_rgba(12,50,110,0.07)] dark:shadow-[0_14px_34px_rgba(2,8,26,0.45)]"
           }`}
         >
+          {Boolean(mensaje.actividades?.length) && (
+            <ActividadDesplegable actividades={mensaje.actividades ?? []} />
+          )}
           <div
             className={`text-sm sm:text-[15px] font-normal leading-relaxed ${
               mensaje.esError
@@ -136,33 +140,48 @@ export function MessageBubble({ mensaje }: MessageBubbleProps) {
   );
 }
 
-export function FlucitoLoadingBubble() {
+function ActividadDesplegable({
+  actividades,
+  etapa,
+  enCurso = false,
+}: {
+  actividades: ActividadChat[];
+  etapa?: "pensando" | "trabajando";
+  enCurso?: boolean;
+}) {
+  const titulo = enCurso ? (etapa === "trabajando" ? "Trabajando..." : "Pensando...") : "Ver actividad";
   return (
-    <div
-      className="flex items-start gap-3"
-      data-role="assistant-message"
-      role="status"
-      aria-live="polite"
-    >
-      <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/90 dark:border-sky-300/30 bg-gradient-to-b from-sky-100 to-white dark:from-[#163870] dark:to-[#0a1936] shadow-[0_4px_12px_rgba(12,50,110,0.1)]">
-        <img
-          src={ASSETS.FLUCITO_3D}
-          alt="Flucito"
-          width={36}
-          height={36}
-          className="h-full w-full object-cover object-top scale-[1.22] translate-y-0.5 select-none"
-        />
+    <details className="group min-w-0 text-sm text-slate-700 dark:text-sky-100">
+      <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md font-semibold focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-blue-600 [&::-webkit-details-marker]:hidden">
+        <span>{titulo}</span>
+        {enCurso && <span className="flex items-center gap-1" aria-hidden="true"><span className="trabajando-punto" /><span className="trabajando-punto" /><span className="trabajando-punto" /></span>}
+        <ChevronDown aria-hidden="true" className="h-4 w-4 transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="mt-3 border-t border-slate-900/10 pt-3 dark:border-sky-200/15">
+        {actividades.length ? (
+          <ol className="space-y-2" aria-label="Pasos de la actividad">
+            {actividades.map((actividad, index) => (
+              <li key={index} className="flex items-start gap-2 text-xs leading-relaxed">
+                <span aria-hidden="true" className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-sky-600 dark:bg-sky-300" />
+                <span>{actividad.texto}{actividad.estado === "error" ? " (interrumpido)" : actividad.estado === "en_curso" ? "..." : ""}</span>
+              </li>
+            ))}
+          </ol>
+        ) : <p className="text-xs">Preparando la solicitud...</p>}
       </div>
+    </details>
+  );
+}
 
-      <div className="flex items-center gap-3 rounded-2xl rounded-tl-sm border border-white/85 dark:border-sky-200/18 bg-white/78 dark:bg-[#0a1936]/82 backdrop-blur-xl px-4 py-3 shadow-[0_8px_24px_rgba(12,50,110,0.06)]">
-        <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-          Trabajando...
-        </span>
-        <span className="flex items-center gap-1" aria-hidden="true">
-          <span className="trabajando-punto" />
-          <span className="trabajando-punto" />
-          <span className="trabajando-punto" />
-        </span>
+export function FlucitoLoadingBubble({ actividades, etapa }: { actividades: ActividadChat[]; etapa: "pensando" | "trabajando" }) {
+  return (
+    <div className="flex items-start gap-3" data-role="assistant-message">
+      <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/90 dark:border-sky-300/30 bg-gradient-to-b from-sky-100 to-white dark:from-[#163870] dark:to-[#0a1936] shadow-[0_4px_12px_rgba(12,50,110,0.1)]">
+        <img src={ASSETS.FLUCITO_3D} alt="Flucito" width={36} height={36} className="h-full w-full object-cover object-top scale-[1.22] translate-y-0.5 select-none" />
+      </div>
+      <div className="max-w-[calc(100%-3rem)] rounded-2xl rounded-tl-sm border border-white/85 dark:border-sky-200/18 bg-white/78 dark:bg-[#0a1936]/82 backdrop-blur-xl px-4 py-3 shadow-[0_8px_24px_rgba(12,50,110,0.06)]">
+        <span className="sr-only" role="status" aria-live="polite">{etapa === "trabajando" ? "Flucito está trabajando" : "Flucito está pensando"}</span>
+        <ActividadDesplegable actividades={actividades} etapa={etapa} enCurso />
       </div>
     </div>
   );

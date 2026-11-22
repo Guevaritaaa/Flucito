@@ -13,6 +13,8 @@ import type {
 } from "../schemas/chat";
 import { ApiError, apiFetch } from "./http";
 
+class ChatJobError extends Error {}
+
 function esperar(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     const timer = window.setTimeout(resolve, ms);
@@ -67,13 +69,17 @@ export async function consultarEstadoChat(
  */
 export async function enviarMensajeChat(
   payload: ChatRequest,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onProgreso?: (estado: ChatJobStatusResponse) => void
 ): Promise<ChatResponse> {
   let jobId: string | undefined;
   try {
     const inicio = await iniciarChatAsync(payload, signal);
     jobId = inicio.job_id;
   } catch (err) {
+    if (signal?.aborted || (err instanceof DOMException && err.name === "AbortError")) {
+      throw err;
+    }
     if (err instanceof ApiError && (err.isUnauthorized || err.isForbidden)) {
       throw err;
     }
@@ -95,12 +101,13 @@ export async function enviarMensajeChat(
     try {
       const estado = await consultarEstadoChat(jobId, signal);
       erroresRedConsecutivos = 0;
+      onProgreso?.(estado);
 
       if (estado.status === "completed" && estado.result) {
         return estado.result;
       }
       if (estado.status === "failed") {
-        throw new Error(estado.error || "Error procesando solicitud en Flucito");
+        throw new ChatJobError(estado.error || "Error procesando solicitud en Flucito");
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
@@ -114,7 +121,7 @@ export async function enviarMensajeChat(
           throw err;
         }
       }
-      if (err instanceof Error && err.message.startsWith("Error procesando")) {
+      if (err instanceof ChatJobError) {
         throw err;
       }
       erroresRedConsecutivos += 1;

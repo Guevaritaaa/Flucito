@@ -7,11 +7,17 @@ class ChatRequest(BaseModel):
     session_id: str
 
 
+class ActividadChat(BaseModel):
+    texto: str
+    estado: str
+
+
 class ChatResponse(BaseModel):
     respuesta: str
     archivo_almacen_url: str | None = None
     archivo_txt_url: str | None = None
     reportes_historicos: list[dict[str, str]] = Field(default_factory=list)
+    actividades: list[ActividadChat] = Field(default_factory=list)
 
 
 class ChatJobCreateResponse(BaseModel):
@@ -24,6 +30,8 @@ class ChatJobStatusResponse(BaseModel):
     status: str
     result: ChatResponse | None = None
     error: str | None = None
+    etapa: str = "pensando"
+    actividades: list[ActividadChat] = Field(default_factory=list)
 
 
 class ConversacionResumenOut(BaseModel):
@@ -43,6 +51,7 @@ class MensajeChatOut(BaseModel):
     archivo_txt_url: str | None = None
     reportes_historicos: list[dict[str, str]] = Field(default_factory=list)
     creado_en: datetime
+    actividades: list[ActividadChat] = Field(default_factory=list)
 
 
 class ConversacionDetalleOut(BaseModel):

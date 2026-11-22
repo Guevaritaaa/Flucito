@@ -10,6 +10,11 @@ export interface ReporteHistoricoItem {
   url: string;
 }
 
+export interface ActividadChat {
+  texto: string;
+  estado: "en_curso" | "completado" | "error";
+}
+
 export interface ChatRequest {
   mensaje: string;
   session_id: string;
@@ -20,6 +25,7 @@ export interface ChatResponse {
   archivo_almacen_url: string | null;
   archivo_txt_url: string | null;
   reportes_historicos: ReporteHistoricoItem[];
+  actividades?: ActividadChat[];
 }
 
 export interface ChatJobCreateResponse {
@@ -32,6 +38,8 @@ export interface ChatJobStatusResponse {
   status: "running" | "completed" | "failed" | string;
   result: ChatResponse | null;
   error: string | null;
+  etapa?: "pensando" | "trabajando";
+  actividades?: ActividadChat[];
 }
 
 export interface ConversacionResumenOut {
@@ -51,6 +59,7 @@ export interface MensajeChatOut {
   archivo_txt_url: string | null;
   reportes_historicos: ReporteHistoricoItem[];
   creado_en: string;
+  actividades?: ActividadChat[];
 }
 
 export interface ConversacionDetalleOut {

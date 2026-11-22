@@ -15,7 +15,7 @@ export function ChatWorkspace({
   existeEnHistorial,
   onConversacionActualizada,
 }: ChatWorkspaceProps) {
-  const { mensajes, enviando, cargandoMensajes, enviarMensaje } = useChat({
+  const { mensajes, enviando, actividades, etapa, cargandoMensajes, enviarMensaje } = useChat({
     sessionId,
     existeEnHistorial,
     onConversacionActualizada,
@@ -104,7 +104,7 @@ export function ChatWorkspace({
                   {mensajes.map((msg) => (
                     <MessageBubble key={msg.id} mensaje={msg} />
                   ))}
-                  {enviando && <FlucitoLoadingBubble />}
+                  {enviando && <FlucitoLoadingBubble actividades={actividades} etapa={etapa} />}
                 </>
               )}
             </div>
