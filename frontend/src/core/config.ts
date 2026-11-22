@@ -1,6 +1,6 @@
 /**
  * Configuración base del frontend (equivalente a backend/app/core/config.py).
- * Centraliza la resolución de endpoints, activos multimedia WebP/SVG y constantes de sesión.
+ * Centraliza la resolución de endpoints, activos multimedia WebP/SVG/PNG y constantes de sesión.
  */
 
 const host = typeof window !== "undefined" ? window.location.hostname : "localhost";
@@ -17,10 +17,19 @@ export const AUTH_TOKEN_STORAGE_KEY = "flucito_auth_token";
 export const AUTH_USER_STORAGE_KEY = "flucito_auth_user";
 export const ACTIVE_SESSION_STORAGE_KEY = "flucito_active_session_id";
 
-/** Activos multimedia normalizados y optimizados para web (WebP / SVG comprimido) */
+/** Activos multimedia oficiales en public/Recursos */
 export const ASSETS = {
   FLUCITO_AVATAR: "/Recursos/FlucitoPerfil.webp",
+  FLUCITO_3D: "/Recursos/flucito-mascota-3d.webp",
   INTERFLU_LOGO: "/Recursos/LogoInterflu.svg",
+  INTERFLU_LOGO_DARK: "/Recursos/LogoInterfluDark.svg",
+  ENGRANAJE_METALICO: "/Recursos/engranaje-metalico.webp",
+  ENGRANAJE_AZUL: "/Recursos/engranaje-azul.webp",
+  ENGRANAJE_CELESTE: "/Recursos/engranaje-celeste.webp",
+  GOTA_AZUL: "/Recursos/gota-azul.webp",
+  GOTA_CELESTE: "/Recursos/gota-celeste.webp",
+  SALPICADURA_AGUA: "/Recursos/salpicadura-agua.webp",
+  ESPIRAL_CELESTE: "/Recursos/espiral-celeste.webp",
 } as const;
 
 export function resolverUrlBackend(rutaRelativa: string): string {
