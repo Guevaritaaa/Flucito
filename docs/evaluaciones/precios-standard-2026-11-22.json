@@ -1,0 +1,12 @@
+{
+  "gpt-5.6-luna": {
+    "input_per_million": 0.2,
+    "cached_input_per_million": 0.02,
+    "output_per_million": 1.2
+  },
+  "gpt-6-luna": {
+    "input_per_million": 0.1,
+    "cached_input_per_million": 0.01,
+    "output_per_million": 0.5
+  }
+}

@@ -68,7 +68,7 @@ def test_txt_btt_bandas_linea_vacia_y_emparejamiento_posicional(tmp_path: Path) 
     assert emparejados[3]["linea"] == "BAN"
 
 
-def test_reubicar_carpetas_desanida_carpeta_fecha_dentro_de_otra_fecha(monkeypatch) -> None:
+def test_reubicar_no_aplica_organizacion_antigua_automaticamente(monkeypatch) -> None:
     monkeypatch.setattr(settings, "google_drive_folder_id", "docs-root")
     monkeypatch.setattr(organizador, "crear_cliente_drive", lambda: object())
 
@@ -106,8 +106,8 @@ def test_reubicar_carpetas_desanida_carpeta_fecha_dentro_de_otra_fecha(monkeypat
     )
 
     res = organizador.reubicar_carpetas_mal_ubicadas(cliente=object())
-    assert ("f-30-nested", "entrada-id", "f-20") in movimientos
-    assert "30-10-2026" in res["carpetas_reubicadas"]
+    assert movimientos == []
+    assert res["carpetas_reubicadas"] == []
 
 
 def test_lote_real_30_10_2026_si_existe() -> None:

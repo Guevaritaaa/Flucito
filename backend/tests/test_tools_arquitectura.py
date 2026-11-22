@@ -52,7 +52,9 @@ def test_esquemas_pydantic_planos_validan_literales_y_limitan_parametros() -> No
         assert "$defs" not in esquema, (
             f"La herramienta {herramienta.name} no debe tener submodelos anidados ($defs)"
         )
-        assert len(propiedades) <= 7, (
+        # La generación añade un selector de fecha para no ampliar una petición puntual.
+        limite = 8 if herramienta.name == "generar_entradas_almacen" else 7
+        assert len(propiedades) <= limite, (
             f"La herramienta {herramienta.name} excede el límite de parámetros planos"
         )
 
@@ -433,7 +435,7 @@ def test_generar_entradas_incluye_aviso_reubicacion_cuando_requiere_confirmacion
     assert "advertencia_ubicacion" in respuesta
     assert "26-10-2026" in respuesta["advertencia_ubicacion"]
     assert "DOCUMENTOS ENTRADA" in respuesta["pregunta_usuario"]
-    assert "ENTRADAS AL INVENTARIO" in respuesta["pregunta_usuario"]
+    assert "ENTRADAS AL INVENTARIO" not in respuesta["pregunta_usuario"]
 
 
 def test_construir_resumen_enriquecido_con_estadisticas_desgloses_y_productos() -> None:

@@ -47,7 +47,6 @@ def test_actividad_real_se_publica_y_se_guarda(monkeypatch) -> None:
     chat_route._JOBS[job_id] = {"status": "running", "result": None, "error": None}
     chat_route._CONTEXTO_JOB.job_id = job_id
     guardadas = []
-    monkeypatch.setattr(chat_route.ActividadHandler, "_generar_resumen", lambda *args: None)
     monkeypatch.setattr(chat_route, "_obtener_mensajes_previos_bd", lambda *args: [])
     monkeypatch.setattr(chat_route, "_guardar_interaccion_en_bd", lambda **kwargs: guardadas.append(kwargs["respuesta_chat"]))
 
@@ -205,24 +204,19 @@ def test_stream_de_tarea_entrega_snapshot_final_sin_repetir_trabajo() -> None:
         chat_route._JOBS.pop(job_id, None)
 
 
-def test_resumen_usa_solo_descripcion_publica(monkeypatch) -> None:
+def test_actividad_conserva_descripcion_publica_sin_invocar_modelo(monkeypatch) -> None:
     from uuid import uuid4
     from app.agents import graph
 
-    llamadas = []
-
     class Modelo:
         def invoke(self, mensajes):
-            llamadas.extend(mensajes)
-            return AIMessage(content="Revisando archivos de Drive")
+            raise AssertionError("Las etiquetas no deben invocar modelos")
 
     monkeypatch.setattr(graph, "llm_primario", Modelo())
     handler = chat_route.ActividadHandler()
-    run_id = str(uuid4())
-    handler._iniciar(run_id, "Consultando Drive", "trabajando", "consultar_drive")
-    handler._generar_resumen(run_id, "consultar_drive")
-    assert handler.actividades[0]["texto"] == "Revisando archivos de Drive"
-    assert llamadas[-1].content == "Consultando Drive"
+    handler.on_tool_start({"name": "consultar_drive"}, "datos privados", run_id=uuid4())
+    assert handler.actividades[0]["texto"] == "Consultando Drive"
+    assert "datos privados" not in str(handler.actividades)
 
 
 def _chat_con_resultado(monkeypatch, pregunta, datos, respuesta, anteriores=None):
@@ -329,3 +323,14 @@ def test_consulta_general_de_carpetas_no_se_limita_a_raiz(monkeypatch):
     assert resultado["messages"][0].tool_calls[0]["args"]["ubicacion"] == "todas"
     resultado = graph.nodo_flucito({"messages": [HumanMessage(content="¿qué carpetas hay en la raíz?")]})
     assert resultado["messages"][0].tool_calls[0]["args"]["ubicacion"] == "raiz"
+
+
+def test_etiquetas_de_actividad_no_lanzan_llamadas_auxiliares(monkeypatch):
+    from uuid import uuid4
+    def prohibido(*args, **kwargs):
+        raise AssertionError("Las etiquetas no deben lanzar hilos ni modelos")
+    monkeypatch.setattr(chat_route.threading, "Thread", prohibido)
+    handler = chat_route.ActividadHandler(job_id="sin-llm-auxiliar")
+    handler.on_tool_start({"name": "consultar_drive"}, "privado", run_id=uuid4())
+    assert handler.actividades[-1]["texto"] == "Consultando Drive"
+    assert "privado" not in str(handler.actividades)

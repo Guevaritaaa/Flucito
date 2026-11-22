@@ -18,8 +18,8 @@ La V1 ya cuenta con un flujo funcional de conversación, carga de documentos, al
 ## Qué puede hacer actualmente
 
 - Mantener una conversación con contexto por sesión.
-- Usar Groq como proveedor principal de lenguaje.
-- Cambiar automáticamente a OpenAI cuando el proveedor principal falla.
+- Usar OpenAI con Luna 6 y Responses API como proveedor principal de lenguaje.
+- Usar Groq como respaldo ante fallos recuperables, si la carga cabe en su presupuesto.
 - Recibir XML, PDF y TXT desde la interfaz.
 - Agrupar documentos relacionados con una misma factura.
 - Subir y organizar documentos en Google Drive.
@@ -31,7 +31,7 @@ La V1 ya cuenta con un flujo funcional de conversación, carga de documentos, al
 ## Stack tecnológico
 
 - **Backend:** Python, FastAPI y LangGraph.
-- **Modelos de lenguaje:** Groq como proveedor principal y OpenAI como fallback.
+- **Modelos de lenguaje:** OpenAI (Luna 5.6) como proveedor principal y Groq como respaldo condicionado al presupuesto.
 - **Documentos y Excel:** XML, PDF, TXT, pandas y openpyxl.
 - **Almacenamiento:** Google Drive API.
 - **Frontend V1:** HTML, CSS y JavaScript.
@@ -91,9 +91,9 @@ La guía de uso diario está en [`docs/flujo-usuario.md`](docs/flujo-usuario.md)
 
 Los cambios importantes de cada versión se registran en [`CHANGELOG.md`](CHANGELOG.md).
 
-- `GROQ_API_KEY` y `GROQ_MODEL`: proveedor y modelo principales.
-- `OPENAI_API_KEY` y `OPENAI_MODEL`: proveedor y modelo de respaldo.
-- `LLM_PRIMARY_PROVIDER`: normalmente `groq`.
+- `GROQ_API_KEY` y `GROQ_MODEL`: proveedor y modelo de respaldo opcional.
+- `OPENAI_API_KEY` y `OPENAI_MODEL`: proveedor y modelo principales.
+- `LLM_PRIMARY_PROVIDER`: `openai` por defecto.
 - `LLM_FALLBACK_ENABLED`: activa o desactiva el fallback.
 - `GOOGLE_DRIVE_FOLDER_ID`: carpeta raíz de documentos.
 - `GOOGLE_OAUTH_CLIENT_JSON` y `GOOGLE_OAUTH_TOKEN_JSON`: configuración OAuth para Render.

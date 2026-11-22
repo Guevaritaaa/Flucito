@@ -40,7 +40,7 @@ El backend agrupa archivos usando la información disponible en su nombre y cont
 
 ## 3. Subir archivos a Google Drive
 
-Pulsa el botón para cargar los documentos. Flucito los guarda en `docs/ENTRADAS AL INVENTARIO/{DD-MM-AAAA}`. Al subir desde la interfaz, usa la fecha actual para nombrar la carpeta de carga. Si el asesor carga los documentos directamente en Drive, debe colocarlos en una subcarpeta con la fecha que se usará durante todo el proceso.
+Pulsa el botón para cargar los documentos. Flucito los guarda en `docs/DOCUMENTOS ENTRADA/AÑO/MES/DD-MM-AAAA`. Al subir desde la interfaz, usa la fecha actual para nombrar la carpeta de carga. Si el asesor carga documentos directamente en Drive, debe colocarlos en esa misma jerarquía.
 
 La interfaz debe mostrar una confirmación cuando la carga termina. Si aparece un error:
 
@@ -71,21 +71,22 @@ El agente reconoce la intención y puede invocar la herramienta `generar_entrada
 
 ## 5. Qué procesa Flucito
 
-Durante el procesamiento, Flucito revisa las carpetas de fecha dentro de `docs/ENTRADAS AL INVENTARIO`. Al terminar, organiza cada carga en `docs/DOCUMENTOS ENTRADA`:
+Durante el procesamiento, Flucito revisa las fechas de `docs/DOCUMENTOS ENTRADA/AÑO/MES`. Los reportes se generan en esa misma fecha:
 
 ```text
 docs/
-├── ENTRADAS AL INVENTARIO/{fecha de carga}/          # XML, PDF y TXT pendientes
-└── DOCUMENTOS ENTRADA/{misma fecha}/
-    ├── {nombre del proveedor} - {fecha de carga}/   # factura y Excel individual
-    └── ENTRADAS_ALMACEN_{fecha de carga}.xlsx       # Excel de la carga
+└── DOCUMENTOS ENTRADA/{AÑO}/{MES}/{fecha de carga}/
+    ├── {proveedor} - {fecha}/                      # originales y reportes individuales
+    ├── ENTRADAS_ALMACEN_{fecha}.xlsx               # reporte general de la fecha
+    ├── ENTRADAS_ALMACEN_{fecha}_COMAS.txt
+    └── ENTRADAS_ALMACEN_{fecha}_TABS.txt
 ```
 
 La fecha de la carpeta de entrada se conserva en el archivo. El nombre de la subcarpeta del proveedor se obtiene del XML; dentro se agrupan la factura, sus documentos de apoyo y su Excel individual.
 
 Durante el procesamiento:
 
-1. Busca carpetas por fecha y documentos nuevos dentro de `ENTRADAS AL INVENTARIO`.
+1. Busca fechas y documentos nuevos dentro de `DOCUMENTOS ENTRADA/AÑO/MES`.
 2. Ignora documentos que ya aparecen como procesados.
 3. Lee los datos fiscales del XML.
 4. Extrae conceptos, cantidades, precios y códigos disponibles.
@@ -95,6 +96,20 @@ Durante el procesamiento:
 8. Genera un resumen para la respuesta del asistente.
 
 Si una factura ya fue procesada, el estado de Drive ayuda a evitar duplicarla en el reporte.
+
+### Restablecer una o varias fechas
+
+«Restablece la carpeta 17-11-2026» devuelve esa fecha al estado sin procesar:
+extrae los XML, PDF y TXT originales de las subcarpetas de proveedor, los deja directamente
+en la carpeta de fecha y envía a papelera los reportes generados (Excel y TXT COMAS/TABS),
+tanto individuales como generales. Retira las subcarpetas únicamente después de verificar
+que están vacías. Conserva el ID, nombre y ubicación de la fecha y libera solo los originales
+seleccionados del estado incremental para permitir reprocesarlos. No borra factores ni configuración.
+
+Se pueden indicar varias fechas en la misma solicitud. Se validan todas antes de escribir.
+Si hay fechas homónimas, Flucito pide elegir por ruta completa o ID. Una interrupción informa
+los pasos confirmados y los pendientes; al repetir la solicitud se consulta el estado actual.
+Archivos no reconocidos o documentos homónimos se conservan y requieren revisión, sin borrado automático.
 
 ## 6. Descargar el Excel
 

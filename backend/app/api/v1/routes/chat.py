@@ -11,13 +11,16 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.callbacks import BaseCallbackHandler
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.agents.graph import grafo
+from app.agents.actividad import PASOS, ESTADOS
+from app.services.almacen.fuentes.operaciones_drive import recuperar as recuperar_operaciones_drive
 from app.core.database import Base, SessionLocal, engine, get_db
+from app.core.config import settings
 from app.core.security import obtener_usuario_actual, obtener_usuario_opcional
 from app.models.conversacion import Conversacion, MensajeChat
 from app.models.usuario import Usuario
@@ -64,6 +67,56 @@ class ActividadHandler(BaseCallbackHandler):
         self.texto_provisional = ""
         self.runs_con_tools: set[str] = set()
         self.reintentos: dict[str, int] = {}
+        self.resultados_drive: list[dict] = []
+        self.pasos: dict[str, int] = {}
+        self.resumenes_en_curso: dict[str, dict[tuple, str]] = {}
+
+    def _resumen_chunk(self, mensaje, run_id):
+        bloques = getattr(mensaje, "content", None)
+        if not isinstance(bloques, list):
+            return
+        with self.lock:
+            partes = self.resumenes_en_curso.setdefault(str(run_id), {})
+            for bloque in bloques:
+                if isinstance(bloque, dict) and bloque.get("type") == "reasoning":
+                    for resumen in bloque.get("summary", []):
+                        if isinstance(resumen, dict) and resumen.get("type") == "summary_text" and isinstance(resumen.get("text"), str):
+                            clave = (bloque.get("index", 0), resumen.get("index", 0))
+                            partes[clave] = partes.get(clave, "") + resumen["text"]
+            indice = self.runs.get(str(run_id))
+            if partes and indice is not None and not settings.traducir_resumen_groq:
+                self.actividades[indice]["resumen"] = "\n".join(partes[k] for k in sorted(partes))
+                self._publicar()
+
+    def on_custom_event(self, name, data, *, run_id, **kwargs):
+        if name != "flucito_paso" or data.get("paso") not in PASOS or data.get("estado") not in ESTADOS:
+            return
+        with self.lock:
+            id = data["id"]
+            if id not in self.pasos:
+                self.pasos[id] = len(self.actividades)
+                self.actividades.append({"id": id, "tipo": "accion", "texto": PASOS[data["paso"]], "estado": data["estado"], "funcion": None})
+            else:
+                self.actividades[self.pasos[id]]["estado"] = data["estado"]
+            self.etapa = "trabajando"
+            self._publicar()
+
+    def _guardar_resumen(self, mensaje, run_id):
+        partes = []
+        if isinstance(getattr(mensaje, "content", None), list):
+            for bloque in mensaje.content:
+                if isinstance(bloque, dict) and bloque.get("type") == "reasoning":
+                    partes.extend(p["text"] for p in bloque.get("summary", []) if isinstance(p, dict) and p.get("type") == "summary_text" and isinstance(p.get("text"), str))
+        if partes:
+            from app.agents.traduccion_resumen import traducir_resumen
+            resumen_original = "\n".join(partes)
+            resumen, origen = traducir_resumen(resumen_original) if settings.traducir_resumen_groq else (resumen_original, "original")
+            with self.lock:
+                indice = self.runs.get(str(run_id))
+                if indice is not None:
+                    self.actividades[indice]["resumen"] = resumen
+                    self.actividades[indice]["resumen_idioma"] = origen
+                    self._publicar()
 
     def _publicar(self):
         if self.job_id:
@@ -102,9 +155,10 @@ class ActividadHandler(BaseCallbackHandler):
     def on_llm_end(self, response, *, run_id, **kwargs):
         generaciones = getattr(response, "generations", [])
         mensaje = getattr(generaciones[0][0], "message", None) if generaciones and generaciones[0] else None
-        if getattr(mensaje, "tool_calls", None):
+        self._guardar_resumen(mensaje, run_id)
+        if mensaje is not None:
             with self.lock:
-                self.texto_provisional = ""
+                self.texto_provisional = "" if getattr(mensaje, "tool_calls", None) else contenido_a_texto(mensaje)
                 self._publicar()
         with self.lock:
             indice = self.reintentos.pop(str(run_id), None)
@@ -123,42 +177,39 @@ class ActividadHandler(BaseCallbackHandler):
 
     def on_llm_new_token(self, token, *, run_id, chunk=None, **kwargs):
         mensaje = getattr(chunk, "message", None)
+        self._resumen_chunk(mensaje, run_id)
         with self.lock:
             if getattr(mensaje, "tool_call_chunks", None) or getattr(mensaje, "tool_calls", None):
                 self.runs_con_tools.add(str(run_id))
                 self.texto_provisional = ""
             elif str(run_id) not in self.runs_con_tools and isinstance(token, str):
-                self.texto_provisional += token
+                bloques = getattr(mensaje, "content", None)
+                if not isinstance(bloques, list) or any(isinstance(b, str) or b.get("type") in {"text", "output_text"} for b in bloques if isinstance(b, (str, dict))):
+                    self.texto_provisional += token
             self._publicar()
 
     def on_tool_start(self, serialized, input_str, *, run_id, name=None, **kwargs):
         nombre = name or (serialized or {}).get("name", "")
         nombre_seguro = nombre if nombre in _NOMBRES_HERRAMIENTAS else None
         self._iniciar(run_id, _NOMBRES_HERRAMIENTAS.get(nombre, "Procesando información"), "trabajando", nombre_seguro)
-        if self.job_id and nombre_seguro:
-            threading.Thread(target=self._generar_resumen, args=(str(run_id), nombre_seguro), daemon=True).start()
-
-    def _generar_resumen(self, run_id: str, nombre: str):
-        # Solo se envía una descripción pública y predefinida; nunca argumentos ni resultados.
-        try:
-            from app.agents.graph import llm_primario
-            respuesta = llm_primario.invoke([
-                SystemMessage(content="Reformula en español, en máximo 12 palabras, la actividad indicada. No agregues detalles, resultados ni acciones. Responde solo con la frase."),
-                HumanMessage(content=_NOMBRES_HERRAMIENTAS[nombre]),
-            ])
-            resumen = contenido_a_texto(respuesta).strip().strip('"')
-            if not resumen or len(resumen) > 120 or "\n" in resumen:
-                return
-            with self.lock:
-                indice = self.runs.get(run_id)
-                if indice is not None:
-                    self.actividades[indice]["texto"] = resumen
-                    self._publicar()
-        except Exception:
-            logger.debug("No se pudo generar el resumen de actividad", exc_info=True)
 
     def on_tool_end(self, output, *, run_id, **kwargs):
-        self._terminar(run_id, "error" if getattr(output, "status", None) == "error" else "completado")
+        estado = "error" if getattr(output, "status", None) == "error" else "completado"
+        try:
+            datos = json.loads(getattr(output, "content", output))
+            if isinstance(datos, dict):
+                if datos.get("estado") in {"parcial", "pendiente_verificar"}:
+                    estado = datos["estado"]
+                elif datos.get("requiere_confirmacion"):
+                    estado = "pendiente_verificar"
+                elif datos.get("ok") is False:
+                    estado = "error"
+            if isinstance(datos, dict) and (datos.get("requiere_confirmacion") or datos.get("tipo") in {"mover_elemento", "restablecer_carpeta"}):
+                with self.lock:
+                    self.resultados_drive.append(datos)
+        except (TypeError, ValueError):
+            pass
+        self._terminar(run_id, estado)
 
     def on_tool_error(self, error, *, run_id, **kwargs):
         self._terminar(run_id, "error")
@@ -181,11 +232,24 @@ def _limpiar_jobs_expirados() -> None:
 def contenido_a_texto(mensaje) -> str:
     """Normaliza respuestas string y bloques de Responses API."""
     texto = getattr(mensaje, "text", None)
-    if isinstance(texto, str):
+    if isinstance(texto, str) and texto:
         return texto
 
     contenido = getattr(mensaje, "content", "")
-    return contenido if isinstance(contenido, str) else str(contenido)
+    if isinstance(contenido, str):
+        return contenido
+    if isinstance(contenido, list):
+        partes = []
+        for bloque in contenido:
+            if isinstance(bloque, str):
+                partes.append(bloque)
+            elif isinstance(bloque, dict):
+                if bloque.get("type") in {"text", "output_text"}:
+                    partes.append(bloque.get("text", ""))
+                elif bloque.get("type") == "refusal":
+                    partes.append(bloque.get("refusal", ""))
+        return "".join(partes)
+    return ""
 
 
 def _generar_titulo_conversacion(mensaje: str) -> str:
@@ -320,7 +384,19 @@ def _ejecutar_chat(request: ChatRequest, usuario_id: int | None = None) -> ChatR
     """Ejecuta el grafo conversacional, construye el ChatResponse y lo persiste en BD."""
     mensajes_previos = _obtener_mensajes_previos_bd(request.session_id, usuario_id)
     actividad = ActividadHandler(getattr(_CONTEXTO_JOB, "job_id", None))
-    config = {"configurable": {"thread_id": request.session_id}, "callbacks": [actividad]}
+    drive_request_id = uuid.uuid4().hex
+    config = {"configurable": {"thread_id": request.session_id, "drive_request_id": drive_request_id}, "callbacks": [actividad]}
+
+    def respuesta_guardada():
+        texto = recuperar_operaciones_drive(drive_request_id)
+        detalles = []
+        for datos in actividad.resultados_drive:
+            if datos.get("requiere_confirmacion"):
+                detalles.append(datos.get("mensaje", "Se necesita tu elección antes de continuar."))
+                detalles.extend(f"{c['ruta_completa']} — id:{c['id']}" for c in datos.get("candidatos", []))
+            elif not datos.get("ok"):
+                detalles.append(datos.get("mensaje") or "La operación no se completó: " + datos.get("error", "sin cambio confirmado"))
+        return "\n".join(filter(None, [texto, *detalles]))
 
     if mensajes_previos and not _memoria_grafo_tiene_mensajes(config):
         estado = {"messages": [*mensajes_previos, HumanMessage(content=request.mensaje)]}
@@ -349,19 +425,21 @@ def _ejecutar_chat(request: ChatRequest, usuario_id: int | None = None) -> ChatR
             error_grafo,
         )
         try:
-            if any(item.get("tipo") == "funcion" for item in actividad.actividades):
+            if respuesta_guardada() or any(item.get("tipo") == "funcion" for item in actividad.actividades):
                 raise RuntimeError("No se reintenta una ejecución que ya inició herramientas") from error_grafo
             config_limpio = {
                 "configurable": {
-                    "thread_id": f"{request.session_id}-recovery-{uuid.uuid4().hex[:8]}"
+                    "thread_id": f"{request.session_id}-recovery-{uuid.uuid4().hex[:8]}",
+                    "drive_request_id": drive_request_id,
                 },
                 "callbacks": [actividad],
             }
             resultado = ejecutar_grafo(config_limpio)
         except Exception as error_final:
             logger.exception("Error definitivo en grafo.invoke: %s", error_final)
+            guardada = respuesta_guardada()
             respuesta_error = ChatResponse(
-                respuesta=(
+                respuesta=(guardada + "\n\nLa respuesta se interrumpió. Otras acciones solicitadas sin resultado guardado quedan sin confirmar.") if guardada else (
                     "Ocurrió una interrupción temporal al procesar tu solicitud. "
                     "Por favor intenta enviarla nuevamente en unos segundos."
                 ),
@@ -375,7 +453,7 @@ def _ejecutar_chat(request: ChatRequest, usuario_id: int | None = None) -> ChatR
             )
             return respuesta_error
 
-    respuesta = contenido_a_texto(resultado["messages"][-1])
+    respuesta = respuesta_guardada() or contenido_a_texto(resultado["messages"][-1])
 
     archivo_almacen_url = None
     reportes_historicos: list[dict[str, str]] = []
@@ -568,6 +646,7 @@ def _trabajador_chat(job_id: str, request: ChatRequest, usuario_id: int | None =
             if job_id in _JOBS:
                 _JOBS[job_id]["status"] = "completed"
                 _JOBS[job_id]["result"] = respuesta
+                _JOBS[job_id]["texto_provisional"] = respuesta.respuesta
     except Exception as exc:
         logger.exception("Error procesando tarea de chat %s", job_id)
         with _JOBS_LOCK:

@@ -50,7 +50,9 @@ Aquí vive el comportamiento del asistente:
 - `state.py` define el estado de conversación.
 - `prompts.py` contiene las instrucciones del agente.
 - `llm_router.py` crea los modelos y configura proveedor principal y fallback.
-- `tools.py` expone funciones de negocio como herramientas para el modelo.
+- `tools/` expone funciones de negocio como herramientas para el modelo.
+- `seleccion_tools.py` limita las herramientas solo para consultas inequívocas de factores.
+- `ejecucion_tools.py` valida el lote completo y ejecuta sus llamadas en orden.
 - `graph.py` conecta modelo, herramientas y memoria mediante LangGraph.
 
 El flujo normal es:
@@ -64,16 +66,77 @@ modelo LLM
    ┌────┴────┐
   no         sí
   ↓          ↓ 
-fin       ToolNode
+fin       Validación y ejecución secuencial
                ↓
           modelo LLM
                ↓
              fin
 ```
 
-Si Groq falla por un error recuperable, `llm_router.py` permite intentar la misma operación con OpenAI. La herramienta se enlaza a ambos modelos para que el fallback pueda continuar el ciclo de tools.
+OpenAI (Luna 6) es el proveedor principal. Ante un error recuperable, `llm_router.py` permite usar Groq únicamente si los mensajes, esquemas de herramientas y reserva de salida caben en `GROQ_TPM_BUDGET` (8000 por defecto). Un HTTP 413 no se reenvía. Cada intento registra proveedor, modelo, duración, resultado y motivo con un ID compartido, sin contenido ni credenciales. Las etiquetas de actividad son locales y no invocan modelos. Las herramientas se enlazan a ambos proveedores.
+
+`OPENAI_USE_RESPONSES_API` elige Responses API o Chat Completions. La integración
+usa el SDK real a través de ChatOpenAI, conserva bloques e identificadores Responses
+en la memoria y entrega cada resultado como `ToolMessage.tool_call_id`; LangChain
+lo convierte a `function_call_output.call_id`. Para Groq o Chat Completions se envía
+una copia normalizada de los mensajes del modelo, sin bloques propios de Responses
+ni resúmenes de razonamiento. El historial original no se modifica.
+
+Las llamadas del lote se validan con Pydantic (tipos estrictos, campos extra prohibidos,
+función conocida e IDs únicos), antes de ejecutar la primera. Las respuestas siguen
+el orden de las llamadas. Si una falla, se cancela o requiere confirmación, las siguientes
+no se ejecutan. El ID de cada llamada también acompaña las respuestas de error.
+Se desactiva `parallel_tool_calls` para OpenAI; la ejecución local ordenada se aplica
+a ambos proveedores. La generación de reportes admite `carpeta_especifica` por fecha
+o ID, rechaza ambigüedad antes de descargar/procesar y conserva la selección durante
+las confirmaciones.
+
+El evento SSE final, el texto provisional al completar el job y el historial usan
+el mismo `ChatResponse`, incluidos los enlaces a reportes. Los bloques de razonamiento
+y argumentos no forman parte del texto de respuesta. En esta fase, los adjuntos son
+los enlaces a reportes del flujo existente; la carga XML/PDF/TXT sigue pasando por
+`/almacen/upload`. No se añadieron adjuntos binarios a `ChatRequest`.
 
 ### `app/services/almacen`
+
+Los movimientos de Drive pasan por `operaciones_drive.py`. El diario en la base SQL
+guarda el intento antes del `update` y lo confirma con un `get` independiente.
+Las escrituras no tienen reintentos automáticos. Si se pierde la conexión, se consulta
+la ubicación por ID; una operación incierta queda pendiente y bloquea nuevos movimientos
+del mismo elemento mientras no pueda verificarse su destino. Los estados son
+`confirmada`, `fallida` y `pendiente_verificar`; la respuesta agregada distingue resultados parciales.
+
+Cada ejecución del chat propaga `drive_request_id` mediante la configuración de
+LangGraph hasta las herramientas. Si falla la redacción o se alcanza el límite de rondas,
+el chat construye la respuesta con el diario y conserva ese texto en el historial.
+Los movimientos puntuales buscan todas las coincidencias dentro de la raíz autorizada;
+ante ambigüedad devuelven rutas e IDs para que el usuario elija con `id:...`.
+No crean destinos ni fusionan carpetas homónimas automáticamente.
+
+`restablecer_carpeta` devuelve una o varias fechas a su estado sin procesar dentro de
+**DOCUMENTOS ENTRADA/AÑO/MES/FECHA**. Resuelve toda la selección y construye un plan
+antes de escribir. Primero mueve y verifica los originales XML/PDF/TXT a la raíz de cada fecha;
+después envía a papelera los reportes reconocidos `ENTRADAS_ALMACEN_*.xlsx` y
+`ENTRADAS_ALMACEN_*_COMAS.txt`/`_TABS.txt`, y finalmente las subcarpetas verificadas vacías.
+El plan y el resultado agregado también se guardan en el diario. La verificación final exige
+el mismo ID y padre de la fecha y exactamente los originales previstos. Solo entonces libera
+sus IDs del estado incremental local, sin borrar factores o configuración. El resultado puede
+ser `confirmada` o `parcial`; nunca convierte un fallo de verificación en éxito.
+
+La restauración global de pruebas delega este mismo flujo a todas las fechas, sin crear la
+bandeja antigua. La nueva ruta de papelera verifica el resultado y no reintenta escrituras
+inciertas. Las operaciones genéricas ajenas a esta restauración conservan sus propios flujos.
+
+La auditoría ya no considera mal ubicada una fecha sin reporte. La reubicación antigua
+hacia ENTRADAS AL INVENTARIO queda inactiva; ordenar conserva la jerarquía actual,
+incluidas sus fechas vacías. Crear una fecha por nombre corto usa DOCUMENTOS ENTRADA/AÑO/MES.
+Se conserva lectura de cargas antiguas y migración explícita de cargas procesadas hacia la
+jerarquía vigente, además de las rutas que el usuario indique expresamente.
+
+El diario crea su tabla `operaciones_drive` si no existe y requiere permiso de creación
+en la base. Debe conservarse PostgreSQL o el volumen SQLite entre reinicios. La exclusión
+de movimientos simultáneos es por proceso; esta versión debe ejecutarse con un solo
+worker de backend para mantener esa garantía. La recuperación nunca reenvía escrituras inciertas.
 
 Contiene la lógica específica de documentos y almacén:
 

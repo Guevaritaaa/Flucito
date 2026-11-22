@@ -17,6 +17,17 @@ import { obtenerTokenGuardado } from "../core/storage";
 
 class ChatJobError extends Error {}
 
+const clavePendiente = (sessionId: string) => `flucito_job:${sessionId}`;
+function limpiarSolicitudPendiente(sessionId: string) {
+  try { sessionStorage.removeItem(clavePendiente(sessionId)); } catch { /* El resultado sigue siendo válido si el almacenamiento está bloqueado. */ }
+}
+export function obtenerSolicitudPendiente(sessionId: string): (ChatRequest & { jobId: string }) | null {
+  try {
+    const valor = sessionStorage.getItem(clavePendiente(sessionId));
+    return valor ? JSON.parse(valor) : null;
+  } catch { return null; }
+}
+
 async function escucharProgreso(jobId: string, signal?: AbortSignal, onProgreso?: (estado: ChatJobStatusResponse) => void): Promise<ChatResponse> {
   const headers = new Headers({ Accept: "text/event-stream" });
   const token = obtenerTokenGuardado();
@@ -102,15 +113,20 @@ export async function consultarEstadoChat(
  * Ejecuta el flujo asíncrono (/chat/async + polling en /chat/status/{job_id})
  * con respaldo automático al endpoint síncrono (/chat) si es necesario.
  */
-export async function enviarMensajeChat(
+async function ejecutarMensajeChat(
   payload: ChatRequest,
   signal?: AbortSignal,
   onProgreso?: (estado: ChatJobStatusResponse) => void
 ): Promise<ChatResponse> {
-  let jobId: string | undefined;
+  const pendiente = obtenerSolicitudPendiente(payload.session_id);
+  let jobId: string | undefined = pendiente?.jobId;
+  if (pendiente && pendiente.mensaje !== payload.mensaje) throw new Error("Hay una solicitud en curso. Espera su resultado antes de enviar otra.");
   try {
-    const inicio = await iniciarChatAsync(payload, signal);
-    jobId = inicio.job_id;
+    if (!jobId) {
+      const inicio = await iniciarChatAsync(payload, signal);
+      jobId = inicio.job_id;
+      try { sessionStorage.setItem(clavePendiente(payload.session_id), JSON.stringify({ ...payload, jobId })); } catch { /* Puede continuar aunque el navegador no permita almacenamiento. */ }
+    }
   } catch (err) {
     if (signal?.aborted || (err instanceof DOMException && err.name === "AbortError")) {
       throw err;
@@ -172,6 +188,19 @@ export async function enviarMensajeChat(
         throw err;
       }
     }
+  }
+}
+
+export async function enviarMensajeChat(payload: ChatRequest, signal?: AbortSignal, onProgreso?: (estado: ChatJobStatusResponse) => void): Promise<ChatResponse> {
+  try {
+    const resultado = await ejecutarMensajeChat(payload, signal, onProgreso);
+    limpiarSolicitudPendiente(payload.session_id);
+    return resultado;
+  } catch (error) {
+    if (error instanceof ChatJobError || (error instanceof ApiError && (error.isUnauthorized || error.isForbidden))) {
+      limpiarSolicitudPendiente(payload.session_id);
+    }
+    throw error;
   }
 }
 

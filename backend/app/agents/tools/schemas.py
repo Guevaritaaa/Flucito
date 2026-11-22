@@ -89,14 +89,16 @@ class GestionarArchivosDriveInput(BaseModel):
         "archivar_carpetas_procesadas",
         "reubicar_mal_ubicadas",
         "mover_elemento",
+        "restablecer_carpeta",
         "crear_carpeta",
         "eliminar_elemento",
     ] = Field(
         description=(
             "Acción a ejecutar: 'organizar_todo' ordena todo el Drive automáticamente; "
             "'archivar_carpetas_procesadas' mueve carpetas ya con Excel a DOCUMENTOS ENTRADA; "
-            "'reubicar_mal_ubicadas' regresa carpetas sin Excel a ENTRADAS AL INVENTARIO; "
+            "'reubicar_mal_ubicadas' conserva las fechas pendientes en DOCUMENTOS ENTRADA; "
             "'mover_elemento' mueve una carpeta/archivo de ruta_origen a ruta_destino; "
+            "'restablecer_carpeta' devuelve una o varias fechas a su estado sin procesar: originales directos y reportes generados a papelera, sin mover la fecha; "
             "'crear_carpeta' crea ruta_destino; "
             "'eliminar_elemento' envía ruta_origen a la papelera."
         )
@@ -105,14 +107,18 @@ class GestionarArchivosDriveInput(BaseModel):
         default=None,
         description=(
             "Nombre o ruta del archivo/carpeta origen para 'mover_elemento' o 'eliminar_elemento' "
-            "(ej. '18-03-2026' o 'ENTRADAS AL INVENTARIO/18-03-2026/factura.xml')."
+            "(ej. '18-03-2026', 'id:ID_ELEGIDO' o 'DOCUMENTOS ENTRADA/2026/MARZO/18-03-2026/factura.xml')."
         ),
+    )
+    rutas_origen: list[str] | None = Field(
+        default=None, min_length=1, max_length=100,
+        description="Lista de fechas, rutas completas o id:ID para restablecer varias carpetas. No se interpreta una lista como autorización para restaurar todo Drive.",
     )
     ruta_destino: str | None = Field(
         default=None,
         description=(
             "Carpeta destino para 'mover_elemento' (ej. 'DOCUMENTOS ENTRADA') "
-            "o ruta de la nueva carpeta para 'crear_carpeta' (ej. 'ENTRADAS AL INVENTARIO/25-03-2026')."
+            "o ruta de la nueva carpeta para 'crear_carpeta' (ej. 'DOCUMENTOS ENTRADA/2026/MARZO/25-03-2026')."
         ),
     )
     confirmar_eliminar_con_contenido: bool | None = Field(
@@ -181,6 +187,10 @@ class ConsultarAlmacenInput(BaseModel):
 
 class GenerarEntradasAlmacenInput(BaseModel):
     """Parámetros de entrada para sincronizar facturas y generar reportes de entradas de almacén."""
+
+    carpeta_especifica: str | None = Field(
+        default=None, description="Limita la generación a una fecha DD-MM-AAAA o id:ID de carpeta en Drive. Omitir solo para procesar todas las pendientes.",
+    )
 
     confirmar_solo_xml: bool | None = Field(
         default=None,

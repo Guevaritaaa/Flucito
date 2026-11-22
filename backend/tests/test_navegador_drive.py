@@ -161,7 +161,7 @@ def test_auditar_facturas_drive_detecta_sin_xml_sin_apoyo_y_mal_ubicadas(monkeyp
     ]
 
     # Carpetas mal ubicadas en DOCUMENTOS ENTRADA
-    assert hallazgos["carpetas_mal_ubicadas"] == ["DOCUMENTOS ENTRADA/21-03-2026"]
+    assert hallazgos["carpetas_mal_ubicadas"] == []
 
     # Carpetas completas (con XML y todos sus apoyos correspondientes)
     assert set(hallazgos["carpetas_completas"]) == {
@@ -228,7 +228,7 @@ def test_mover_crear_y_eliminar_con_confirmacion_de_seguridad(monkeypatch) -> No
     )
     assert res_crear["ok"] is True
     assert res_crear["creada"] is True
-    assert res_crear["ruta_completa"] == "ENTRADAS AL INVENTARIO/25-03-2026"
+    assert res_crear["ruta_completa"] == "DOCUMENTOS ENTRADA/2026/MARZO/25-03-2026"
 
     # 2. Mover carpeta mal ubicada de DOCUMENTOS ENTRADA hacia ENTRADAS AL INVENTARIO
     res_mover = navegador_drive.mover_elemento_por_ruta(

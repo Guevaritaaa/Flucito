@@ -1,0 +1,49 @@
+{
+  "api": "responses",
+  "modelo": "gpt-6-luna",
+  "drive": "solo_lectura",
+  "pruebas": [
+    {
+      "caso": "directa",
+      "estado": "completed",
+      "texto_no_vacio": true,
+      "sse_igual_respuesta": true,
+      "provisional_igual_final": true,
+      "historial_igual_final": true,
+      "herramientas": [],
+      "adjuntos": 0,
+      "adjuntos_accesibles": 0
+    },
+    {
+      "caso": "factores",
+      "estado": "completed",
+      "texto_no_vacio": true,
+      "sse_igual_respuesta": true,
+      "provisional_igual_final": true,
+      "historial_igual_final": true,
+      "herramientas": [
+        "consultar_almacen"
+      ],
+      "adjuntos": 0,
+      "adjuntos_accesibles": 0
+    },
+    {
+      "caso": "varias_herramientas_y_adjuntos",
+      "estado": "completed",
+      "texto_no_vacio": true,
+      "sse_igual_respuesta": true,
+      "provisional_igual_final": true,
+      "historial_igual_final": true,
+      "herramientas": [
+        "consultar_almacen",
+        "consultar_drive"
+      ],
+      "adjuntos": 2,
+      "adjuntos_accesibles": 2
+    }
+  ],
+  "groq": {
+    "estado": "respuesta_recibida",
+    "texto_no_vacio": true
+  }
+}

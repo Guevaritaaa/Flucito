@@ -1,0 +1,7 @@
+[
+  {"id":"directa","solicitud":"Responde únicamente: Flucito listo","herramientas":[],"texto_esperado":["listo"]},
+  {"id":"factores","solicitud":"¿Qué factores de precio tengo?","herramientas":[{"name":"consultar_almacen","args":{"tipo_consulta":"catalogo_factores"}}],"texto_esperado":["FESTO"]},
+  {"id":"reporte_mixto","solicitud":"Consulta la carpeta 17-11-2026 en Drive y después genera su reporte de almacén.","herramientas":[{"name":"consultar_drive","args":{}},{"name":"generar_entradas_almacen","args":{"carpeta_especifica":"17-11-2026"}}],"texto_esperado":["17-11-2026"]},
+  {"id":"restauracion","solicitud":"Restablece la carpeta 17-11-2026 para dejarla sin procesar dentro de Documentos Entrada.","herramientas":[{"name":"gestionar_archivos_drive","args":{"accion":"restablecer_carpeta"}}],"texto_esperado":["17-11-2026"]},
+  {"id":"adjuntos_salida","solicitud":"Busca y adjunta el Excel de reportes de 17-11-2026.","herramientas":[{"name":"consultar_drive","args":{"modo_consulta":"buscar_reportes_excel"}}],"texto_esperado":["17-11-2026"]}
+]

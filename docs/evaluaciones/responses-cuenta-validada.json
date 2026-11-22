@@ -1,0 +1,251 @@
+{
+  "estado": "evaluado",
+  "api": "responses",
+  "modelos": [
+    "gpt-5.6-luna",
+    "gpt-6-luna"
+  ],
+  "casos": [
+    {
+      "id": "directa",
+      "solicitud": "Responde únicamente: Flucito listo",
+      "herramientas": [],
+      "texto_esperado": [
+        "listo"
+      ]
+    },
+    {
+      "id": "factores",
+      "solicitud": "¿Qué factores de precio tengo?",
+      "herramientas": [
+        {
+          "name": "consultar_almacen",
+          "args": {
+            "tipo_consulta": "catalogo_factores"
+          }
+        }
+      ],
+      "texto_esperado": [
+        "FESTO"
+      ]
+    },
+    {
+      "id": "reporte_mixto",
+      "solicitud": "Consulta la carpeta 17-11-2026 en Drive y después genera su reporte de almacén.",
+      "herramientas": [
+        {
+          "name": "consultar_drive",
+          "args": {}
+        },
+        {
+          "name": "generar_entradas_almacen",
+          "args": {
+            "carpeta_especifica": "17-11-2026"
+          }
+        }
+      ],
+      "texto_esperado": [
+        "17-11-2026"
+      ]
+    },
+    {
+      "id": "restauracion",
+      "solicitud": "Restablece la carpeta 17-11-2026 para dejarla sin procesar dentro de Documentos Entrada.",
+      "herramientas": [
+        {
+          "name": "gestionar_archivos_drive",
+          "args": {
+            "accion": "restablecer_carpeta"
+          }
+        }
+      ],
+      "texto_esperado": [
+        "17-11-2026"
+      ]
+    },
+    {
+      "id": "adjuntos_salida",
+      "solicitud": "Busca y adjunta el Excel de reportes de 17-11-2026.",
+      "herramientas": [
+        {
+          "name": "consultar_drive",
+          "args": {
+            "modo_consulta": "buscar_reportes_excel"
+          }
+        }
+      ],
+      "texto_esperado": [
+        "17-11-2026"
+      ]
+    }
+  ],
+  "resultados": {
+    "gpt-5.6-luna": {
+      "casos": [
+        {
+          "caso": "directa",
+          "completada": true,
+          "herramientas_correctas": true,
+          "latencia_ms": 2231.5,
+          "uso": {
+            "input_tokens": 4403,
+            "output_tokens": 8,
+            "cached_tokens": 0
+          },
+          "costo_usd": 0.0008902000000000001,
+          "error": null
+        },
+        {
+          "caso": "factores",
+          "completada": true,
+          "herramientas_correctas": true,
+          "latencia_ms": 2624.83,
+          "uso": {
+            "input_tokens": 6025,
+            "output_tokens": 106,
+            "cached_tokens": 2953
+          },
+          "costo_usd": 0.0008006600000000001,
+          "error": null
+        },
+        {
+          "caso": "reporte_mixto",
+          "completada": true,
+          "herramientas_correctas": true,
+          "latencia_ms": 4907.68,
+          "uso": {
+            "input_tokens": 13734,
+            "output_tokens": 237,
+            "cached_tokens": 13382
+          },
+          "costo_usd": 0.0006224399999999999,
+          "error": null
+        },
+        {
+          "caso": "restauracion",
+          "completada": true,
+          "herramientas_correctas": true,
+          "latencia_ms": 3049.08,
+          "uso": {
+            "input_tokens": 8982,
+            "output_tokens": 138,
+            "cached_tokens": 8804
+          },
+          "costo_usd": 0.00037727999999999997,
+          "error": null
+        },
+        {
+          "caso": "adjuntos_salida",
+          "completada": true,
+          "herramientas_correctas": true,
+          "latencia_ms": 2856.48,
+          "uso": {
+            "input_tokens": 8995,
+            "output_tokens": 110,
+            "cached_tokens": 8798
+          },
+          "costo_usd": 0.00034736,
+          "error": null
+        }
+      ],
+      "resumen": {
+        "tareas": 5,
+        "resueltas": 5,
+        "exactitud_fixture": 1.0,
+        "latencia_mediana_ms": 2856.48,
+        "costo_por_tarea_resuelta_usd": 0.000607588
+      }
+    },
+    "gpt-6-luna": {
+      "casos": [
+        {
+          "caso": "directa",
+          "completada": true,
+          "herramientas_correctas": true,
+          "latencia_ms": 1202.01,
+          "uso": {
+            "input_tokens": 4403,
+            "output_tokens": 8,
+            "cached_tokens": 0
+          },
+          "costo_usd": 0.0004443,
+          "error": null
+        },
+        {
+          "caso": "factores",
+          "completada": true,
+          "herramientas_correctas": true,
+          "latencia_ms": 3282.44,
+          "uso": {
+            "input_tokens": 6025,
+            "output_tokens": 86,
+            "cached_tokens": 2953
+          },
+          "costo_usd": 0.00037973,
+          "error": null
+        },
+        {
+          "caso": "reporte_mixto",
+          "completada": true,
+          "herramientas_correctas": true,
+          "latencia_ms": 4856.82,
+          "uso": {
+            "input_tokens": 13675,
+            "output_tokens": 162,
+            "cached_tokens": 13382
+          },
+          "costo_usd": 0.00024412000000000001,
+          "error": null
+        },
+        {
+          "caso": "restauracion",
+          "completada": true,
+          "herramientas_correctas": true,
+          "latencia_ms": 3323.5,
+          "uso": {
+            "input_tokens": 8982,
+            "output_tokens": 114,
+            "cached_tokens": 8804
+          },
+          "costo_usd": 0.00016284,
+          "error": null
+        },
+        {
+          "caso": "adjuntos_salida",
+          "completada": true,
+          "herramientas_correctas": true,
+          "latencia_ms": 2952.9,
+          "uso": {
+            "input_tokens": 8995,
+            "output_tokens": 98,
+            "cached_tokens": 8798
+          },
+          "costo_usd": 0.00015668,
+          "error": null
+        }
+      ],
+      "resumen": {
+        "tareas": 5,
+        "resueltas": 5,
+        "exactitud_fixture": 1.0,
+        "latencia_mediana_ms": 3282.44,
+        "costo_por_tarea_resuelta_usd": 0.000277534
+      }
+    }
+  },
+  "alcance": "Herramientas y datos aislados. Exactitud automática sobre fixtures; requiere revisión humana y validación de la cuenta/Drive real.",
+  "costos": "Estimaciones a tarifa Standard de contexto corto consultada 2026-11-22; calculadas sobre tokens medidos. No equivalen a factura y no incluyen impuestos, recargos regionales ni escrituras de cache no desglosadas.",
+  "fuente_precios": "https://developers.openai.com/api/docs/pricing.md",
+  "tarifas_usd_por_millon": {
+    "gpt-5.6-luna": {
+      "input_per_million": 0.2,
+      "cached_input_per_million": 0.02,
+      "output_per_million": 1.2
+    },
+    "gpt-6-luna": {
+      "input_per_million": 0.1,
+      "cached_input_per_million": 0.01,
+      "output_per_million": 0.5
+    }
+  }
+}

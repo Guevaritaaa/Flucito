@@ -31,9 +31,15 @@ Abre `backend/.env` y reemplaza los valores de ejemplo. Para iniciar la API, tam
 GROQ_API_KEY=...
 GROQ_MODEL=openai/gpt-oss-120b
 OPENAI_API_KEY=...
-OPENAI_MODEL=gpt-5.6-luna
-LLM_PRIMARY_PROVIDER=groq
+OPENAI_MODEL=gpt-6-luna
+OPENAI_USE_RESPONSES_API=true
+OPENAI_REASONING_EFFORT=low
+OPENAI_REASONING_SUMMARY=true
+LLM_REDUCE_TOOLS_ENABLED=true
+LLM_PRIMARY_PROVIDER=openai
 LLM_FALLBACK_ENABLED=true
+GROQ_TPM_BUDGET=8000
+GROQ_MAX_OUTPUT_TOKENS=1024
 ```
 
 ### `GROQ_API_KEY`
@@ -46,21 +52,55 @@ Identificador exacto del modelo disponible en Groq. No es un nombre inventado ni
 
 ### `OPENAI_API_KEY`
 
-Clave privada de la API de OpenAI. Flucito la utiliza como proveedor alternativo cuando Groq falla y `LLM_FALLBACK_ENABLED=true`.
+Clave privada de la API de OpenAI. Flucito la utiliza para el proveedor principal OpenAI (Luna 6).
 
 ### `OPENAI_MODEL`
 
-Identificador exacto del modelo de OpenAI que se usará como respaldo. Debe coincidir con un modelo al que la cuenta tenga acceso.
+Identificador exacto del modelo principal de OpenAI. Desde la fase 4 se usa `gpt-6-luna`, conforme a la elección del usuario. Debe coincidir con un modelo al que la cuenta tenga acceso.
+
+### `OPENAI_USE_RESPONSES_API`
+
+`true` usa Responses API con LangChain (`output_version=responses/v1`). `false`
+mantiene Chat Completions y revierte el transporte sin cambiar FastAPI, LangGraph,
+las herramientas ni el modelo. El valor predeterminado es `true` tras validar
+la cuenta real. Configúralo en `.env` o en el entorno de Docker Compose/Render
+y reinicia el backend. Se envía el contexto de LangGraph, con `store=false` y sin
+`previous_response_id`, para no depender de una conversación almacenada en OpenAI.
+
+`OPENAI_REASONING_EFFORT=low` controla el esfuerzo en Responses; admite none, low,
+medium, high, xhigh y max. `OPENAI_REASONING_SUMMARY=true` solicita `summary=auto`.
+Solo se muestra el resumen que entregue el proveedor, bajo «Resumen del modelo»;
+puede no emitirlo. Con Chat Completions se fuerza `reasoning_effort=none` para
+conservar compatibilidad con las funciones de Luna 6. La [ficha oficial del modelo](https://developers.openai.com/api/docs/models/gpt-6-luna.md)
+documenta esta restricción. Para continuar el razonamiento sin almacenamiento remoto,
+Responses solicita el bloque cifrado y lo conserva solo en el contexto interno;
+no se muestra como resumen ni se incorpora al historial visible.
+
+`TRADUCIR_RESUMEN_GROQ=true` envía exclusivamente el resumen público terminado a
+Groq para traducirlo al español; no envía el historial ni el razonamiento cifrado.
+Una traducción consume tokens y puede tardar; se limita a 4000 caracteres y al
+presupuesto de Groq. Si falla o excede el límite, se conserva el texto original.
+El panel identifica la traducción automática o el texto original. Con `false` se
+desactiva la traducción. Un resumen puede contener errores y no sustituye los
+eventos de operaciones verificadas.
+
+`LLM_REDUCE_TOOLS_ENABLED=true` limita solo las preguntas inequívocas de factores
+a `consultar_almacen`. Las solicitudes mixtas, ambiguas y multimodales conservan
+las seis herramientas. Puede revertirse con `false`.
+
+La [referencia oficial de ChatOpenAI](https://reference.langchain.com/python/langchain-openai/chat_models/base/ChatOpenAI)
+documenta este transporte. La [guía de funciones de OpenAI](https://developers.openai.com/api/docs/guides/function-calling)
+describe la asociación de `function_call_output` mediante `call_id`.
 
 ### `LLM_PRIMARY_PROVIDER`
 
 Indica cuál proveedor se intenta primero. Los valores válidos son:
 
 ```env
-LLM_PRIMARY_PROVIDER=groq
+LLM_PRIMARY_PROVIDER=openai
 ```
 
-También puede ser `openai`.
+También puede ser `groq` para revertir el orden de proveedores.
 
 ### `LLM_FALLBACK_ENABLED`
 
@@ -72,6 +112,27 @@ LLM_FALLBACK_ENABLED=true
 
 Con `true`, Flucito intenta el segundo proveedor ante errores recuperables, como modelo no disponible, límite de peticiones o error temporal. El fallback no soluciona una clave inválida si ambas claves están mal.
 
+### Presupuesto de Groq y registros
+
+`GROQ_TPM_BUDGET=8000` limita la carga estimada por envío a Groq.
+`GROQ_MAX_OUTPUT_TOKENS=1024` reserva y limita la salida de ese proveedor.
+La estimación usa el JSON completo (mensajes y herramientas) a 3 bytes por token,
+más envoltura por mensaje. Es aproximada; no representa la cuota restante de la
+cuenta en una ventana de un minuto ni coordina otros procesos. Un 429 todavía puede ocurrir.
+Si la carga supera el presupuesto o no se puede estimar, se omite Groq y se conserva
+el error original. Un 413 no se reenvía a ningún proveedor.
+
+Los logs `llm_call` son JSON con `request_id` compartido entre intentos de una
+invocación, `provider`, `model`, `duration_ms`, `result`, `fallback_reason`,
+`estimated_tokens` (incluye reserva de salida) y `status_code`.
+No incluyen mensajes, argumentos, resultados de herramientas ni claves.
+Los SDK no realizan reintentos internos: los intentos del router son explícitos.
+
+En Docker Compose, el despliegue declara `openai`, `gpt-5.6-luna` y el presupuesto
+como valores por defecto. Para revertirlos, configura las variables correspondientes
+en el entorno de Compose. En Render, configura esos mismos valores en **Environment**;
+una variable existente con `groq` prevalece sobre el valor predeterminado de Python.
+
 ## Variables de Google Drive
 
 ```env
@@ -82,7 +143,7 @@ GOOGLE_OAUTH_TOKEN_JSON=...
 
 ### `GOOGLE_DRIVE_FOLDER_ID`
 
-Es el ID de la carpeta `docs` de Google Drive. Dentro de ella, Flucito recibe cargas en `ENTRADAS AL INVENTARIO` y archiva documentos procesados y reportes en `DOCUMENTOS ENTRADA`.
+Es el ID de la carpeta `docs` de Google Drive. Las cargas, los originales y los reportes se guardan en `DOCUMENTOS ENTRADA/AÑO/MES/DD-MM-AAAA`. `ENTRADAS AL INVENTARIO` solo se admite para leer cargas antiguas.
 
 Para obtenerlo:
 
@@ -103,7 +164,7 @@ El valor sería:
 GOOGLE_DRIVE_FOLDER_ID=1AbC_defGHIjKlmNop
 ```
 
-No copies la URL completa, solo el identificador. La cuenta autenticada debe tener permiso para ver, crear y subir archivos dentro de esa carpeta. La carga desde la interfaz crea `ENTRADAS AL INVENTARIO` si hace falta; la sincronización crea `DOCUMENTOS ENTRADA` cuando procesa la primera carga.
+No copies la URL completa, solo el identificador. La cuenta autenticada debe tener permiso para ver, crear y subir archivos dentro de esa carpeta. La carga desde la interfaz crea la jerarquía `DOCUMENTOS ENTRADA/AÑO/MES/FECHA` si hace falta.
 
 ### `GOOGLE_OAUTH_CLIENT_JSON`
 

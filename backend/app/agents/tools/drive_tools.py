@@ -158,12 +158,14 @@ def gestionar_archivos_drive(
         "archivar_carpetas_procesadas",
         "reubicar_mal_ubicadas",
         "mover_elemento",
+        "restablecer_carpeta",
         "crear_carpeta",
         "eliminar_elemento",
     ],
     ruta_origen: str | None = None,
     ruta_destino: str | None = None,
     confirmar_eliminar_con_contenido: bool = False,
+    rutas_origen: list[str] | None = None,
 ) -> str:
     """Ejecuta acciones de organización masiva o gestión puntual (crear, mover o eliminar carpetas y archivos) en Google Drive."""
     try:
@@ -189,6 +191,11 @@ def gestionar_archivos_drive(
                 ),
             }
             return json.dumps(respuesta, ensure_ascii=False)
+
+        if accion == "restablecer_carpeta":
+            from app.services.almacen.fuentes.limpieza import restaurar_carpetas
+            resultado = restaurar_carpetas(rutas_origen or ([ruta_origen] if ruta_origen else []))
+            return json.dumps(resultado, ensure_ascii=False)
 
         if accion == "mover_elemento":
             resultado = mover_elemento_por_ruta(
@@ -224,7 +231,7 @@ def gestionar_archivos_drive(
 
 @tool
 def preparar_entorno_pruebas() -> str:
-    """Restaura el entorno de pruebas en Google Drive borrando reportes generados y regresando archivos a ENTRADAS AL INVENTARIO."""
+    """Restablece TODAS las fechas en DOCUMENTOS ENTRADA: originales en su fecha y reportes generados a papelera. Solo por petición explícita de restaurar todo."""
     try:
         from app.services.almacen.fuentes.limpieza import restaurar_entorno_pruebas
 

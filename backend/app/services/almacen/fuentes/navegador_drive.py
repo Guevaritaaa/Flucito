@@ -24,6 +24,7 @@ from app.services.almacen.fuentes.google_drive_client import (
     listar_carpetas_fecha_en_historico,
     mover_archivo,
     normalizar_fecha_reporte,
+    extraer_anio_mes_de_fecha_carpeta,
 )
 from app.services.almacen.fuentes.organizador import (
     es_archivo_generado,
@@ -829,20 +830,8 @@ def _auditar_carpeta_individual(
     tiene_reporte_excel = len(reportes_excel) > 0
     esta_vacia = len(todos_los_archivos) == 0 and len(subcarpetas) == 0
 
-    # Detectar si está mal ubicada en DOCUMENTOS ENTRADA (documentos directos sin reporte Excel)
-    xml_o_txt_directos = any(
-        Path(a.get("name", "")).suffix.lower() in {".xml", ".txt"}
-        and not es_archivo_generado(a.get("name", ""))
-        for a in archivos_directos
-    )
-    reporte_directo = any(es_reporte_excel(a.get("name", "")) for a in archivos_directos)
-    mal_ubicada = (
-        nombre_contenedor == CARPETA_REPORTES_HISTORICOS
-        and not es_carpeta_archivos_sueltos(nombre_carpeta)
-        and xml_o_txt_directos
-        and not reporte_directo
-        and not tiene_reporte_excel
-    )
+    # Una fecha sin reporte en DOCUMENTOS ENTRADA es una carga pendiente valida.
+    mal_ubicada = False
 
     problemas_detectados: list[str] = []
     if esta_vacia:
@@ -1060,11 +1049,50 @@ def _asegurar_ruta_carpeta_destino(
         }
 
 
+class RutaAmbigua(ValueError):
+    def __init__(self, candidatos):
+        super().__init__("La ruta tiene varias coincidencias")
+        self.candidatos = candidatos
+
+
+def resolver_para_movimiento(cliente, ruta, raiz_id):
+    """Busca todas las coincidencias dentro de la raíz autorizada, incluso por ID."""
+    consulta = ruta.strip().strip("/")
+    if consulta.casefold() in ALIAS_RAIZ or not consulta:
+        return {"id": raiz_id, "nombre": "RAIZ", "ruta_completa": "RAIZ", "es_carpeta": True, "padre_id": None}
+    partes = consulta.split("/")
+    partes[0] = _normalizar_segmento_contenedor(partes[0])
+    consulta = "/".join(_intentar_normalizar_fecha(p) for p in partes).casefold()
+    pendientes = [(raiz_id, "")]
+    vistos = set()
+    candidatos = []
+    while pendientes:
+        padre, prefijo = pendientes.pop()
+        if padre in vistos:
+            continue
+        vistos.add(padre)
+        for item in _listar_hijos(cliente, padre):
+            camino = f"{prefijo}/{item['name']}".strip("/")
+            if (ruta.startswith("id:") and item["id"] == ruta[3:]) or (
+                not ruta.startswith("id:") and (camino.casefold() == consulta or camino.casefold().endswith("/" + consulta))
+            ):
+                candidatos.append({"id": item["id"], "nombre": item["name"], "padre_id": padre,
+                                   "ruta_completa": camino, "es_carpeta": item.get("mimeType") == MIME_CARPETA})
+            if item.get("mimeType") == MIME_CARPETA:
+                pendientes.append((item["id"], camino))
+    if len(candidatos) > 1:
+        raise RutaAmbigua(candidatos)
+    if not candidatos:
+        raise ValueError(f"No se encontró '{ruta}' dentro del Drive autorizado")
+    return candidatos[0]
+
+
 def mover_elemento_por_ruta(
     ruta_origen: str,
     ruta_destino: str,
     cliente: Any | None = None,
     carpeta_raiz_id: str | None = None,
+    solo_carpeta: bool = False,
 ) -> dict[str, Any]:
     """
     Mueve una carpeta o archivo específico desde `ruta_origen` hacia la carpeta `ruta_destino`.
@@ -1082,79 +1110,35 @@ def mover_elemento_por_ruta(
     if not ruta_destino or not ruta_destino.strip():
         raise ValueError("Debes indicar 'ruta_destino' (la carpeta hacia donde se moverá).")
 
-    destino = _asegurar_ruta_carpeta_destino(cliente, ruta_destino, carpeta_raiz_id=raiz_id)
-    origen = resolver_ruta_drive(
-        cliente,
-        ruta_origen,
-        carpeta_raiz_id=raiz_id,
-        excluir_padre_id=destino["id"],
-    )
-
-    if origen["id"] == destino["id"]:
-        return {
-            "ok": True,
-            "tipo": "mover_elemento",
-            "movido": False,
-            "origen": origen["ruta_completa"],
-            "destino": destino["ruta_completa"],
-            "mensaje": f"El elemento '{origen['nombre']}' ya es la misma carpeta destino.",
-        }
-
-    if origen["padre_id"] == destino["id"]:
-        return {
-            "ok": True,
-            "tipo": "mover_elemento",
-            "movido": False,
-            "origen": origen["ruta_completa"],
-            "destino": destino["ruta_completa"],
-            "mensaje": f"'{origen['nombre']}' ya se encuentra dentro de '{destino['ruta_completa']}'.",
-        }
-
-    # Si es carpeta y ya existe una carpeta con el mismo nombre en destino, fusionar contenidos
-    if origen["es_carpeta"]:
-        carpeta_homonima_id = buscar_carpeta_hija(cliente, origen["nombre"], destino["id"])
-        if carpeta_homonima_id and carpeta_homonima_id != origen["id"]:
-            hijos_origen = _listar_hijos(cliente, origen["id"])
-            for hijo in hijos_origen:
-                mover_archivo(
-                    cliente,
-                    hijo["id"],
-                    carpeta_homonima_id,
-                    carpeta_origen_id=origen["id"],
-                )
-            eliminar_archivo(cliente, origen["id"])
-            nueva_ruta = f"{destino['ruta_completa']}/{origen['nombre']}"
-            return {
-                "ok": True,
-                "tipo": "mover_elemento",
-                "movido": True,
-                "fusionado_en_existente": True,
-                "elemento": origen["nombre"],
-                "origen_anterior": origen["ruta_completa"],
-                "nueva_ruta": nueva_ruta,
-                "mensaje": (
-                    f"Se movió y fusionó el contenido de '{origen['ruta_completa']}' "
-                    f"hacia '{nueva_ruta}'."
-                ),
-            }
-
-    mover_archivo(
-        cliente,
-        origen["id"],
-        destino["id"],
-        carpeta_origen_id=origen["padre_id"],
-    )
-    nueva_ruta = f"{destino['ruta_completa']}/{origen['nombre']}"
-    return {
-        "ok": True,
-        "tipo": "mover_elemento",
-        "movido": True,
-        "fusionado_en_existente": False,
-        "elemento": origen["nombre"],
-        "origen_anterior": origen["ruta_completa"],
-        "nueva_ruta": nueva_ruta,
-        "mensaje": f"Se movió '{origen['ruta_completa']}' hacia '{destino['ruta_completa']}'.",
-    }
+    try:
+        origen = resolver_para_movimiento(cliente, ruta_origen, raiz_id)
+        destino = resolver_para_movimiento(cliente, ruta_destino, raiz_id)
+    except RutaAmbigua as error:
+        return {"ok": False, "requiere_confirmacion": True, "candidatos": error.candidatos,
+                "mensaje": "Hay varias coincidencias. Elige la carpeta por su ID antes de mover nada."}
+    if not destino["es_carpeta"]:
+        raise ValueError("El destino debe ser una carpeta existente")
+    if solo_carpeta and not origen["es_carpeta"]:
+        raise ValueError("Restablecer requiere una carpeta, no un archivo")
+    if origen["id"] == raiz_id or origen["id"] == destino["id"]:
+        raise ValueError("No se puede mover la raiz ni una carpeta dentro de si misma")
+    # Nunca fusionar ni eliminar automaticamente carpetas homonimas.
+    homonimas = [h for h in _listar_hijos(cliente, destino["id"])
+                 if h.get("name") == origen["nombre"] and h["id"] != origen["id"]]
+    if homonimas:
+        return {"ok": False, "requiere_confirmacion": True,
+                "mensaje": "Ya existe una carpeta con ese nombre en el destino. Elige otro destino; no se fusiono ni movio nada."}
+    if destino["ruta_completa"].startswith(origen["ruta_completa"] + "/"):
+        raise ValueError("No se puede mover una carpeta dentro de sus descendientes")
+    verificacion = mover_archivo(cliente, origen["id"], destino["id"], carpeta_origen_id=origen["padre_id"])
+    if isinstance(verificacion, dict):
+        from app.services.almacen.fuentes.operaciones_drive import guardar
+        verificacion["destino_nombre"] = destino["ruta_completa"]
+        guardar(verificacion)
+    return {"ok": True, "tipo": "mover_elemento", "movido": origen["padre_id"] != destino["id"],
+            "elemento": origen["nombre"], "origen_anterior": origen["ruta_completa"],
+            "nueva_ruta": f"{destino['ruta_completa']}/{origen['nombre']}",
+            "verificacion": verificacion, "estado": "confirmada"}
 
 
 def crear_carpeta_por_ruta(
@@ -1166,7 +1150,7 @@ def crear_carpeta_por_ruta(
     Crea una nueva carpeta en la ruta indicada dentro de Google Drive.
 
     Si solo se proporciona el nombre de la carpeta (ej. '25-03-2026') sin contenedor padre,
-    se crea por defecto dentro de 'ENTRADAS AL INVENTARIO'.
+    se crea por defecto dentro de DOCUMENTOS ENTRADA/ANIO/MES.
     """
     cliente = cliente or crear_cliente_drive()
     raiz_id = carpeta_raiz_id or settings.google_drive_folder_id
@@ -1190,13 +1174,16 @@ def crear_carpeta_por_ruta(
     segmentos[0] = _normalizar_segmento_contenedor(segmentos[0])
 
     # Si solo dieron un nombre simple (ej. '25-03-2026') y no pidieron raíz explícitamente,
-    # ubicarlo bajo ENTRADAS AL INVENTARIO por convención del negocio.
+    # ubicarlo en la jerarquia vigente de DOCUMENTOS ENTRADA.
     if (
         len(segmentos) == 1
         and not crear_en_raiz
         and segmentos[0] not in {CARPETA_ENTRADAS_AL_INVENTARIO, CARPETA_REPORTES_HISTORICOS}
     ):
-        segmentos = [CARPETA_ENTRADAS_AL_INVENTARIO, segmentos[0]]
+        fecha = extraer_anio_mes_de_fecha_carpeta(segmentos[0])
+        if not fecha:
+            raise ValueError("Indica una ruta completa para crear una carpeta que no sea de fecha")
+        segmentos = [CARPETA_REPORTES_HISTORICOS, *fecha, segmentos[0]]
 
     padre_actual_id = raiz_id
     partes_creadas: list[str] = []

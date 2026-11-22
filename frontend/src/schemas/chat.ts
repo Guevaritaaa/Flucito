@@ -12,10 +12,12 @@ export interface ReporteHistoricoItem {
 
 export interface ActividadChat {
   texto: string;
-  estado: "en_curso" | "completado" | "error" | "reintentando" | "recuperado";
+  estado: "en_curso" | "completado" | "error" | "reintentando" | "recuperado" | "parcial" | "pendiente_verificar";
   id?: string | null;
-  tipo?: "modelo" | "funcion" | null;
+  tipo?: "modelo" | "funcion" | "accion" | null;
   funcion?: string | null;
+  resumen?: string | null;
+  resumen_idioma?: "groq" | "original" | null;
 }
 
 export interface ChatRequest {

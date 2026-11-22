@@ -1,0 +1,85 @@
+{
+  "estado": "protocolo",
+  "api": "responses",
+  "modelos": [
+    "gpt-5.6-luna",
+    "gpt-6-luna"
+  ],
+  "casos": [
+    {
+      "id": "directa",
+      "solicitud": "Responde únicamente: Flucito listo",
+      "herramientas": [],
+      "texto_esperado": [
+        "listo"
+      ]
+    },
+    {
+      "id": "factores",
+      "solicitud": "¿Qué factores de precio tengo?",
+      "herramientas": [
+        {
+          "name": "consultar_almacen",
+          "args": {
+            "tipo_consulta": "catalogo_factores"
+          }
+        }
+      ],
+      "texto_esperado": [
+        "FESTO"
+      ]
+    },
+    {
+      "id": "reporte_mixto",
+      "solicitud": "Consulta la carpeta 17-11-2026 en Drive y después genera su reporte de almacén.",
+      "herramientas": [
+        {
+          "name": "consultar_drive",
+          "args": {}
+        },
+        {
+          "name": "generar_entradas_almacen",
+          "args": {
+            "carpeta_especifica": "17-11-2026"
+          }
+        }
+      ],
+      "texto_esperado": [
+        "17-11-2026"
+      ]
+    },
+    {
+      "id": "restauracion",
+      "solicitud": "Restablece la carpeta 17-11-2026 para dejarla sin procesar dentro de Documentos Entrada.",
+      "herramientas": [
+        {
+          "name": "gestionar_archivos_drive",
+          "args": {
+            "accion": "restablecer_carpeta"
+          }
+        }
+      ],
+      "texto_esperado": [
+        "17-11-2026"
+      ]
+    },
+    {
+      "id": "adjuntos_salida",
+      "solicitud": "Busca y adjunta el Excel de reportes de 17-11-2026.",
+      "herramientas": [
+        {
+          "name": "consultar_drive",
+          "args": {
+            "modo_consulta": "buscar_reportes_excel"
+          }
+        }
+      ],
+      "texto_esperado": [
+        "17-11-2026"
+      ]
+    }
+  ],
+  "resultados": {},
+  "alcance": "Herramientas y datos aislados. Exactitud automática sobre fixtures; requiere revisión humana y validación de la cuenta/Drive real.",
+  "costos": "null si faltan tarifas explícitas o uso verificable; no se inventan precios ni mediciones."
+}

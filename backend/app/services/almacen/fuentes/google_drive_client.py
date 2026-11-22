@@ -523,19 +523,12 @@ def mover_archivo(
     archivo_id: str,
     nueva_carpeta_id: str,
     carpeta_origen_id: str | None = None,
-) -> None:
-    """Mueve un archivo en Google Drive a una nueva carpeta evitando GET redundante si se conoce el padre."""
-    padres_previos = carpeta_origen_id or _PADRES_CACHE.get(archivo_id)
-    if not padres_previos:
-        archivo = cliente.files().get(fileId=archivo_id, fields="parents").execute(num_retries=3)
-        padres_previos = ",".join(archivo.get("parents", []))
-    cliente.files().update(
-        fileId=archivo_id,
-        addParents=nueva_carpeta_id,
-        removeParents=padres_previos,
-        fields="id, parents",
-    ).execute(num_retries=3)
+) -> dict:
+    """Mueve por ID y confirma el destino con una lectura independiente."""
+    from app.services.almacen.fuentes.operaciones_drive import mover_verificado
+    resultado = mover_verificado(cliente, archivo_id, nueva_carpeta_id, carpeta_origen_id)
     _PADRES_CACHE[archivo_id] = nueva_carpeta_id
+    return resultado
 
 
 def eliminar_archivo(cliente: Any, archivo_id: str) -> None:

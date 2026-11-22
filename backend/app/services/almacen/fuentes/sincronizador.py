@@ -491,6 +491,21 @@ def _eliminar_reportes_previos_drive(cliente: Any, carpeta_id: str, prefijo: str
                 pass
 
 
+def filtrar_carpeta_solicitada(carpetas, referencia):
+    """Una selección puntual nunca se amplía a otras fechas ni elige homónimos."""
+    if referencia is None:
+        return carpetas
+    referencia = referencia.strip()
+    if referencia.startswith("id:"):
+        seleccion = [c for c in carpetas if c.id == referencia[3:]]
+    else:
+        fecha = normalizar_fecha_reporte(referencia)
+        seleccion = [c for c in carpetas if c.nombre == fecha]
+    if len(seleccion) != 1:
+        raise ValueError("La fecha solicitada no existe o tiene varias coincidencias. Elige una carpeta por id:ID; no se procesó ninguna.")
+    return seleccion
+
+
 def sincronizar_drive(
     cliente: Any | None = None,
     forzar: bool = False,
@@ -500,6 +515,7 @@ def sincronizar_drive(
     factores_elegidos: dict[str, str | None] | None = None,
     guardar_factores: bool | None = None,
     decisiones_rollos: dict[str, dict[str, object]] | None = None,
+    carpeta_especifica: str | None = None,
 ) -> dict:
     """Descarga carpetas Drive temporalmente y actualiza reportes por fecha y reporte base local."""
     logger.info("Iniciando sincronización con Google Drive...")
@@ -533,6 +549,7 @@ def sincronizar_drive(
     carpetas = list(carpetas_bandeja) + [
         c for c in carpetas_doc_entrada if c.id not in ids_vistos
     ]
+    carpetas = filtrar_carpeta_solicitada(carpetas, carpeta_especifica)
 
     if not carpetas:
         logger.info("Drive: 0 carpetas encontradas.")

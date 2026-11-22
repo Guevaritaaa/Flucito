@@ -1,14 +1,23 @@
 from functools import lru_cache
+from typing import Literal
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    groq_api_key: str
+    groq_api_key: str | None = None
     groq_model: str = "openai/gpt-oss-120b"
     openai_api_key: str | None = None
-    openai_model: str = "gpt-5.6-luna"
-    llm_primary_provider: str = "groq"
+    openai_model: str = "gpt-6-luna"
+    openai_use_responses_api: bool = True
+    openai_reasoning_effort: Literal["none", "low", "medium", "high", "xhigh", "max"] = "low"
+    openai_reasoning_summary: bool = True
+    traducir_resumen_groq: bool = True
+    llm_reduce_tools_enabled: bool = True
+    llm_primary_provider: Literal["openai", "groq"] = "openai"
     llm_fallback_enabled: bool = True
+    groq_tpm_budget: int = Field(default=8000, gt=0)
+    groq_max_output_tokens: int = Field(default=1024, gt=0)
     google_drive_folder_id: str | None = None
     google_oauth_client_json: str | None = None
     google_oauth_client_file: str | None = None

@@ -1,15 +1,19 @@
 import logging
 import re
+import json
 
-from langchain_core.messages import SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.prebuilt import ToolNode
 
 from app.agents.prompts import SYSTEM_PROMPT
 from app.agents.state import AsistenteState
 from app.agents.tools import HERRAMIENTAS
-from app.agents.llm_router import crear_llms
+from app.agents.llm_router import crear_llms, es_error_reintentable, invocar_con_fallback
+from app.agents.ejecucion_tools import ejecutar_herramientas
+from app.agents.seleccion_tools import enlazar_herramientas, seleccionar_herramientas
+from app.core.config import settings
 
 
 logger = logging.getLogger(__name__)
@@ -17,57 +21,8 @@ logger = logging.getLogger(__name__)
 MAX_ITERACIONES_TOOLS = 4
 
 llm_primario, llm_respaldo = crear_llms()
-llm_primario_con_herramientas = llm_primario.bind_tools(HERRAMIENTAS)
-llm_respaldo_con_herramientas = (
-    llm_respaldo.bind_tools(HERRAMIENTAS) if llm_respaldo else None
-)
-
-
-def es_error_reintentable(error: Exception) -> bool:
-    """Identifica fallas temporales o de disponibilidad del proveedor."""
-    if isinstance(error, ValueError):
-        return False
-
-    status_code = getattr(error, "status_code", None)
-    response = getattr(error, "response", None)
-    status_code = status_code or getattr(response, "status_code", None)
-
-    if status_code in {400, 404, 408, 413, 429, 500, 502, 503, 504}:
-        return True
-
-    mensaje = str(error).lower()
-    return any(
-        texto in mensaje
-        for texto in (
-            "timeout",
-            "timed out",
-            "model_not_found",
-            "temporarily",
-            "tool_use_failed",
-            "failed_generation",
-            "tool call",
-            "rate_limit",
-            "rate limit",
-            "connection",
-            "bad request",
-        )
-    )
-
-
-def invocar_con_fallback(mensajes: list, primario, respaldo):
-    """Invoca el primario y cambia al respaldo solo ante errores recuperables."""
-    try:
-        return primario.invoke(mensajes)
-    except Exception as error:
-        if not es_error_reintentable(error):
-            raise
-
-        if respaldo is not None:
-            logger.warning("Proveedor primario no disponible; usando fallback: %s", error)
-            return respaldo.invoke(mensajes)
-
-        logger.warning("Error transitorio en proveedor primario sin respaldo; reintentando: %s", error)
-        return primario.invoke(mensajes)
+llm_primario_con_herramientas = enlazar_herramientas(llm_primario, HERRAMIENTAS)
+llm_respaldo_con_herramientas = enlazar_herramientas(llm_respaldo, HERRAMIENTAS)
 
 
 def contar_rondas_herramientas_turno_actual(mensajes: list) -> int:
@@ -132,12 +87,17 @@ def compactar_historial_para_llm(mensajes: list) -> list:
     return compactados
 
 
-def nodo_flucito(state: AsistenteState) -> AsistenteState:
+def nodo_flucito(state: AsistenteState, config: RunnableConfig = None) -> AsistenteState:
     """Nodo principal de Flucito con límite de rondas de herramientas por turno."""
     rondas_actuales = contar_rondas_herramientas_turno_actual(state["messages"])
     historial_compacto = compactar_historial_para_llm(state["messages"])
 
     if rondas_actuales >= MAX_ITERACIONES_TOOLS:
+        from app.services.almacen.fuentes.operaciones_drive import recuperar
+        solicitud = (config or {}).get("configurable", {}).get("drive_request_id")
+        guardado = recuperar(solicitud) if solicitud else ""
+        if guardado:
+            return {"messages": [AIMessage(content=guardado)]}
         logger.warning(
             "Se alcanzó el límite de %d rondas de herramientas en este turno; sintetizando respuesta final.",
             MAX_ITERACIONES_TOOLS,
@@ -156,11 +116,16 @@ def nodo_flucito(state: AsistenteState) -> AsistenteState:
         return {"messages": [respuesta]}
 
     mensajes = [SystemMessage(content=SYSTEM_PROMPT)] + historial_compacto
+    seleccion = seleccionar_herramientas(state["messages"], HERRAMIENTAS) if settings.llm_reduce_tools_enabled else HERRAMIENTAS
+    primario = llm_primario_con_herramientas if seleccion is HERRAMIENTAS else enlazar_herramientas(llm_primario, seleccion)
+    respaldo = llm_respaldo_con_herramientas if seleccion is HERRAMIENTAS else enlazar_herramientas(llm_respaldo, seleccion)
     respuesta = invocar_con_fallback(
         mensajes,
-        llm_primario_con_herramientas,
-        llm_respaldo_con_herramientas,
+        primario,
+        respaldo,
     )
+    if getattr(respuesta, "invalid_tool_calls", None):
+        raise ValueError("El modelo devolvió argumentos de herramienta inválidos; no se ejecutaron")
     # Una pregunta general de carpetas no debe limitarse a la raíz por una
     # elección accidental del modelo. Las ubicaciones explícitas se respetan.
     humanos = [m.content for m in state["messages"] if getattr(m, "type", None) == "human" and isinstance(m.content, str)]
@@ -177,7 +142,15 @@ def nodo_flucito(state: AsistenteState) -> AsistenteState:
                 args["ubicacion"] = "todas"
                 llamada["args"] = args
             llamadas.append(llamada)
-        respuesta = respuesta.model_copy(update={"tool_calls": llamadas})
+        contenido = respuesta.content
+        if isinstance(contenido, list):
+            por_id = {c["id"]: c for c in llamadas}
+            contenido = [
+                {**b, "arguments": json.dumps(por_id[b["call_id"]]["args"], ensure_ascii=False)}
+                if isinstance(b, dict) and b.get("type") == "function_call" and b.get("call_id") in por_id else b
+                for b in contenido
+            ]
+        respuesta = respuesta.model_copy(update={"tool_calls": llamadas, "content": contenido})
     return {"messages": [respuesta]}
 
 
@@ -192,7 +165,9 @@ def siguiente_nodo(state: AsistenteState) -> str:
     return END
 
 
-herramientas = ToolNode(HERRAMIENTAS)
+def herramientas(state: AsistenteState, config: RunnableConfig) -> AsistenteState:
+    seleccion = seleccionar_herramientas(state["messages"][:-1], HERRAMIENTAS) if settings.llm_reduce_tools_enabled else HERRAMIENTAS
+    return ejecutar_herramientas(state, seleccion, config)
 graph_builder = StateGraph(AsistenteState)
 graph_builder.add_node("flucito", nodo_flucito)
 graph_builder.add_node("herramientas", herramientas)

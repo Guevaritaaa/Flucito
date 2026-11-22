@@ -45,13 +45,13 @@ Si no existe una configuración completa de Drive, utiliza `ALMACEN_CARPETA_DATO
 ### Flujo con Google Drive
 
 1. Se conecta a Google Drive con OAuth o cuenta de servicio.
-2. Lista las carpetas de carga por fecha dentro de `ENTRADAS AL INVENTARIO`.
+2. Lista las fechas de `DOCUMENTOS ENTRADA/AÑO/MES`. Puede leer cargas antiguas de `ENTRADAS AL INVENTARIO` por compatibilidad.
 3. Busca documentos XML, PDF y TXT.
 4. Consulta el estado de sincronización.
 5. Descarga únicamente carpetas nuevas o pendientes.
 6. Procesa los documentos descargados.
 7. Actualiza el Excel y el resumen.
-8. Archiva facturas y Excel individuales en `DOCUMENTOS ENTRADA/{fecha}/{proveedor} - {fecha}` y el Excel de la carga en `DOCUMENTOS ENTRADA/{fecha}`.
+8. Conserva la fecha en `DOCUMENTOS ENTRADA/AÑO/MES/FECHA`, organiza los originales y reportes individuales por proveedor y deja los reportes generales en la raíz de esa fecha.
 9. Guarda el estado para evitar duplicados en ejecuciones posteriores.
 
 ### Flujo local

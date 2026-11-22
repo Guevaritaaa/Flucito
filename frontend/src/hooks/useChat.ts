@@ -3,6 +3,7 @@ import type { ActividadChat, ReporteHistoricoItem } from "../schemas/chat";
 import {
   enviarMensajeChat,
   obtenerDetalleConversacion,
+  obtenerSolicitudPendiente,
 } from "../services/chatService";
 import { ApiError } from "../services/http";
 
@@ -50,6 +51,7 @@ export function useChat({
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const ultimaSesionCargadaRef = useRef<string | null>(null);
+  const reanudadaRef = useRef<string | null>(null);
 
   // Cargar mensajes si el usuario selecciona una conversación guardada en BD
   useEffect(() => {
@@ -108,6 +110,7 @@ export function useChat({
       })
       .finally(() => {
         if (!cancelado) {
+          ultimaSesionCargadaRef.current = sessionId;
           setCargandoMensajes(false);
         }
       });
@@ -129,7 +132,8 @@ export function useChat({
         hora: formatearHora(),
       };
 
-      setMensajes((prev) => [...prev, msgUsuario]);
+      const reanudando = Boolean(obtenerSolicitudPendiente(sessionId));
+      setMensajes((prev) => reanudando && prev.some((m) => m.rol === "user" && m.contenido === texto) ? prev : [...prev, msgUsuario]);
       setEnviando(true);
       setActividades([]);
       setTextoProvisional("");
@@ -165,7 +169,7 @@ export function useChat({
           actividades: respuesta.actividades ?? [],
         };
 
-        setMensajes((prev) => [...prev, msgAsistente]);
+        setMensajes((prev) => reanudando && prev.at(-1)?.contenido === msgAsistente.contenido ? prev : [...prev, msgAsistente]);
         onConversacionActualizada();
       } catch (err) {
         if (controller.signal.aborted || (err instanceof DOMException && err.name === "AbortError")) {
@@ -194,6 +198,23 @@ export function useChat({
     },
     [sessionId, enviando, onConversacionActualizada]
   );
+
+  useEffect(() => {
+    const pendiente = obtenerSolicitudPendiente(sessionId);
+    if (pendiente && ultimaSesionCargadaRef.current === sessionId && !cargandoMensajes && !enviando && reanudadaRef.current !== pendiente.jobId) {
+      reanudadaRef.current = pendiente.jobId;
+      void enviarMensaje(pendiente.mensaje);
+    }
+  }, [sessionId, cargandoMensajes, enviando, enviarMensaje]);
+
+  useEffect(() => {
+    const reconectar = () => {
+      const pendiente = obtenerSolicitudPendiente(sessionId);
+      if (pendiente && !enviando) void enviarMensaje(pendiente.mensaje);
+    };
+    window.addEventListener("online", reconectar);
+    return () => window.removeEventListener("online", reconectar);
+  }, [sessionId, enviando, enviarMensaje]);
 
   return {
     mensajes,

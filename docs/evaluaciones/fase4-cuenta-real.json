@@ -1,0 +1,9 @@
+{
+  "modelo": "gpt-6-luna",
+  "responses": true,
+  "effort": "low",
+  "status": "completed",
+  "resumenes_modelo": 0,
+  "actividades": 3,
+  "historial_con_actividad": true
+}

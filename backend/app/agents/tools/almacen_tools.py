@@ -358,6 +358,7 @@ def generar_entradas_almacen(
     cambiar_xro_a_mtr: bool | None = None,
     dividir_precio_entre_metros: bool | None = None,
     decisiones_rollos: dict[str, dict[str, object]] | None = None,
+    carpeta_especifica: str | None = None,
 ) -> str:
     """Sincroniza facturas nuevas desde Google Drive o carpeta local, genera reportes Excel y actualiza la base acumulada."""
     carpeta_datos = _obtener_carpeta_datos()
@@ -375,6 +376,8 @@ def generar_entradas_almacen(
     )
     if tiene_parametros_confirmacion:
         previa = _cargar_sesion_confirmacion(carpeta_datos)
+        if carpeta_especifica is None:
+            carpeta_especifica = previa.get("carpeta_especifica")
         if confirmar_solo_xml is None:
             confirmar_solo_xml = previa.get("confirmar_solo_xml")
         if omitir_incompletas is None:
@@ -401,6 +404,7 @@ def generar_entradas_almacen(
         _limpiar_sesion_confirmacion(carpeta_datos)
 
     estado_confirmacion_actual = {
+        "carpeta_especifica": carpeta_especifica,
         "confirmar_solo_xml": confirmar_solo_xml,
         "omitir_incompletas": omitir_incompletas,
         "factores_elegidos": factores_elegidos,
@@ -420,6 +424,8 @@ def generar_entradas_almacen(
         )
     )
     logger.info("Tool 'generar_entradas_almacen' invocada. Modo Google Drive: %s", usar_drive)
+    if carpeta_especifica is not None and not usar_drive:
+        return json.dumps({"ok": False, "error": "No se puede limitar la generación a una fecha de Drive sin su conexión. No se procesó otra carpeta."}, ensure_ascii=False)
 
     decisiones_rollos_norm = _normalizar_decisiones_rollos(
         cambiar_xro_a_mtr,
@@ -438,6 +444,8 @@ def generar_entradas_almacen(
             }
             if omitir_incompletas is not None:
                 kwargs_sync["omitir_incompletas"] = bool(omitir_incompletas)
+            if carpeta_especifica is not None:
+                kwargs_sync["carpeta_especifica"] = carpeta_especifica
             sincronizacion = sincronizar_drive(**kwargs_sync)
         except Exception as error:
             logger.exception("Error durante sincronización con Drive: %s", error)

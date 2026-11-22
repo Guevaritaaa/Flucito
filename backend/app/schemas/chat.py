@@ -13,6 +13,8 @@ class ActividadChat(BaseModel):
     id: str | None = None
     tipo: str | None = None
     funcion: str | None = None
+    resumen: str | None = None
+    resumen_idioma: str | None = None
 
 
 class ChatResponse(BaseModel):
