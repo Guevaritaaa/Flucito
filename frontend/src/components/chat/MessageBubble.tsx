@@ -171,10 +171,11 @@ function ActividadDesplegable({
                 <div className="min-w-0 flex-1 text-xs leading-relaxed">
                   <div className="flex items-start gap-2 font-semibold text-slate-800 dark:text-slate-100">
                     <span className="min-w-0 break-words">{actividad.funcion ? <>{actividad.estado === "en_curso" ? "Llamando a la función" : actividad.estado === "error" ? "Función interrumpida" : "Función ejecutada"} <code className="break-all text-blue-800 dark:text-sky-200">{actividad.funcion}</code></> : actividad.texto}</span>
-                    {actividad.estado === "en_curso" ? <LoaderCircle aria-label="En curso" className="ml-auto h-3.5 w-3.5 shrink-0 animate-spin motion-reduce:animate-none" /> : actividad.estado === "error" ? <CircleAlert aria-label="Interrumpido" className="ml-auto h-3.5 w-3.5 shrink-0 text-red-700 dark:text-red-300" /> : <Check aria-label="Completado" className="ml-auto h-3.5 w-3.5 shrink-0 text-emerald-700 dark:text-emerald-300" />}
+                    {actividad.estado === "en_curso" || actividad.estado === "reintentando" ? <LoaderCircle aria-label={actividad.estado === "reintentando" ? "Reintentando" : "En curso"} className="ml-auto h-3.5 w-3.5 shrink-0 animate-spin motion-reduce:animate-none" /> : actividad.estado === "error" ? <CircleAlert aria-label="Interrumpido" className="ml-auto h-3.5 w-3.5 shrink-0 text-red-700 dark:text-red-300" /> : <Check aria-label={actividad.estado === "recuperado" ? "Recuperado" : "Completado"} className="ml-auto h-3.5 w-3.5 shrink-0 text-emerald-700 dark:text-emerald-300" />}
                   </div>
                   {actividad.funcion && <p className="mt-1 text-slate-600 dark:text-sky-100/70">{actividad.texto}</p>}
-                  <span className="sr-only">{actividad.estado === "error" ? "Interrumpido" : actividad.estado === "en_curso" ? "En curso" : "Completado"}</span>
+                  {(actividad.estado === "reintentando" || actividad.estado === "recuperado") && <p className="mt-1 text-slate-600 dark:text-sky-100/70">{actividad.estado === "reintentando" ? "Reintentando" : "Recuperado tras un reintento"}</p>}
+                  <span className="sr-only">{actividad.estado === "error" ? "Interrumpido" : actividad.estado === "en_curso" ? "En curso" : actividad.estado === "reintentando" ? "Reintentando" : actividad.estado === "recuperado" ? "Recuperado" : "Completado"}</span>
                 </div>
               </li>
             ))}

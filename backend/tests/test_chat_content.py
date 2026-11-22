@@ -223,3 +223,109 @@ def test_resumen_usa_solo_descripcion_publica(monkeypatch) -> None:
     handler._generar_resumen(run_id, "consultar_drive")
     assert handler.actividades[0]["texto"] == "Revisando archivos de Drive"
     assert llamadas[-1].content == "Consultando Drive"
+
+
+def _chat_con_resultado(monkeypatch, pregunta, datos, respuesta, anteriores=None):
+    import json
+    from langchain_core.messages import HumanMessage, ToolMessage
+
+    class GrafoFalso:
+        def invoke(self, estado, config):
+            return {"messages": [*(anteriores or []), HumanMessage(content=pregunta), ToolMessage(content=json.dumps(datos), tool_call_id="tool"), AIMessage(content=respuesta)]}
+
+    monkeypatch.setattr(chat_route, "grafo", GrafoFalso())
+    monkeypatch.setattr(chat_route, "_obtener_mensajes_previos_bd", lambda *args: [])
+    monkeypatch.setattr(chat_route, "_guardar_interaccion_en_bd", lambda **kwargs: None)
+    return chat_route._ejecutar_chat(ChatRequest(mensaje=pregunta, session_id="prueba"))
+
+
+def test_ultima_carpeta_solo_adjunta_reportes_de_fecha_reciente(monkeypatch):
+    datos = {"ok": True, "tipo": "busqueda_historica", "reportes": [
+        {"id": "viejo", "nombre": "viejo.xlsx", "fecha": "14-11-2026"},
+        {"id": "nuevo1", "nombre": "nuevo.xlsx", "fecha": "17-11-2026"},
+        {"id": "nuevo2", "nombre": "proveedor.xlsx", "fecha": "17-11-2026"},
+    ]}
+    respuesta = _chat_con_resultado(monkeypatch, "cual es la ultima carpeta de reportes que tienes", datos, "Hay 72 reportes")
+    assert [r["nombre"] for r in respuesta.reportes_historicos] == ["nuevo.xlsx", "proveedor.xlsx"]
+    assert "17-11-2026" in respuesta.respuesta
+    assert "viejo.xlsx" not in respuesta.respuesta
+
+
+def test_busqueda_historica_filtra_fecha_explicita_y_fecha_invalida(monkeypatch):
+    datos = {"ok": True, "tipo": "busqueda_historica", "reportes": [
+        {"id": "uno", "nombre": "uno.xlsx", "fecha": "14-11-2026"},
+        {"id": "dos", "nombre": "dos.xlsx", "fecha": "17-11-2026"},
+    ]}
+    respuesta = _chat_con_resultado(monkeypatch, "descarga el reporte del 14-11-2026", datos, "Aquí tienes")
+    assert [r["nombre"] for r in respuesta.reportes_historicos] == ["uno.xlsx"]
+    assert respuesta.archivo_almacen_url is None
+    respuesta = _chat_con_resultado(monkeypatch, "reporte del 99-99-2026", datos, "No es una fecha válida")
+    assert respuesta.reportes_historicos == []
+
+
+def test_archivos_solo_se_entregan_al_solicitarlos_o_generarse(monkeypatch, tmp_path):
+    from app.services.almacen.excel import NOMBRE_ARCHIVO_BASE
+    from app.services.almacen.txt_aspel import NOMBRE_TXT_COMAS, NOMBRE_TXT_TABS
+    monkeypatch.setattr(chat_route, "CARPETA_DATOS", tmp_path)
+    for nombre in (NOMBRE_ARCHIVO_BASE, NOMBRE_TXT_COMAS, NOMBRE_TXT_TABS):
+        (tmp_path / nombre).write_text("datos")
+    resultado = {"ok": True, "reporte_generado": True, "resumen": {"archivos": 1}}
+    respuesta = _chat_con_resultado(monkeypatch, "genera el reporte", resultado, "El Excel está listo. ¿Deseas el TXT para Aspel?")
+    assert respuesta.archivo_almacen_url and respuesta.archivo_txt_url is None
+    respuesta = _chat_con_resultado(monkeypatch, "muéstrame los factores", {"ok": True}, "Para Aspel usa el botón de descarga.")
+    assert respuesta.archivo_almacen_url is None and respuesta.archivo_txt_url is None
+    respuesta = _chat_con_resultado(monkeypatch, "descarga el txt en tabulaciones", {"ok": True}, "Aquí tienes el archivo")
+    assert respuesta.archivo_txt_url.endswith("tabs")
+
+
+def test_solicitud_de_comas_como_respuesta_a_pregunta_previa(monkeypatch, tmp_path):
+    from langchain_core.messages import HumanMessage
+    from app.services.almacen.txt_aspel import NOMBRE_TXT_COMAS
+    monkeypatch.setattr(chat_route, "CARPETA_DATOS", tmp_path)
+    (tmp_path / NOMBRE_TXT_COMAS).write_text("datos")
+    previos = [HumanMessage(content="genera reporte"), AIMessage(content="¿Quieres el TXT para Aspel en comas o tabulaciones?")]
+    respuesta = _chat_con_resultado(monkeypatch, "comas", {"ok": True}, "Aquí tienes", anteriores=previos)
+    assert respuesta.archivo_txt_url.endswith("comas")
+
+
+def test_tabla_factores_preserva_formulas_de_herramienta(monkeypatch):
+    datos = {"ok": True, "tipo_consulta": "catalogo_factores", "factores_disponibles": {"YPC": {"PUBLICO": "{COSTEO}/.6", "MINIMO": "({COSTEO}/.6)*.8", "MOSTRADOR": "{COSTEO}/.6", "MAYOREO": "({COSTEO}/.6)*.9", "DISTRIBUIDOR": "{PUBLICO}*.8"}}}
+    respuesta = _chat_con_resultado(monkeypatch, "Muéstrame los factores de precio actuales", datos, "texto anterior")
+    assert "| Factor | Público |" in respuesta.respuesta
+    assert "`(COSTO/.6)*.8`" in respuesta.respuesta
+    assert "`PUBLICO*.8`" in respuesta.respuesta
+
+
+def test_avisos_xml_no_se_repiten_si_respuesta_ya_los_incluye(monkeypatch):
+    datos = {"ok": True, "advertencia_xmls_sin_apoyo": "Las siguientes facturas no tenían archivos de apoyo"}
+    respuesta = _chat_con_resultado(monkeypatch, "genera reporte", datos, "Estas facturas no tenían TXT o PDF de apoyo.")
+    assert "Las siguientes facturas" not in respuesta.respuesta
+
+
+def test_error_modelo_recuperado_se_distingue_de_error_definitivo():
+    from uuid import uuid4
+    handler = chat_route.ActividadHandler()
+    a, b = uuid4(), uuid4()
+    handler.on_chat_model_start({}, [], run_id=a)
+    handler.on_llm_error(RuntimeError("temporal"), run_id=a)
+    handler.on_chat_model_start({}, [], run_id=b)
+    assert handler.actividades[0]["estado"] == "reintentando"
+    handler.on_llm_end(None, run_id=b)
+    assert handler.actividades[0]["estado"] == "recuperado"
+    assert handler.actividades[1]["estado"] == "completado"
+
+    handler.on_chat_model_start({}, [], run_id=a)
+    handler.on_llm_error(RuntimeError("definitivo"), run_id=a)
+    assert handler.actividades[-1]["estado"] == "error"
+
+
+def test_consulta_general_de_carpetas_no_se_limita_a_raiz(monkeypatch):
+    from langchain_core.messages import HumanMessage
+    from app.agents import graph
+
+    respuesta_modelo = AIMessage(content="", tool_calls=[{"name": "consultar_drive", "args": {"modo_consulta": "explorar_estructura", "ubicacion": "raiz"}, "id": "call"}])
+    monkeypatch.setattr(graph, "invocar_con_fallback", lambda *args: respuesta_modelo)
+    resultado = graph.nodo_flucito({"messages": [HumanMessage(content="¿qué carpetas hay en Drive?")]})
+    assert resultado["messages"][0].tool_calls[0]["args"]["ubicacion"] == "todas"
+    resultado = graph.nodo_flucito({"messages": [HumanMessage(content="¿qué carpetas hay en la raíz?")]})
+    assert resultado["messages"][0].tool_calls[0]["args"]["ubicacion"] == "raiz"

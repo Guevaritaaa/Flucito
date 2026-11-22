@@ -63,6 +63,7 @@ class ActividadHandler(BaseCallbackHandler):
         self.etapa = "pensando"
         self.texto_provisional = ""
         self.runs_con_tools: set[str] = set()
+        self.reintentos: dict[str, int] = {}
 
     def _publicar(self):
         if self.job_id:
@@ -91,6 +92,11 @@ class ActividadHandler(BaseCallbackHandler):
             self._publicar()
 
     def on_chat_model_start(self, serialized, messages, *, run_id, **kwargs):
+        with self.lock:
+            if self.actividades and self.actividades[-1].get("tipo") == "modelo" and self.actividades[-1].get("estado") == "error":
+                indice = len(self.actividades) - 1
+                self.actividades[indice]["estado"] = "reintentando"
+                self.reintentos[str(run_id)] = indice
         self._iniciar(run_id, "Analizando la solicitud", "pensando")
 
     def on_llm_end(self, response, *, run_id, **kwargs):
@@ -100,11 +106,18 @@ class ActividadHandler(BaseCallbackHandler):
             with self.lock:
                 self.texto_provisional = ""
                 self._publicar()
+        with self.lock:
+            indice = self.reintentos.pop(str(run_id), None)
+            if indice is not None:
+                self.actividades[indice]["estado"] = "recuperado"
         self._terminar(run_id, "completado")
 
     def on_llm_error(self, error, *, run_id, **kwargs):
         with self.lock:
             self.texto_provisional = ""
+            indice = self.reintentos.pop(str(run_id), None)
+            if indice is not None:
+                self.actividades[indice]["estado"] = "error"
             self._publicar()
         self._terminar(run_id, "error")
 
