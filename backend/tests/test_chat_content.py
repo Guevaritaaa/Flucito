@@ -47,6 +47,7 @@ def test_actividad_real_se_publica_y_se_guarda(monkeypatch) -> None:
     chat_route._JOBS[job_id] = {"status": "running", "result": None, "error": None}
     chat_route._CONTEXTO_JOB.job_id = job_id
     guardadas = []
+    monkeypatch.setattr(chat_route.ActividadHandler, "_generar_resumen", lambda *args: None)
     monkeypatch.setattr(chat_route, "_obtener_mensajes_previos_bd", lambda *args: [])
     monkeypatch.setattr(chat_route, "_guardar_interaccion_en_bd", lambda **kwargs: guardadas.append(kwargs["respuesta_chat"]))
 
@@ -114,3 +115,111 @@ def test_callback_recibe_eventos_reales_de_langgraph() -> None:
         "Analizando la solicitud", "Consultando Drive"
     ]
     assert all(item["estado"] == "completado" for item in handler.actividades)
+
+
+def test_stream_langgraph_publica_texto_y_funciones_sin_parametros() -> None:
+    from typing import TypedDict
+    from langchain_core.language_models.fake_chat_models import FakeListChatModel
+    from langchain_core.tools import tool
+    from langgraph.graph import END, StateGraph
+
+    @tool
+    def consultar_drive() -> str:
+        """Consulta Drive."""
+        return "resultado privado"
+
+    class Estado(TypedDict):
+        respuesta: str
+
+    def nodo(estado):
+        consultar_drive.invoke({})
+        resultado = FakeListChatModel(responses=["Hola mundo"]).invoke("hola")
+        return {"respuesta": resultado.content}
+
+    builder = StateGraph(Estado)
+    builder.add_node("nodo", nodo)
+    builder.set_entry_point("nodo")
+    builder.add_edge("nodo", END)
+    handler = chat_route.ActividadHandler()
+    list(builder.compile().stream({"respuesta": ""}, config={"callbacks": [handler]}, stream_mode=["messages", "values"]))
+    assert handler.texto_provisional == "Hola mundo"
+    assert handler.actividades[0]["funcion"] == "consultar_drive"
+    assert handler.actividades[0]["tipo"] == "funcion"
+    assert "resultado privado" not in str(handler.actividades)
+
+
+def test_texto_provisional_se_descarta_al_llamar_funcion() -> None:
+    from uuid import uuid4
+    from langchain_core.messages import AIMessageChunk
+    from langchain_core.outputs import ChatGenerationChunk
+
+    handler = chat_route.ActividadHandler()
+    run_id = uuid4()
+    handler.on_chat_model_start({}, [], run_id=run_id)
+    handler.on_llm_new_token("Voy a revisar", run_id=run_id)
+    assert handler.texto_provisional == "Voy a revisar"
+    chunk = ChatGenerationChunk(message=AIMessageChunk(content="", tool_call_chunks=[{"name": "consultar_drive", "args": "", "id": "call-1", "index": 0}]))
+    handler.on_llm_new_token("", chunk=chunk, run_id=run_id)
+    handler.on_llm_new_token("oculto", run_id=run_id)
+    assert handler.texto_provisional == ""
+
+
+def test_estado_de_tarea_verifica_propietario() -> None:
+    from types import SimpleNamespace
+    import pytest
+    from fastapi import HTTPException
+
+    chat_route._JOBS["privado"] = {"status": "running", "result": None, "error": None, "usuario_id": 1}
+    try:
+        with pytest.raises(HTTPException) as error:
+            chat_route.consultar_estado_chat("privado", SimpleNamespace(id=2))
+        assert error.value.status_code == 403
+        assert chat_route.consultar_estado_chat("privado", SimpleNamespace(id=1)).status == "running"
+    finally:
+        chat_route._JOBS.pop("privado", None)
+
+
+def test_stream_de_tarea_entrega_snapshot_final_sin_repetir_trabajo() -> None:
+    import asyncio
+    import json
+
+    job_id = "stream-terminado"
+    chat_route._JOBS[job_id] = {
+        "status": "completed", "result": ChatResponse(respuesta="Listo"),
+        "error": None, "usuario_id": None, "texto_provisional": "Listo",
+        "actividades": [{"id": "1", "tipo": "funcion", "funcion": "consultar_drive", "texto": "Consultando Drive", "estado": "completado"}],
+    }
+
+    async def leer():
+        response = chat_route.eventos_chat(job_id, None)
+        return [item async for item in response.body_iterator]
+
+    try:
+        primer = asyncio.run(leer())
+        segundo = asyncio.run(leer())
+        assert primer == segundo
+        payload = json.loads(primer[0][len("data: "):])
+        assert payload["result"]["respuesta"] == "Listo"
+        assert payload["actividades"][0]["funcion"] == "consultar_drive"
+    finally:
+        chat_route._JOBS.pop(job_id, None)
+
+
+def test_resumen_usa_solo_descripcion_publica(monkeypatch) -> None:
+    from uuid import uuid4
+    from app.agents import graph
+
+    llamadas = []
+
+    class Modelo:
+        def invoke(self, mensajes):
+            llamadas.extend(mensajes)
+            return AIMessage(content="Revisando archivos de Drive")
+
+    monkeypatch.setattr(graph, "llm_primario", Modelo())
+    handler = chat_route.ActividadHandler()
+    run_id = str(uuid4())
+    handler._iniciar(run_id, "Consultando Drive", "trabajando", "consultar_drive")
+    handler._generar_resumen(run_id, "consultar_drive")
+    assert handler.actividades[0]["texto"] == "Revisando archivos de Drive"
+    assert llamadas[-1].content == "Consultando Drive"

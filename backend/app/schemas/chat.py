@@ -10,6 +10,9 @@ class ChatRequest(BaseModel):
 class ActividadChat(BaseModel):
     texto: str
     estado: str
+    id: str | None = None
+    tipo: str | None = None
+    funcion: str | None = None
 
 
 class ChatResponse(BaseModel):
@@ -32,6 +35,7 @@ class ChatJobStatusResponse(BaseModel):
     error: str | None = None
     etapa: str = "pensando"
     actividades: list[ActividadChat] = Field(default_factory=list)
+    texto_provisional: str = ""
 
 
 class ConversacionResumenOut(BaseModel):

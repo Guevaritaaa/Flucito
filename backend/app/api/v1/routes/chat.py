@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import asyncio
 import json
 import logging
 import re
@@ -9,7 +10,8 @@ from urllib.parse import urlencode
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from langchain_core.messages import AIMessage, HumanMessage
+from fastapi.responses import StreamingResponse
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.callbacks import BaseCallbackHandler
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -58,6 +60,8 @@ class ActividadHandler(BaseCallbackHandler):
         self.actividades: list[dict[str, str]] = []
         self.runs: dict[str, int] = {}
         self.etapa = "pensando"
+        self.texto_provisional = ""
+        self.runs_con_tools: set[str] = set()
 
     def _publicar(self):
         if self.job_id:
@@ -66,12 +70,14 @@ class ActividadHandler(BaseCallbackHandler):
                 if job is not None:
                     job["etapa"] = self.etapa
                     job["actividades"] = [dict(item) for item in self.actividades]
+                    job["texto_provisional"] = self.texto_provisional
 
-    def _iniciar(self, run_id, texto: str, etapa: str):
+    def _iniciar(self, run_id, texto: str, etapa: str, funcion: str | None = None):
         with self.lock:
             self.etapa = etapa
             self.runs[str(run_id)] = len(self.actividades)
-            self.actividades.append({"texto": texto, "estado": "en_curso"})
+            self.texto_provisional = ""
+            self.actividades.append({"id": str(run_id), "tipo": "funcion" if funcion else "modelo", "funcion": funcion, "texto": texto, "estado": "en_curso"})
             self._publicar()
 
     def _terminar(self, run_id, estado: str):
@@ -87,14 +93,55 @@ class ActividadHandler(BaseCallbackHandler):
         self._iniciar(run_id, "Analizando la solicitud", "pensando")
 
     def on_llm_end(self, response, *, run_id, **kwargs):
+        generaciones = getattr(response, "generations", [])
+        mensaje = getattr(generaciones[0][0], "message", None) if generaciones and generaciones[0] else None
+        if getattr(mensaje, "tool_calls", None):
+            with self.lock:
+                self.texto_provisional = ""
+                self._publicar()
         self._terminar(run_id, "completado")
 
     def on_llm_error(self, error, *, run_id, **kwargs):
+        with self.lock:
+            self.texto_provisional = ""
+            self._publicar()
         self._terminar(run_id, "error")
+
+    def on_llm_new_token(self, token, *, run_id, chunk=None, **kwargs):
+        mensaje = getattr(chunk, "message", None)
+        with self.lock:
+            if getattr(mensaje, "tool_call_chunks", None) or getattr(mensaje, "tool_calls", None):
+                self.runs_con_tools.add(str(run_id))
+                self.texto_provisional = ""
+            elif str(run_id) not in self.runs_con_tools and isinstance(token, str):
+                self.texto_provisional += token
+            self._publicar()
 
     def on_tool_start(self, serialized, input_str, *, run_id, name=None, **kwargs):
         nombre = name or (serialized or {}).get("name", "")
-        self._iniciar(run_id, _NOMBRES_HERRAMIENTAS.get(nombre, "Procesando información"), "trabajando")
+        nombre_seguro = nombre if nombre in _NOMBRES_HERRAMIENTAS else None
+        self._iniciar(run_id, _NOMBRES_HERRAMIENTAS.get(nombre, "Procesando información"), "trabajando", nombre_seguro)
+        if self.job_id and nombre_seguro:
+            threading.Thread(target=self._generar_resumen, args=(str(run_id), nombre_seguro), daemon=True).start()
+
+    def _generar_resumen(self, run_id: str, nombre: str):
+        # Solo se envía una descripción pública y predefinida; nunca argumentos ni resultados.
+        try:
+            from app.agents.graph import llm_primario
+            respuesta = llm_primario.invoke([
+                SystemMessage(content="Reformula en español, en máximo 12 palabras, la actividad indicada. No agregues detalles, resultados ni acciones. Responde solo con la frase."),
+                HumanMessage(content=_NOMBRES_HERRAMIENTAS[nombre]),
+            ])
+            resumen = contenido_a_texto(respuesta).strip().strip('"')
+            if not resumen or len(resumen) > 120 or "\n" in resumen:
+                return
+            with self.lock:
+                indice = self.runs.get(run_id)
+                if indice is not None:
+                    self.actividades[indice]["texto"] = resumen
+                    self._publicar()
+        except Exception:
+            logger.debug("No se pudo generar el resumen de actividad", exc_info=True)
 
     def on_tool_end(self, output, *, run_id, **kwargs):
         self._terminar(run_id, "error" if getattr(output, "status", None) == "error" else "completado")
@@ -249,8 +296,21 @@ def _ejecutar_chat(request: ChatRequest, usuario_id: int | None = None) -> ChatR
     else:
         estado = {"messages": [HumanMessage(content=request.mensaje)]}
 
+    def ejecutar_grafo(config_actual):
+        # El modo messages activa el streaming del modelo dentro del grafo;
+        # values conserva el estado final necesario para procesar adjuntos.
+        if actividad.job_id and callable(getattr(grafo, "stream", None)):
+            ultimo = None
+            for modo, contenido in grafo.stream(estado, config=config_actual, stream_mode=["messages", "values"]):
+                if modo == "values":
+                    ultimo = contenido
+            if ultimo is None:
+                raise RuntimeError("El grafo no devolvió un estado final")
+            return ultimo
+        return grafo.invoke(estado, config=config_actual)
+
     try:
-        resultado = grafo.invoke(estado, config=config)
+        resultado = ejecutar_grafo(config)
     except Exception as error_grafo:
         logger.warning(
             "Fallo en grafo.invoke para sesión %s (%s); reintentando con hilo limpio.",
@@ -258,13 +318,15 @@ def _ejecutar_chat(request: ChatRequest, usuario_id: int | None = None) -> ChatR
             error_grafo,
         )
         try:
+            if any(item.get("tipo") == "funcion" for item in actividad.actividades):
+                raise RuntimeError("No se reintenta una ejecución que ya inició herramientas") from error_grafo
             config_limpio = {
                 "configurable": {
                     "thread_id": f"{request.session_id}-recovery-{uuid.uuid4().hex[:8]}"
                 },
                 "callbacks": [actividad],
             }
-            resultado = grafo.invoke(estado, config=config_limpio)
+            resultado = ejecutar_grafo(config_limpio)
         except Exception as error_final:
             logger.exception("Error definitivo en grafo.invoke: %s", error_final)
             respuesta_error = ChatResponse(
@@ -482,6 +544,8 @@ def iniciar_chat_async(
             "error": None,
             "etapa": "pensando",
             "actividades": [],
+            "texto_provisional": "",
+            "usuario_id": uid,
         }
     hilo = threading.Thread(target=_trabajador_chat, args=(job_id, request, uid), daemon=True)
     hilo.start()
@@ -494,11 +558,13 @@ def consultar_estado_chat(
     usuario_actual: Usuario | None = Depends(obtener_usuario_opcional),
 ) -> ChatJobStatusResponse:
     """Consulta el estado de una tarea de chat iniciada con /chat/async."""
-    _ = usuario_actual
     with _JOBS_LOCK:
         job = _JOBS.get(job_id)
         if not job:
             raise HTTPException(status_code=404, detail="Tarea de chat no encontrada")
+        uid = getattr(usuario_actual, "id", None)
+        if job.get("usuario_id") is not None and job["usuario_id"] != uid:
+            raise HTTPException(status_code=403, detail="No tienes acceso a esta tarea")
         return ChatJobStatusResponse(
             job_id=job_id,
             status=job["status"],
@@ -506,7 +572,35 @@ def consultar_estado_chat(
             error=job["error"],
             etapa=job.get("etapa", "pensando"),
             actividades=job.get("actividades", []),
+            texto_provisional=job.get("texto_provisional", ""),
         )
+
+
+@router.get("/chat/events/{job_id}")
+def eventos_chat(job_id: str, usuario_actual: Usuario | None = Depends(obtener_usuario_opcional)):
+    # Validar antes de enviar las cabeceras del stream.
+    consultar_estado_chat(job_id, usuario_actual)
+
+    async def eventos():
+        anterior = None
+        latido = time.monotonic()
+        while True:
+            try:
+                estado = consultar_estado_chat(job_id, usuario_actual)
+            except HTTPException:
+                return
+            actual = estado.model_dump_json()
+            if actual != anterior:
+                yield f"data: {actual}\n\n"
+                anterior = actual
+            if estado.status in ("completed", "failed"):
+                return
+            if time.monotonic() - latido >= 10:
+                yield ": keepalive\n\n"
+                latido = time.monotonic()
+            await asyncio.sleep(0.15)
+
+    return StreamingResponse(eventos(), media_type="text/event-stream", headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"})
 
 
 @router.get(

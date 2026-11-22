@@ -44,6 +44,7 @@ export function useChat({
   const [mensajes, setMensajes] = useState<MensajeUI[]>([]);
   const [enviando, setEnviando] = useState(false);
   const [actividades, setActividades] = useState<ActividadChat[]>([]);
+  const [textoProvisional, setTextoProvisional] = useState("");
   const [etapa, setEtapa] = useState<"pensando" | "trabajando">("pensando");
   const [cargandoMensajes, setCargandoMensajes] = useState(false);
 
@@ -55,6 +56,7 @@ export function useChat({
     abortControllerRef.current?.abort();
     setEnviando(false);
     setActividades([]);
+    setTextoProvisional("");
     setEtapa("pensando");
 
     if (!existeEnHistorial) {
@@ -130,6 +132,7 @@ export function useChat({
       setMensajes((prev) => [...prev, msgUsuario]);
       setEnviando(true);
       setActividades([]);
+      setTextoProvisional("");
       setEtapa("pensando");
 
       const controller = new AbortController();
@@ -146,6 +149,7 @@ export function useChat({
             if (abortControllerRef.current !== controller || controller.signal.aborted) return;
             setEtapa(progreso.etapa ?? "pensando");
             setActividades(progreso.actividades ?? []);
+            setTextoProvisional(progreso.texto_provisional ?? "");
           }
         );
         if (controller.signal.aborted) return;
@@ -164,7 +168,7 @@ export function useChat({
         setMensajes((prev) => [...prev, msgAsistente]);
         onConversacionActualizada();
       } catch (err) {
-        if (err instanceof DOMException && err.name === "AbortError") {
+        if (controller.signal.aborted || (err instanceof DOMException && err.name === "AbortError")) {
           return;
         }
         const detalleError =
@@ -195,6 +199,7 @@ export function useChat({
     mensajes,
     enviando,
     actividades,
+    textoProvisional,
     etapa,
     cargandoMensajes,
     enviarMensaje,

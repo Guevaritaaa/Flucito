@@ -13,6 +13,9 @@ export interface ReporteHistoricoItem {
 export interface ActividadChat {
   texto: string;
   estado: "en_curso" | "completado" | "error";
+  id?: string | null;
+  tipo?: "modelo" | "funcion" | null;
+  funcion?: string | null;
 }
 
 export interface ChatRequest {
@@ -40,6 +43,7 @@ export interface ChatJobStatusResponse {
   error: string | null;
   etapa?: "pensando" | "trabajando";
   actividades?: ActividadChat[];
+  texto_provisional?: string;
 }
 
 export interface ConversacionResumenOut {

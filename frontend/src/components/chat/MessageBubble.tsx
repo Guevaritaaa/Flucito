@@ -1,4 +1,4 @@
-import { ChevronDown, Download, FileSpreadsheet, FileText } from "lucide-react";
+import { Brain, Check, ChevronDown, CircleAlert, Code2, Download, FileSpreadsheet, FileText, LoaderCircle, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { ASSETS } from "../../core/config";
 import type { ActividadChat } from "../../schemas/chat";
@@ -149,21 +149,32 @@ function ActividadDesplegable({
   etapa?: "pensando" | "trabajando";
   enCurso?: boolean;
 }) {
-  const titulo = enCurso ? (etapa === "trabajando" ? "Trabajando..." : "Pensando...") : "Ver actividad";
+  const titulo = enCurso ? (etapa === "trabajando" ? "Flucito está trabajando" : "Flucito está pensando") : "Actividad de Flucito";
   return (
     <details className="group min-w-0 text-sm text-slate-700 dark:text-sky-100">
-      <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md font-semibold focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-blue-600 [&::-webkit-details-marker]:hidden">
+      <summary className="flex cursor-pointer list-none items-center gap-2.5 rounded-md font-semibold focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-blue-600 [&::-webkit-details-marker]:hidden">
+        <Sparkles aria-hidden="true" className="h-4 w-4 shrink-0 text-blue-700 dark:text-sky-300" />
         <span>{titulo}</span>
-        {enCurso && <span className="flex items-center gap-1" aria-hidden="true"><span className="trabajando-punto" /><span className="trabajando-punto" /><span className="trabajando-punto" /></span>}
-        <ChevronDown aria-hidden="true" className="h-4 w-4 transition-transform group-open:rotate-180" />
+        {enCurso && <LoaderCircle aria-hidden="true" className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none text-blue-700 dark:text-sky-300" />}
+        <ChevronDown aria-hidden="true" className="ml-auto h-4 w-4 shrink-0 transition-transform group-open:rotate-180 motion-reduce:transition-none" />
       </summary>
-      <div className="mt-3 border-t border-slate-900/10 pt-3 dark:border-sky-200/15">
+      <div className="mt-4 border-t border-slate-900/10 pt-3 dark:border-sky-200/15">
+        <p className="mb-3 text-xs text-slate-600 dark:text-sky-100/70">Resumen de actividad</p>
         {actividades.length ? (
-          <ol className="space-y-2" aria-label="Pasos de la actividad">
+          <ol className="space-y-0" aria-label="Pasos de la actividad">
             {actividades.map((actividad, index) => (
-              <li key={index} className="flex items-start gap-2 text-xs leading-relaxed">
-                <span aria-hidden="true" className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-sky-600 dark:bg-sky-300" />
-                <span>{actividad.texto}{actividad.estado === "error" ? " (interrumpido)" : actividad.estado === "en_curso" ? "..." : ""}</span>
+              <li key={actividad.id ?? index} className="relative flex gap-3 pb-4 last:pb-0">
+                <span aria-hidden="true" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-800 dark:bg-sky-400/15 dark:text-sky-200">
+                  {actividad.funcion ? <Code2 className="h-3.5 w-3.5" /> : <Brain className="h-3.5 w-3.5" />}
+                </span>
+                <div className="min-w-0 flex-1 text-xs leading-relaxed">
+                  <div className="flex items-start gap-2 font-semibold text-slate-800 dark:text-slate-100">
+                    <span className="min-w-0 break-words">{actividad.funcion ? <>{actividad.estado === "en_curso" ? "Llamando a la función" : actividad.estado === "error" ? "Función interrumpida" : "Función ejecutada"} <code className="break-all text-blue-800 dark:text-sky-200">{actividad.funcion}</code></> : actividad.texto}</span>
+                    {actividad.estado === "en_curso" ? <LoaderCircle aria-label="En curso" className="ml-auto h-3.5 w-3.5 shrink-0 animate-spin motion-reduce:animate-none" /> : actividad.estado === "error" ? <CircleAlert aria-label="Interrumpido" className="ml-auto h-3.5 w-3.5 shrink-0 text-red-700 dark:text-red-300" /> : <Check aria-label="Completado" className="ml-auto h-3.5 w-3.5 shrink-0 text-emerald-700 dark:text-emerald-300" />}
+                  </div>
+                  {actividad.funcion && <p className="mt-1 text-slate-600 dark:text-sky-100/70">{actividad.texto}</p>}
+                  <span className="sr-only">{actividad.estado === "error" ? "Interrumpido" : actividad.estado === "en_curso" ? "En curso" : "Completado"}</span>
+                </div>
               </li>
             ))}
           </ol>
@@ -173,7 +184,7 @@ function ActividadDesplegable({
   );
 }
 
-export function FlucitoLoadingBubble({ actividades, etapa }: { actividades: ActividadChat[]; etapa: "pensando" | "trabajando" }) {
+export function FlucitoLoadingBubble({ actividades, etapa, textoProvisional }: { actividades: ActividadChat[]; etapa: "pensando" | "trabajando"; textoProvisional: string }) {
   return (
     <div className="flex items-start gap-3" data-role="assistant-message">
       <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/90 dark:border-sky-300/30 bg-gradient-to-b from-sky-100 to-white dark:from-[#163870] dark:to-[#0a1936] shadow-[0_4px_12px_rgba(12,50,110,0.1)]">
@@ -182,6 +193,7 @@ export function FlucitoLoadingBubble({ actividades, etapa }: { actividades: Acti
       <div className="max-w-[calc(100%-3rem)] rounded-2xl rounded-tl-sm border border-white/85 dark:border-sky-200/18 bg-white/78 dark:bg-[#0a1936]/82 backdrop-blur-xl px-4 py-3 shadow-[0_8px_24px_rgba(12,50,110,0.06)]">
         <span className="sr-only" role="status" aria-live="polite">{etapa === "trabajando" ? "Flucito está trabajando" : "Flucito está pensando"}</span>
         <ActividadDesplegable actividades={actividades} etapa={etapa} enCurso />
+        {textoProvisional && <div className="mt-4 border-t border-slate-900/10 pt-3 dark:border-sky-200/15"><p className="mb-2 text-xs font-medium text-slate-600 dark:text-sky-100/70">Redactando respuesta...</p><p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-800 dark:text-slate-100">{textoProvisional}</p></div>}
       </div>
     </div>
   );

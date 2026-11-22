@@ -12,8 +12,43 @@ import type {
   ConversacionResumenOut,
 } from "../schemas/chat";
 import { ApiError, apiFetch } from "./http";
+import { API_V1_PREFIX } from "../core/config";
+import { obtenerTokenGuardado } from "../core/storage";
 
 class ChatJobError extends Error {}
+
+async function escucharProgreso(jobId: string, signal?: AbortSignal, onProgreso?: (estado: ChatJobStatusResponse) => void): Promise<ChatResponse> {
+  const headers = new Headers({ Accept: "text/event-stream" });
+  const token = obtenerTokenGuardado();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const response = await fetch(`${API_V1_PREFIX}/chat/events/${encodeURIComponent(jobId)}`, { headers, signal });
+  if (!response.ok) throw new ApiError("No se pudo conectar a la actividad", response.status);
+  if (!response.body || !response.headers.get("content-type")?.includes("text/event-stream")) throw new Error("Streaming no disponible");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+      let end: number;
+      while ((end = buffer.indexOf("\n\n")) !== -1) {
+        const frame = buffer.slice(0, end);
+        buffer = buffer.slice(end + 2);
+        const data = frame.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trimStart()).join("\n");
+        if (!data) continue;
+        const estado = JSON.parse(data) as ChatJobStatusResponse;
+        onProgreso?.(estado);
+        if (estado.status === "completed" && estado.result) return estado.result;
+        if (estado.status === "failed") throw new ChatJobError(estado.error || "Error procesando solicitud en Flucito");
+      }
+    }
+    throw new Error("Conexión de actividad interrumpida");
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+}
 
 function esperar(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -83,11 +118,19 @@ export async function enviarMensajeChat(
     if (err instanceof ApiError && (err.isUnauthorized || err.isForbidden)) {
       throw err;
     }
-    return enviarMensajeSincrono(payload, signal);
+    if (err instanceof ApiError && (err.status === 404 || err.status === 405)) return enviarMensajeSincrono(payload, signal);
+    throw err;
   }
 
   if (!jobId) {
-    return enviarMensajeSincrono(payload, signal);
+    throw new Error("No se recibió el identificador de la solicitud.");
+  }
+
+  try {
+    return await escucharProgreso(jobId, signal, onProgreso);
+  } catch (err) {
+    if (signal?.aborted || err instanceof ChatJobError || (err instanceof ApiError && (err.isUnauthorized || err.isForbidden))) throw err;
+    // El trabajo sigue en el servidor; consultar el mismo identificador evita repetirlo.
   }
 
   let intentos = 0;
@@ -115,7 +158,7 @@ export async function enviarMensajeChat(
       }
       if (err instanceof ApiError) {
         if (err.status === 404) {
-          return enviarMensajeSincrono(payload, signal);
+          throw new ChatJobError("La tarea ya no está disponible. Revisa el historial antes de volver a enviarla.");
         }
         if (err.isUnauthorized || err.isForbidden) {
           throw err;
