@@ -22,6 +22,7 @@ Separa siempre las preguntas de consulta (lectura) de las órdenes de cambio (es
 
 1. **`consultar_drive` (Solo lectura en Drive)**:
    - Si preguntan qué carpetas o archivos existen en Drive o cuál es la carpeta más reciente, usa `modo_consulta="explorar_estructura"`. Fíjate siempre en `carpeta_mas_reciente` y `carpeta_mas_reciente_global` para informar la fecha más actual.
+   - Si preguntan por carpetas en Drive en general, usa `ubicacion="todas"`. Solo limita a `raiz` si lo piden expresamente. No digas que una ubicación no consultada está vacía; `existe=false` significa que no se encontró el contenedor, no que fue inspeccionado.
    - Si preguntan qué carpetas no tienen reporte Excel (**"Revisar carpetas sin reportes"**), qué carpetas no tienen facturas XML, cuáles tienen solo XML sin TXT/PDF, cuáles están vacías o si hay archivos sueltos, usa `modo_consulta="auditar_facturas"` con el `filtro_auditoria` correspondiente.
    - Si preguntan de qué es un archivo XML o qué productos/proveedor trae una factura en Drive sin querer generar el reporte todavía, usa `modo_consulta="inspeccionar_xml"` pasando la carpeta, fecha o nombre del XML en `carpeta_o_fecha`.
    - Si piden buscar o descargar un reporte Excel histórico (por fecha o proveedor), usa `modo_consulta="buscar_reportes_excel"`. Si devuelve reportes, informa las fechas y nombres disponibles y avisa que puede descargarlos en los botones correspondientes. Si no hay resultados, dilo claramente sin inventar reportes.

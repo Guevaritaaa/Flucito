@@ -1,4 +1,5 @@
 import logging
+import re
 
 from langchain_core.messages import SystemMessage, ToolMessage
 from langgraph.graph import END, StateGraph
@@ -160,6 +161,23 @@ def nodo_flucito(state: AsistenteState) -> AsistenteState:
         llm_primario_con_herramientas,
         llm_respaldo_con_herramientas,
     )
+    # Una pregunta general de carpetas no debe limitarse a la raíz por una
+    # elección accidental del modelo. Las ubicaciones explícitas se respetan.
+    humanos = [m.content for m in state["messages"] if getattr(m, "type", None) == "human" and isinstance(m.content, str)]
+    consulta = humanos[-1] if humanos else ""
+    if re.fullmatch(r"\s*(?:verifica|revisa|comprueba)(?:\s+de nuevo|\s+otra vez)?[.!?¿ ]*", consulta, re.IGNORECASE) and len(humanos) > 1:
+        consulta = humanos[-2]
+    general = bool(re.search(r"\bcarpetas?\b", consulta, re.IGNORECASE)) and not re.search(r"ra[ií]z|documentos entrada|entradas al inventario|reportes?|hist[oó]ric|\d{2}[-/]\d{2}", consulta, re.IGNORECASE)
+    if general and getattr(respuesta, "tool_calls", None):
+        llamadas = []
+        for llamada in respuesta.tool_calls:
+            llamada = dict(llamada)
+            args = dict(llamada.get("args", {}))
+            if llamada.get("name") == "consultar_drive" and args.get("modo_consulta", "explorar_estructura") == "explorar_estructura" and args.get("ubicacion") == "raiz" and not args.get("carpeta_o_fecha"):
+                args["ubicacion"] = "todas"
+                llamada["args"] = args
+            llamadas.append(llamada)
+        respuesta = respuesta.model_copy(update={"tool_calls": llamadas})
     return {"messages": [respuesta]}
 
 

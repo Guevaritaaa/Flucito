@@ -104,6 +104,11 @@ def test_explorar_estructura_drive_general_y_por_carpeta(monkeypatch) -> None:
     assert vista_general["resumen"]["total_carpetas_en_documentos_entrada"] == 2
     assert vista_general["contenedores"]["raiz"]["archivos_sueltos_en_raiz"] == ["nota_raiz.txt"]
 
+    solo_raiz = navegador_drive.explorar_estructura_drive(ubicacion="raiz", cliente=object(), carpeta_raiz_id="root-id")
+    assert solo_raiz["resumen"]["total_carpetas_en_documentos_entrada"] is None
+    assert "DOCUMENTOS ENTRADA" in solo_raiz["contenedores"]["raiz"]["carpetas_directas"]
+    assert "documentos_entrada" not in solo_raiz["contenedores"]
+
     vista_carpeta = navegador_drive.explorar_estructura_drive(
         ubicacion="todas",
         carpeta_o_fecha="2026-03-18",

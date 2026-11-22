@@ -626,6 +626,7 @@ def explorar_estructura_drive(
             antigua_ent, reciente_ent = _obtener_rango_fechas_carpetas(nombres_entradas)
             resultado_contenedores["entradas_al_inventario"] = {
                 "id": entradas_id,
+                "existe": True,
                 "nombre": CARPETA_ENTRADAS_AL_INVENTARIO,
                 "total_carpetas": len(resumen_entradas["subcarpetas"]),
                 "carpeta_mas_antigua": antigua_ent,
@@ -637,6 +638,7 @@ def explorar_estructura_drive(
         else:
             resultado_contenedores["entradas_al_inventario"] = {
                 "id": None,
+                "existe": False,
                 "nombre": CARPETA_ENTRADAS_AL_INVENTARIO,
                 "total_carpetas": 0,
                 "carpeta_mas_antigua": None,
@@ -685,6 +687,7 @@ def explorar_estructura_drive(
             antigua_hist, reciente_hist = _obtener_rango_fechas_carpetas(nombres_hist)
             resultado_contenedores["documentos_entrada"] = {
                 "id": historicos_id,
+                "existe": True,
                 "nombre": CARPETA_REPORTES_HISTORICOS,
                 "total_carpetas": len(subcarpetas_hist_info),
                 "carpeta_mas_antigua": antigua_hist,
@@ -696,6 +699,7 @@ def explorar_estructura_drive(
         else:
             resultado_contenedores["documentos_entrada"] = {
                 "id": None,
+                "existe": False,
                 "nombre": CARPETA_REPORTES_HISTORICOS,
                 "total_carpetas": 0,
                 "carpeta_mas_antigua": None,
@@ -708,15 +712,16 @@ def explorar_estructura_drive(
     if ubicacion in {"todas", "raiz"}:
         resultado_contenedores["raiz"] = {
             "id": raiz_id,
+            "carpetas_directas": sorted(carpetas_raiz, key=str.casefold),
             "otras_carpetas_en_raiz": sorted(otras_carpetas_raiz, key=str.casefold),
             "archivos_sueltos_en_raiz": sorted(archivos_sueltos_raiz, key=str.casefold),
         }
 
     total_en_entradas = (
-        resultado_contenedores.get("entradas_al_inventario", {}).get("total_carpetas", 0)
+        resultado_contenedores.get("entradas_al_inventario", {}).get("total_carpetas")
     )
     total_en_historicos = (
-        resultado_contenedores.get("documentos_entrada", {}).get("total_carpetas", 0)
+        resultado_contenedores.get("documentos_entrada", {}).get("total_carpetas")
     )
     todas_las_fechas = (
         resultado_contenedores.get("entradas_al_inventario", {}).get("nombres_carpetas", [])
@@ -736,12 +741,12 @@ def explorar_estructura_drive(
             "total_carpetas_en_documentos_entrada": total_en_historicos,
             "carpeta_mas_antigua_global": carpeta_mas_antigua_global,
             "carpeta_mas_reciente_global": carpeta_mas_reciente_global,
-            "otras_carpetas_en_raiz": len(otras_carpetas_raiz),
-            "archivos_sueltos_en_raiz": len(archivos_sueltos_raiz),
+            "otras_carpetas_en_raiz": len(otras_carpetas_raiz) if "raiz" in resultado_contenedores else None,
+            "archivos_sueltos_en_raiz": len(archivos_sueltos_raiz) if "raiz" in resultado_contenedores else None,
         },
         "mensaje": (
-            f"Estructura de Google Drive consultada: {total_en_entradas} carpeta(s) en "
-            f"ENTRADAS AL INVENTARIO y {total_en_historicos} carpeta(s) en DOCUMENTOS ENTRADA."
+            f"Estructura de Google Drive consultada: {ubicacion}. "
+            "Las ubicaciones no incluidas en contenedores no fueron consultadas."
             + (
                 f" La carpeta más reciente por fecha es '{carpeta_mas_reciente_global}'."
                 if carpeta_mas_reciente_global
