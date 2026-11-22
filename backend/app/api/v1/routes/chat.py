@@ -32,6 +32,7 @@ from app.schemas.chat import (
 )
 from app.services.almacen.excel import CARPETA_DATOS, NOMBRE_ARCHIVO_BASE
 from app.services.almacen.txt_aspel import NOMBRE_TXT_COMAS, NOMBRE_TXT_TABS
+from app.services.almacen.fuentes.google_drive_client import normalizar_fecha_reporte
 
 
 router = APIRouter()
@@ -285,6 +286,23 @@ def _memoria_grafo_tiene_mensajes(config: dict[str, Any]) -> bool:
         return True
 
 
+def _tabla_factores(factores: dict[str, dict[str, str]]) -> str:
+    columnas = ("PUBLICO", "MINIMO", "MOSTRADOR", "MAYOREO", "DISTRIBUIDOR")
+    filas = ["**Factores de precio actuales**", "", "| Factor | Público | Mínimo | Mostrador | Mayoreo | Distribuidor |", "| --- | --- | --- | --- | --- | --- |"]
+    for nombre, formulas in factores.items():
+        valores = [str(formulas.get(c, "—")).replace("{COSTEO}", "COSTO").replace("{PUBLICO}", "PUBLICO") for c in columnas]
+        filas.append("| " + nombre.replace("|", "\\|") + " | " + " | ".join(f"`{v}`" for v in valores) + " |")
+    filas.append("\n**Sin factor:** los precios se dejan en `0`.")
+    return "\n".join(filas)
+
+
+def _solicita_descarga(texto: str, formato: str) -> bool:
+    texto = texto.lower()
+    accion = re.search(r"\b(descarg\w*|baj\w*|env[ií]a\w*|dame|quiero|necesito|p[aá]same|obtener)\b", texto)
+    tipo = re.search(r"\b(txt|archivo de texto|tabulaciones|tabs|comas)\b" if formato == "txt" else r"\b(excel|xlsx|archivo de almac[eé]n|reporte)\b", texto)
+    return bool(accion and tipo)
+
+
 def _ejecutar_chat(request: ChatRequest, usuario_id: int | None = None) -> ChatResponse:
     """Ejecuta el grafo conversacional, construye el ChatResponse y lo persiste en BD."""
     mensajes_previos = _obtener_mensajes_previos_bd(request.session_id, usuario_id)
@@ -353,6 +371,19 @@ def _ejecutar_chat(request: ChatRequest, usuario_id: int | None = None) -> ChatR
     advertencia_xmls_sin_apoyo: str | None = None
     advertencia_productos_regalo: str | None = None
     bloqueado_por_confirmacion = False
+    factores_consultados = None
+    texto_usuario = request.mensaje.lower()
+    pide_reportes = bool(re.search(r"\b(reportes?|excel|xlsx)\b", texto_usuario))
+    pide_reciente = bool(re.search(r"\b([uú]ltim[oa]s?|m[aá]s recientes?|recientes?)\b", texto_usuario))
+    pide_txt = _solicita_descarga(request.mensaje, "txt")
+    pide_excel = _solicita_descarga(request.mensaje, "excel")
+    if not pide_txt and re.fullmatch(r"\s*(s[ií]|claro|ok|adelante|comas|tabulaciones|tabs)([ ,.!]*(por favor|comas|tabulaciones|tabs))*[.! ]*", texto_usuario):
+        previos = list(resultado["messages"])
+        for indice in range(len(previos) - 1, -1, -1):
+            if getattr(previos[indice], "type", None) == "human":
+                anterior = next((m for m in reversed(previos[:indice]) if getattr(m, "type", None) == "ai" and contenido_a_texto(m)), None)
+                pide_txt = bool(anterior and re.search(r"\b(txt|aspel)\b", contenido_a_texto(anterior), re.IGNORECASE) and "?" in contenido_a_texto(anterior))
+                break
     for mensaje in reversed(resultado["messages"]):
         tipo_mensaje = getattr(mensaje, "type", None)
         if tipo_mensaje == "human":
@@ -365,14 +396,31 @@ def _ejecutar_chat(request: ChatRequest, usuario_id: int | None = None) -> ChatR
             continue
         if datos.get("requiere_confirmacion") or datos.get("cancelado_por_usuario"):
             bloqueado_por_confirmacion = True
-        if datos.get("ok") and datos.get("tipo") == "busqueda_historica" and not reportes_historicos:
+        if datos.get("ok") and datos.get("tipo_consulta") == "catalogo_factores" and isinstance(datos.get("factores_disponibles"), dict) and re.search(r"\bfactores\b", texto_usuario):
+            factores_consultados = datos["factores_disponibles"]
+        if pide_reportes and datos.get("ok") and datos.get("tipo") == "busqueda_historica" and not reportes_historicos:
             lista_rep = datos.get("reportes", [])
+            fecha_solicitada = re.search(r"\b(?:\d{2}[-/]\d{2}[-/]\d{4}|\d{4}[-/]\d{2}[-/]\d{2})\b", request.mensaje)
+            if fecha_solicitada:
+                fecha_texto = fecha_solicitada.group()
+                if re.match(r"^\d{4}/", fecha_texto):
+                    fecha_texto = fecha_texto.replace("/", "-")
+                try:
+                    fecha_normalizada = normalizar_fecha_reporte(fecha_texto)
+                except ValueError:
+                    fecha_normalizada = None
+                lista_rep = [r for r in lista_rep if fecha_normalizada and r.get("fecha") == fecha_normalizada]
             if (
                 not datos.get("fecha")
                 and lista_rep
-                and re.search(r"\b(ultimo|último|reciente|recientes)\b", request.mensaje, re.IGNORECASE)
+                and pide_reciente
             ):
-                fecha_mas_reciente = lista_rep[0].get("fecha")
+                def fecha_orden(reporte):
+                    try:
+                        return datetime.strptime(reporte.get("fecha", ""), "%d-%m-%Y")
+                    except (ValueError, TypeError):
+                        return datetime.min
+                fecha_mas_reciente = max(lista_rep, key=fecha_orden).get("fecha")
                 lista_rep = [r for r in lista_rep if r.get("fecha") == fecha_mas_reciente]
             reportes_historicos = [
                 {
@@ -407,6 +455,16 @@ def _ejecutar_chat(request: ChatRequest, usuario_id: int | None = None) -> ChatR
         if datos.get("ok") and datos.get("reporte_generado") and datos.get("resumen"):
             archivo_almacen_url = "/api/v1/almacen/download"
 
+    if factores_consultados:
+        respuesta = _tabla_factores(factores_consultados)
+    if reportes_historicos and pide_reciente:
+        if re.search(r"\bcarpeta\b", texto_usuario):
+            fecha = reportes_historicos[0]["fecha"]
+            nombres = "\n".join(f"- **{reporte['nombre']}**" for reporte in reportes_historicos)
+            respuesta = f"La carpeta de reportes más reciente es **{fecha}**.\n\nReportes disponibles:\n\n{nombres}\n\nAquí tienes los reportes de esa carpeta por si los necesitas."
+        else:
+            respuesta += "\n\nAquí tienes los reportes de esa fecha por si los necesitas."
+
     resp_lower_check = respuesta.lower()
     ya_incluye_aviso_ubicacion = any(
         frase in resp_lower_check
@@ -435,7 +493,7 @@ def _ejecutar_chat(request: ChatRequest, usuario_id: int | None = None) -> ChatR
 
     if (
         advertencia_xmls_sin_apoyo
-        and "sin archivo de apoyo" not in respuesta.lower()
+        and not re.search(r"(?:sin|no ten[ií]an|no contaban con).{0,50}(?:archivo|txt|pdf|apoyo)", respuesta, re.IGNORECASE | re.DOTALL)
     ):
         respuesta = f"{respuesta}\n\n{advertencia_xmls_sin_apoyo}"
 
@@ -449,36 +507,26 @@ def _ejecutar_chat(request: ChatRequest, usuario_id: int | None = None) -> ChatR
     # Si la base física existe y el asistente la menciona o el usuario la pidió
     if (
         not bloqueado_por_confirmacion
-        and archivo_almacen_url is None
+        and archivo_almacen_url is None and pide_excel and not reportes_historicos
         and (CARPETA_DATOS / NOMBRE_ARCHIVO_BASE).is_file()
     ):
-        palabras_clave = ("descarg", "botón", "boton", "archivo excel", "plataforma", "portal")
-        if any(p in respuesta.lower() for p in palabras_clave):
-            archivo_almacen_url = "/api/v1/almacen/download"
+        archivo_almacen_url = "/api/v1/almacen/download"
 
     # Detectar si el asistente ofrece/menciona el TXT de salida para Aspel (evitando falsos positivos por "TXT de apoyo")
     archivo_txt_url = None
     resp_lower = respuesta.lower()
-    menciona_txt_aspel = any(
-        frase in resp_lower
-        for frase in (
-            "aspel",
-            "tabulacion",
-            "tabulación",
-            "separado por comas",
-            "separador de comas",
-            "descargar txt",
-            "descargar el txt",
-            "archivo txt de salida",
-        )
-    ) or (archivo_almacen_url is not None and "txt" in resp_lower)
-    if not bloqueado_por_confirmacion and menciona_txt_aspel:
-        if ("tabulacion" in resp_lower or "tabulación" in resp_lower) and (
+    if not bloqueado_por_confirmacion and pide_txt:
+        if re.search(r"tabulaci[oó]n|tabulaciones|\btabs\b", texto_usuario) and (
             CARPETA_DATOS / NOMBRE_TXT_TABS
         ).is_file():
             archivo_txt_url = "/api/v1/almacen/download/txt?separador=tabs"
         elif (CARPETA_DATOS / NOMBRE_TXT_COMAS).is_file():
             archivo_txt_url = "/api/v1/almacen/download/txt?separador=comas"
+
+    if bloqueado_por_confirmacion:
+        archivo_almacen_url = None
+        archivo_txt_url = None
+        reportes_historicos = []
 
     respuesta_final = ChatResponse(
         respuesta=respuesta,
