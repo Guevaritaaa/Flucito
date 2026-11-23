@@ -23,10 +23,13 @@ export interface ActividadChat {
 export interface ChatRequest {
   mensaje: string;
   session_id: string;
+  decisiones?: EnvioDecisiones;
 }
 
 export interface ChatResponse {
   respuesta: string;
+  interaccion?: InteraccionDecision | null;
+  revision_reporte?: RevisionReporte | null;
   archivo_almacen_url: string | null;
   archivo_txt_url: string | null;
   reportes_historicos: ReporteHistoricoItem[];
@@ -61,6 +64,8 @@ export interface MensajeChatOut {
   id: number;
   rol: "user" | "assistant" | string;
   contenido: string;
+  interaccion?: InteraccionDecision | null;
+  revision_reporte?: RevisionReporte | null;
   archivo_almacen_url: string | null;
   archivo_txt_url: string | null;
   reportes_historicos: ReporteHistoricoItem[];
@@ -75,4 +80,31 @@ export interface ConversacionDetalleOut {
   creada_en: string;
   actualizada_en: string;
   mensajes: MensajeChatOut[];
+}
+
+export const PRECIOS_FACTOR = ["PUBLICO", "MINIMO", "MOSTRADOR", "MAYOREO", "DISTRIBUIDOR"] as const;
+export type PrecioFactor = typeof PRECIOS_FACTOR[number];
+export interface PasoFactor { operacion: "*" | "/"; valor: number | string }
+export interface FilaFactor { base: "COSTEO" | "PUBLICO"; pasos: PasoFactor[] }
+export interface CamposDecision { nombre?: string; precios?: Record<PrecioFactor, FilaFactor>; ruta?: string }
+export interface RespuestaDecision { opcion: string; recordar: boolean; campos: CamposDecision }
+export interface PreguntaDecision {
+  id: string; tipo: string; titulo: string;
+  opciones: { id: string; titulo: string; descripcion: string }[];
+  contexto: Record<string, string | number | null>;
+  clave_preferencia: string | null; recordada?: boolean; costo_ejemplo?: number;
+}
+export interface InteraccionDecision {
+  id: string; revision: number; estado: "pendiente" | "ejecutando" | "aplicada" | "cancelada" | "error";
+  preguntas: PreguntaDecision[]; respuestas: Record<string, RespuestaDecision>;
+  permite_recordar: boolean; anteriores?: InteraccionDecision[];
+}
+export interface EnvioDecisiones {
+  interaccion_id: string; revision: number; respuestas: Record<string, RespuestaDecision>;
+  accion: "borrador" | "confirmar" | "cancelar";
+}
+export interface RevisionReporte {
+  id: string; version: number; nombre: string; estado: string;
+  pendientes: { producto: string; campos: string[] }[];
+  relacionados?: RevisionReporte[];
 }

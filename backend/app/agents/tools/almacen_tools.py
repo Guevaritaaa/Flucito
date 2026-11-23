@@ -50,6 +50,9 @@ NOMBRE_SESION_CONFIRMACION = "SESION_CONFIRMACION_PENDIENTE.json"
 
 
 def _cargar_sesion_confirmacion(carpeta_datos: Path) -> dict[str, Any]:
+    from app.services.contexto_decisiones import contexto
+    if contexto.get() is not None:
+        return dict(contexto.get().get("continuacion", {}))
     ruta = carpeta_datos / NOMBRE_SESION_CONFIRMACION
     if not ruta.is_file():
         return {}
@@ -61,6 +64,10 @@ def _cargar_sesion_confirmacion(carpeta_datos: Path) -> dict[str, Any]:
 
 
 def _guardar_sesion_confirmacion(carpeta_datos: Path, estado: dict[str, Any]) -> None:
+    from app.services.contexto_decisiones import contexto
+    if contexto.get() is not None:
+        contexto.get()["continuacion"] = estado
+        return
     try:
         carpeta_datos.mkdir(parents=True, exist_ok=True)
         ruta = carpeta_datos / NOMBRE_SESION_CONFIRMACION
@@ -70,6 +77,9 @@ def _guardar_sesion_confirmacion(carpeta_datos: Path, estado: dict[str, Any]) ->
 
 
 def _limpiar_sesion_confirmacion(carpeta_datos: Path) -> None:
+    from app.services.contexto_decisiones import contexto
+    if contexto.get() is not None:
+        return
     ruta = carpeta_datos / NOMBRE_SESION_CONFIRMACION
     try:
         if ruta.is_file():

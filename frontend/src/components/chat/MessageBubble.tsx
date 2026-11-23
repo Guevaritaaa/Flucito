@@ -6,12 +6,17 @@ import type { MensajeUI } from "../../hooks/useChat";
 import { descargarArchivo } from "../../services/almacenService";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { ActividadDesplegable } from "./ActividadDesplegable";
+import { DecisionCard, ReportRevisionCard } from "./DecisionCard";
+import type { EnvioDecisiones } from "../../schemas/chat";
 
 interface MessageBubbleProps {
   mensaje: MensajeUI;
+  sessionId?: string;
+  onDecision?: (texto: string, envio: EnvioDecisiones) => Promise<void>;
+  ocupado?: boolean;
 }
 
-export function MessageBubble({ mensaje }: MessageBubbleProps) {
+export function MessageBubble({ mensaje, sessionId, onDecision, ocupado }: MessageBubbleProps) {
   const [errorDescarga, setErrorDescarga] = useState("");
   const [descargando, setDescargando] = useState(false);
 
@@ -53,7 +58,7 @@ export function MessageBubble({ mensaje }: MessageBubbleProps) {
 
   return (
     <div className="flex flex-col items-start" data-role="assistant-message">
-      <div className="flex items-start gap-3 max-w-full">
+      <div className="flex min-w-0 items-start gap-3 max-w-full">
         {/* Avatar de Flucito 3D coherente con LoginView y Hero */}
         <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/90 dark:border-sky-300/30 bg-gradient-to-b from-sky-100 to-white dark:from-[#163870] dark:to-[#0a1936] shadow-[0_4px_12px_rgba(12,50,110,0.1)]">
           <img
@@ -67,7 +72,7 @@ export function MessageBubble({ mensaje }: MessageBubbleProps) {
 
         {/* Tarjeta de respuesta en cristal esmerilado de alta legibilidad */}
         <div
-          className={`max-w-[calc(100%-3rem)] sm:max-w-2xl rounded-2xl rounded-tl-sm px-5 py-4 space-y-3.5 backdrop-blur-xl ${
+          className={`min-w-0 max-w-[calc(100%_-_3rem)] sm:max-w-2xl rounded-2xl rounded-tl-sm px-5 py-4 space-y-3.5 backdrop-blur-xl ${
             mensaje.esError
               ? "border border-red-300/90 dark:border-red-700/50 bg-red-50/90 dark:bg-red-950/65 text-red-900 dark:text-red-200"
               : "border border-white/85 dark:border-sky-200/18 bg-white/78 dark:bg-[#0a1936]/82 text-slate-800 dark:text-slate-100 shadow-[0_10px_28px_rgba(12,50,110,0.07)] dark:shadow-[0_14px_34px_rgba(2,8,26,0.45)]"
@@ -85,6 +90,11 @@ export function MessageBubble({ mensaje }: MessageBubbleProps) {
           >
             <ChatMarkdown contenido={mensaje.contenido} />
           </div>
+          {mensaje.interaccion && sessionId && onDecision && <DecisionCard key={mensaje.interaccion.id} interaccion={mensaje.interaccion} sessionId={sessionId} onEnviar={onDecision} ocupado={ocupado} />}
+          {mensaje.revision_reporte && sessionId && <>
+            <ReportRevisionCard reporte={mensaje.revision_reporte} sessionId={sessionId} />
+            {mensaje.revision_reporte.relacionados?.map(r => <ReportRevisionCard key={r.id} reporte={r} sessionId={sessionId} />)}
+          </>}
 
           {/* Botones reales de descarga de archivos generados (Excel, TXT Aspel, Históricos) */}
           {tieneAdjuntos && (

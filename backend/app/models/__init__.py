@@ -19,8 +19,10 @@ from app.models.conversacion import (
     MensajeChat,
 )
 from app.models.usuario import Usuario
+from app.models.preferencia import PreferenciaDecision
 
 __all__ = [
+    "PreferenciaDecision",
     "Usuario",
     "Conversacion",
     "MensajeChat",

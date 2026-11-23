@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ActividadChat, ReporteHistoricoItem } from "../schemas/chat";
+import type { ActividadChat, ReporteHistoricoItem, InteraccionDecision, RevisionReporte, EnvioDecisiones } from "../schemas/chat";
 import {
   enviarMensajeChat,
   obtenerDetalleConversacion,
@@ -17,6 +17,8 @@ export interface MensajeUI {
   reportes_historicos?: ReporteHistoricoItem[];
   esError?: boolean;
   actividades?: ActividadChat[];
+  interaccion?: InteraccionDecision | null;
+  revision_reporte?: RevisionReporte | null;
 }
 
 function formatearHora(isoOrDate?: string | Date): string {
@@ -88,6 +90,8 @@ export function useChat({
           archivo_txt_url: m.archivo_txt_url,
           reportes_historicos: m.reportes_historicos ?? [],
           actividades: m.actividades ?? [],
+          interaccion: m.interaccion,
+          revision_reporte: m.revision_reporte,
         }));
         setMensajes(mapeados);
       })
@@ -121,7 +125,7 @@ export function useChat({
   }, [sessionId, existeEnHistorial]);
 
   const enviarMensaje = useCallback(
-    async (textoRaw: string) => {
+    async (textoRaw: string, decisiones?: EnvioDecisiones) => {
       const texto = textoRaw.trim();
       if (!texto || enviando) return;
 
@@ -147,6 +151,7 @@ export function useChat({
           {
             mensaje: texto,
             session_id: sessionId,
+            decisiones,
           },
           controller.signal,
           (progreso) => {
@@ -167,6 +172,8 @@ export function useChat({
           archivo_txt_url: respuesta.archivo_txt_url,
           reportes_historicos: respuesta.reportes_historicos ?? [],
           actividades: respuesta.actividades ?? [],
+          interaccion: respuesta.interaccion,
+          revision_reporte: respuesta.revision_reporte,
         };
 
         setMensajes((prev) => reanudando && prev.at(-1)?.contenido === msgAsistente.contenido ? prev : [...prev, msgAsistente]);
@@ -190,6 +197,7 @@ export function useChat({
             esError: true,
           },
         ]);
+        if (decisiones) throw err;
       } finally {
         if (abortControllerRef.current === controller) {
           setEnviando(false);
@@ -203,14 +211,14 @@ export function useChat({
     const pendiente = obtenerSolicitudPendiente(sessionId);
     if (pendiente && ultimaSesionCargadaRef.current === sessionId && !cargandoMensajes && !enviando && reanudadaRef.current !== pendiente.jobId) {
       reanudadaRef.current = pendiente.jobId;
-      void enviarMensaje(pendiente.mensaje);
+      void enviarMensaje(pendiente.mensaje, pendiente.decisiones).catch(() => {});
     }
   }, [sessionId, cargandoMensajes, enviando, enviarMensaje]);
 
   useEffect(() => {
     const reconectar = () => {
       const pendiente = obtenerSolicitudPendiente(sessionId);
-      if (pendiente && !enviando) void enviarMensaje(pendiente.mensaje);
+      if (pendiente && !enviando) void enviarMensaje(pendiente.mensaje, pendiente.decisiones).catch(() => {});
     };
     window.addEventListener("online", reconectar);
     return () => window.removeEventListener("online", reconectar);

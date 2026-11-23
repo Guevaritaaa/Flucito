@@ -14,6 +14,9 @@ def ejecutar_herramientas(state, herramientas, config=None):
     anteriores = {m.tool_call_id for m in state["messages"] if isinstance(m, ToolMessage)}
     if any(not isinstance(id, str) or not id for id in ids) or len(set(ids)) != len(ids) or anteriores.intersection(ids):
         raise ValueError("Las llamadas deben tener identificadores únicos; no se ejecutó el lote")
+    from app.services.contexto_decisiones import contexto
+    if contexto.get() is not None and contexto.get().get("interaccion"):
+        return {"messages": [ToolMessage(content='{"ok": false, "error": "Hay decisiones pendientes en la tarjeta. Espera la confirmación del usuario antes de continuar."}', tool_call_id=c["id"], name=c.get("name"), status="error") for c in llamadas]}
     validadas = []
     try:
         for llamada in llamadas:
@@ -43,6 +46,13 @@ def ejecutar_herramientas(state, herramientas, config=None):
                 datos = json.loads(salida.content)
                 if isinstance(datos, dict):
                     detener |= datos.get("ok") is False or bool(datos.get("requiere_confirmacion") or datos.get("cancelado_por_usuario"))
+                    if datos.get("requiere_confirmacion"):
+                        from app.services.contexto_decisiones import contexto
+                        from app.services.decisiones import registrar
+                        ctx = contexto.get()
+                        if ctx is not None:
+                            argumentos = ctx.get("continuacion") if llamada["name"] == "generar_entradas_almacen" else llamada["args"]
+                            ctx["interaccion"] = registrar(ctx["session_id"], ctx["usuario_id"], datos, llamada["name"], argumentos or llamada["args"])
             except (TypeError, ValueError):
                 pass
         salidas.append(salida)

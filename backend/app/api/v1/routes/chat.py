@@ -8,6 +8,7 @@ import time
 from typing import Any
 from urllib.parse import urlencode
 import uuid
+from copy import deepcopy
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
@@ -24,6 +25,7 @@ from app.core.config import settings
 from app.core.security import obtener_usuario_actual, obtener_usuario_opcional
 from app.models.conversacion import Conversacion, MensajeChat
 from app.models.usuario import Usuario
+from app.schemas.decisiones import EnvioDecisiones
 from app.schemas.chat import (
     ChatJobCreateResponse,
     ChatJobStatusResponse,
@@ -331,6 +333,8 @@ def _guardar_interaccion_en_bd(
                 )
             )
             metadatos = {
+                "interaccion": respuesta_chat.interaccion,
+                "revision_reporte": respuesta_chat.revision_reporte,
                 "archivo_almacen_url": respuesta_chat.archivo_almacen_url,
                 "archivo_txt_url": respuesta_chat.archivo_txt_url,
                 "reportes_historicos": respuesta_chat.reportes_historicos,
@@ -380,7 +384,7 @@ def _solicita_descarga(texto: str, formato: str) -> bool:
     return bool(accion and tipo)
 
 
-def _ejecutar_chat(request: ChatRequest, usuario_id: int | None = None) -> ChatResponse:
+def _ejecutar_chat_impl(request: ChatRequest, usuario_id: int | None = None) -> ChatResponse:
     """Ejecuta el grafo conversacional, construye el ChatResponse y lo persiste en BD."""
     mensajes_previos = _obtener_mensajes_previos_bd(request.session_id, usuario_id)
     actividad = ActividadHandler(getattr(_CONTEXTO_JOB, "job_id", None))
@@ -626,6 +630,16 @@ def _ejecutar_chat(request: ChatRequest, usuario_id: int | None = None) -> ChatR
         reportes_historicos=reportes_historicos,
         actividades=actividad.actividades,
     )
+    from app.services.contexto_decisiones import contexto
+    ctx = contexto.get()
+    if ctx and ctx.get("interaccion"):
+        respuesta_final.interaccion = ctx["interaccion"]
+        respuesta_final.respuesta = "Revisa las opciones y tus decisiones antes de continuar."
+    from app.services.revision_reportes import revision_actual
+    respuesta_final.revision_reporte = revision_actual(CARPETA_DATOS / NOMBRE_ARCHIVO_BASE, request.session_id, usuario_id)
+    if respuesta_final.revision_reporte and respuesta_final.revision_reporte.get("pendientes"):
+        respuesta_final.archivo_txt_url = None
+        respuesta_final.respuesta += "\n\nLos precios quedarán vacíos para su llenado manual. En cuanto los rellenes, avísame para validar el reporte y generar el TXT."
     _guardar_interaccion_en_bd(
         session_id=request.session_id,
         usuario_id=usuario_id,
@@ -633,6 +647,111 @@ def _ejecutar_chat(request: ChatRequest, usuario_id: int | None = None) -> ChatR
         respuesta_chat=respuesta_final,
     )
     return respuesta_final
+
+
+def _ejecutar_chat(request: ChatRequest, usuario_id: int | None = None) -> ChatResponse:
+    from app.services.contexto_decisiones import contexto
+    from app.services import decisiones as servicio
+    Base.metadata.create_all(engine)
+    with SessionLocal() as db:
+        servicio.verificar_dueno(db, request.session_id, usuario_id)
+    ctx = {"session_id": request.session_id, "usuario_id": usuario_id}
+    token = contexto.set(ctx)
+    try:
+        pendiente = servicio.leer(request.session_id, usuario_id)
+        if request.decisiones:
+            return _continuar_decisiones(request, usuario_id)
+        if pendiente and pendiente["interaccion"]["estado"] in {"pendiente", "ejecutando"}:
+            envio = servicio.respuesta_textual(pendiente, request.mensaje) if pendiente["interaccion"]["estado"] == "pendiente" else None
+            if envio:
+                pendiente = servicio.guardar_envio(request.session_id, usuario_id, envio)
+            respuesta = ChatResponse(respuesta="Actualicé tu selección. Revisa el resumen y pulsa Aplicar decisiones y continuar." if envio else "Hay decisiones pendientes. Selecciona las opciones de la tarjeta o indica claramente la respuesta que deseas cambiar.", interaccion=pendiente["interaccion"])
+            _guardar_interaccion_en_bd(session_id=request.session_id, usuario_id=usuario_id, mensaje_usuario=request.mensaje, respuesta_chat=respuesta)
+            return respuesta
+        from app.services.revision_reportes import revision_actual
+        revision = revision_actual(CARPETA_DATOS / NOMBRE_ARCHIVO_BASE, request.session_id, usuario_id)
+        if revision and (revision["pendientes"] or revision.get("relacionados")) and re.search(r"(ya\b.*\b(llen|complet|correg)|\btxt\b)", request.mensaje, re.IGNORECASE):
+            respuesta = ChatResponse(respuesta="Adjunta el Excel corregido en la tarjeta y pulsa Validar y generar TXT. Revisaré los precios antes de generar los archivos.", revision_reporte=revision)
+            _guardar_interaccion_en_bd(session_id=request.session_id, usuario_id=usuario_id, mensaje_usuario=request.mensaje, respuesta_chat=respuesta)
+            return respuesta
+        return _ejecutar_chat_impl(request, usuario_id)
+    finally:
+        contexto.reset(token)
+
+
+def _continuar_decisiones(request, uid):
+    from app.services import decisiones as servicio
+    from app.services.contexto_decisiones import contexto
+    from app.agents.tools import HERRAMIENTAS
+    from app.services.revision_reportes import revision_actual
+    actividad = ActividadHandler(getattr(_CONTEXTO_JOB, "job_id", None))
+    estado = servicio.guardar_envio(request.session_id, uid, request.decisiones)
+    i = estado["interaccion"]
+    if request.decisiones.accion == "borrador":
+        return ChatResponse(respuesta="Borrador guardado.", interaccion=i)
+    if request.decisiones.accion == "cancelar":
+        respuesta = ChatResponse(respuesta="Operación cancelada.", interaccion=i)
+    else:
+        try:
+            args, cancelar = servicio.traducir(estado)
+            if cancelar:
+                i["estado"] = "cancelada"
+                with SessionLocal() as db:
+                    from app.models.conversacion import ConfirmacionPendiente
+                    fila = db.scalar(select(ConfirmacionPendiente).where(ConfirmacionPendiente.conversacion_id == request.session_id))
+                    fila.datos_json = json.dumps(estado, ensure_ascii=False)
+                    db.commit()
+                respuesta = ChatResponse(respuesta="Operación cancelada; no se ejecutaron las decisiones.", interaccion=i)
+            else:
+                contexto.get()["continuacion"] = args
+                herramienta = next(h for h in HERRAMIENTAS if h.name == estado["herramienta"])
+                resultado = servicio.revalidar_aprobacion(estado, args)
+                if resultado is None:
+                    resultado = json.loads(herramienta.invoke(args, config={"callbacks": [actividad]}))
+                fallo = resultado.get("ok") is False and not resultado.get("requiere_confirmacion")
+                servicio.finalizar(request.session_id, uid, estado, resultado, error=fallo)
+                siguiente = None
+                if resultado.get("requiere_confirmacion"):
+                    anteriores = [*i.get("anteriores", []), {k: deepcopy(v) for k, v in i.items() if k != "anteriores"}]
+                    siguiente = servicio.registrar(request.session_id, uid, resultado, herramienta.name, contexto.get().get("continuacion", args), anteriores)
+                revision = revision_actual(CARPETA_DATOS / NOMBRE_ARCHIVO_BASE, request.session_id, uid)
+                reporte = resultado.get("reporte_generado") is True
+                texto = "Revisa las siguientes decisiones para continuar." if siguiente else resultado.get("mensaje") or ("Las decisiones se aplicaron y el reporte está listo." if reporte else "Las decisiones se aplicaron." if not fallo else resultado.get("error", "No se pudo completar la operación."))
+                if reporte:
+                    resumen = resultado.get("resumen", {})
+                    total = resumen.get("total_productos_acumulados", resumen.get("total_productos"))
+                    if total is not None:
+                        texto += f" El reporte contiene {total} productos."
+                avisos = [resultado.get(k) for k in ("advertencia_ubicacion", "advertencia_xmls_sin_apoyo", "advertencia_productos_regalo") if isinstance(resultado.get(k), str)]
+                if avisos:
+                    texto += "\n\n" + "\n\n".join(avisos)
+                if revision and revision.get("pendientes"):
+                    texto += "\n\nLos precios quedarán vacíos para su llenado manual. En cuanto los rellenes, avísame para validar el reporte y generar el TXT."
+                respuesta = ChatResponse(respuesta=texto, interaccion=siguiente or i, revision_reporte=revision,
+                    actividades=actividad.actividades,
+                    archivo_almacen_url="/api/v1/almacen/download" if reporte else None,
+                    archivo_txt_url="/api/v1/almacen/download/txt" if reporte and not (revision and revision.get("pendientes")) else None)
+        except Exception:
+            servicio.finalizar(request.session_id, uid, estado, {}, error=True)
+            respuesta = ChatResponse(respuesta="La operación se interrumpió. Revisa su resultado antes de iniciar otra; no se repetirá automáticamente.", interaccion=i, actividades=actividad.actividades)
+            logger.exception("Error al aplicar decisiones %s", i["id"])
+    # La continuación directa también debe quedar en la memoria del grafo.
+    config = {"configurable": {"thread_id": request.session_id}}
+    if callable(getattr(grafo, "update_state", None)) and _memoria_grafo_tiene_mensajes(config):
+        try:
+            grafo.update_state(config, {"messages": [HumanMessage(content=request.mensaje), AIMessage(content=respuesta.respuesta)]})
+        except Exception:
+            logger.warning("No se pudo actualizar la memoria del grafo tras confirmar decisiones", exc_info=True)
+    _guardar_interaccion_en_bd(session_id=request.session_id, usuario_id=uid, mensaje_usuario=request.mensaje, respuesta_chat=respuesta)
+    return respuesta
+
+
+@router.put("/chat/conversaciones/{session_id}/decisiones")
+def guardar_borrador_decisiones(session_id: str, envio: EnvioDecisiones, usuario_actual: Usuario | None = Depends(obtener_usuario_opcional)):
+    from app.services.decisiones import guardar_envio
+    if envio.accion != "borrador":
+        raise HTTPException(422, "Este endpoint solo guarda borradores.")
+    return guardar_envio(session_id, getattr(usuario_actual, "id", None), envio)["interaccion"]
 
 
 def _trabajador_chat(job_id: str, request: ChatRequest, usuario_id: int | None = None) -> None:
@@ -806,6 +925,8 @@ def obtener_detalle_conversacion(
         )
 
     mensajes_out: list[MensajeChatOut] = []
+    from app.services.decisiones import leer
+    decision_actual = leer(session_id, usuario_actual.id)
     for msg in conv.mensajes:
         meta: dict[str, Any] = {}
         if msg.metadatos_json:
@@ -818,6 +939,8 @@ def obtener_detalle_conversacion(
                 id=msg.id,
                 rol=msg.rol,
                 contenido=msg.contenido,
+                interaccion=(decision_actual["interaccion"] if decision_actual and (meta.get("interaccion") or {}).get("id") == decision_actual["interaccion"]["id"] else meta.get("interaccion")),
+                revision_reporte=meta.get("revision_reporte"),
                 archivo_almacen_url=meta.get("archivo_almacen_url"),
                 archivo_txt_url=meta.get("archivo_txt_url"),
                 reportes_historicos=meta.get("reportes_historicos") or [],

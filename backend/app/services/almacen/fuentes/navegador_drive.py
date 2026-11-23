@@ -1110,11 +1110,13 @@ def mover_elemento_por_ruta(
     if not ruta_destino or not ruta_destino.strip():
         raise ValueError("Debes indicar 'ruta_destino' (la carpeta hacia donde se moverá).")
 
+    parametro = "ruta_origen"
     try:
         origen = resolver_para_movimiento(cliente, ruta_origen, raiz_id)
+        parametro = "ruta_destino"
         destino = resolver_para_movimiento(cliente, ruta_destino, raiz_id)
     except RutaAmbigua as error:
-        return {"ok": False, "requiere_confirmacion": True, "candidatos": error.candidatos,
+        return {"ok": False, "requiere_confirmacion": True, "candidatos": error.candidatos, "parametro": parametro,
                 "mensaje": "Hay varias coincidencias. Elige la carpeta por su ID antes de mover nada."}
     if not destino["es_carpeta"]:
         raise ValueError("El destino debe ser una carpeta existente")
@@ -1243,7 +1245,8 @@ def eliminar_elemento_por_ruta(
     if not ruta_objetivo or not ruta_objetivo.strip():
         raise ValueError("Debes indicar 'ruta_objetivo' de la carpeta o archivo a eliminar.")
 
-    objetivo = resolver_ruta_drive(cliente, ruta_objetivo, carpeta_raiz_id=raiz_id)
+    objetivo = (resolver_para_movimiento(cliente, ruta_objetivo, raiz_id) if ruta_objetivo.startswith("id:")
+                else resolver_ruta_drive(cliente, ruta_objetivo, carpeta_raiz_id=raiz_id))
 
     if objetivo["id"] == raiz_id or objetivo["nombre"] in {
         CARPETA_ENTRADAS_AL_INVENTARIO,
@@ -1273,6 +1276,8 @@ def eliminar_elemento_por_ruta(
                 "eliminado": False,
                 "ruta_objetivo": objetivo["ruta_completa"],
                 "total_elementos_internos": len(nombres_internos),
+                "objetivo_id": objetivo["id"],
+                "contenido_ids": sorted(str(a.get("id", "")) for a in contenido_interno),
                 "archivos_encontrados": nombres_internos,
                 "mensaje": (
                     f"La carpeta '{objetivo['ruta_completa']}' contiene {len(nombres_internos)} "

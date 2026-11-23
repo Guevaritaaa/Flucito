@@ -98,7 +98,8 @@ def restaurar_carpetas(rutas, cliente=None, carpeta_raiz_id=None):
     except RutaAmbigua as error:
         emitir_paso(busqueda_id, "buscar", "pendiente_verificar")
         return {"ok": False, "tipo": "restablecer_carpeta", "requiere_confirmacion": True,
-                "candidatos": error.candidatos, "mensaje": "Elige la carpeta por ruta completa o id:ID. No se modifico ninguna carpeta."}
+                "continuacion": {"herramienta": "gestionar_archivos_drive", "argumentos": {"accion": "restablecer_carpeta", "rutas_origen": list(rutas)}},
+                "candidatos": error.candidatos, "ruta_ambigua": ruta, "mensaje": "Elige la carpeta por ruta completa o id:ID. No se modifico ninguna carpeta."}
 
     except Exception:
         emitir_paso(busqueda_id, "buscar", "error")

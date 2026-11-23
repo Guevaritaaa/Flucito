@@ -120,7 +120,7 @@ async function ejecutarMensajeChat(
 ): Promise<ChatResponse> {
   const pendiente = obtenerSolicitudPendiente(payload.session_id);
   let jobId: string | undefined = pendiente?.jobId;
-  if (pendiente && pendiente.mensaje !== payload.mensaje) throw new Error("Hay una solicitud en curso. Espera su resultado antes de enviar otra.");
+  if (pendiente && (pendiente.mensaje !== payload.mensaje || JSON.stringify(pendiente.decisiones) !== JSON.stringify(payload.decisiones))) throw new Error("Hay una solicitud en curso. Espera su resultado antes de enviar otra.");
   try {
     if (!jobId) {
       const inicio = await iniciarChatAsync(payload, signal);

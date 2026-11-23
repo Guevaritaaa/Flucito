@@ -101,8 +101,8 @@ export function ChatWorkspace({
                 </div>
               ) : (
                 <>
-                  {mensajes.map((msg) => (
-                    <MessageBubble key={msg.id} mensaje={msg} />
+                  {mensajes.map((msg, index) => (
+                    <MessageBubble key={msg.id} mensaje={{ ...msg, interaccion: msg.interaccion && mensajes.slice(index + 1).some(m => m.interaccion?.id === msg.interaccion?.id || m.interaccion?.anteriores?.some(a => a.id === msg.interaccion?.id)) ? null : msg.interaccion }} sessionId={sessionId} onDecision={enviarMensaje} ocupado={enviando} />
                   ))}
                   {enviando && <FlucitoLoadingBubble actividades={actividades} etapa={etapa} textoProvisional={textoProvisional} />}
                 </>
