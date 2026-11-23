@@ -495,6 +495,9 @@ def subir_archivo(cliente: Any, ruta: Path, carpeta_id: str) -> str:
     )
     archivo_id = archivo["id"]
     _PADRES_CACHE[archivo_id] = carpeta_id
+    if ruta.suffix.lower() == ".xlsx":
+        from app.services.revision_reportes import asociar_drive
+        asociar_drive(ruta, archivo_id, carpeta_id)
     return archivo_id
 
 

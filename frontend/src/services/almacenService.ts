@@ -27,7 +27,8 @@ export function resolverUrlDescarga(rutaRelativa: string): string {
 export async function descargarArchivo(ruta: string, nombre: string): Promise<void> {
   const url = new URL(resolverUrlBackend(ruta));
   const apiBase = new URL(API_V1_PREFIX, window.location.origin);
-  if (url.origin !== apiBase.origin || !["", "/txt", "/historico"].some((sufijo) => url.pathname === `${apiBase.pathname}/almacen/download${sufijo}`)) {
+  const esRevision = new RegExp(`^${apiBase.pathname}/almacen/reportes/[a-f0-9]{32}/archivo$`).test(url.pathname);
+  if (url.origin !== apiBase.origin || (!esRevision && !["", "/txt", "/historico"].some((sufijo) => url.pathname === `${apiBase.pathname}/almacen/download${sufijo}`))) {
     throw new Error("La dirección de descarga no es válida.");
   }
 

@@ -20,6 +20,10 @@ def generar_txt(df: pd.DataFrame, carpeta: str, separador: str, nombre: str) -> 
     """Escribe DataFrame como TXT con separador dado. Devuelve ruta del archivo."""
     os.makedirs(carpeta, exist_ok=True)
     ruta = os.path.join(carpeta, nombre)
+    precios = [c for c in ("PRECIO COMPRA", "PUBLICO", "MINIMO", "MOSTRADOR", "MAYOREO", "DISTRIBUIDOR") if c in df.columns]
+    if precios and df[precios].isna().any().any():
+        Path(ruta).unlink(missing_ok=True)
+        return ""
     
     # Copia para no alterar el df original
     df_export = df.copy()

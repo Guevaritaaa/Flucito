@@ -444,6 +444,12 @@ def _fila_desde_concepto(
             divisor_metros = None
 
     precios = calcular_precios_numericos(factor_nombre, precio_compra)
+    manual = bool(decision_rollo.get("manual"))
+    if manual:
+        clave_unidad = c["clave_unidad"]
+        precio_compra = None
+        divisor_metros = None
+        precios = {p: None for p in ("PUBLICO", "MINIMO", "MOSTRADOR", "MAYOREO", "DISTRIBUIDOR")}
 
     if meta_por_clave is not None and clave_articulo:
         _combinar_meta_por_clave(
@@ -451,6 +457,7 @@ def _fila_desde_concepto(
             {
                 str(clave_articulo): {
                     "factor": factor_nombre,
+                    "manual": manual or factor_nombre == "LLENADO_MANUAL",
                     "precio_compra": float(precio_compra or 0.0),
                     "precio_compra_bruto": precio_compra_bruto if divisor_metros else None,
                     "divisor_metros": divisor_metros,
@@ -584,6 +591,13 @@ def _cargar_base_existente(ruta: str) -> pd.DataFrame:
     df = pd.read_excel(ruta, header=0)
     if df.empty:
         return df
+    from app.services.revision_reportes import id_archivo, cargar
+    revision_id = id_archivo(ruta)
+    if revision_id:
+        revision = cargar(revision_id, verificar=False)
+        df = df.reindex(columns=COLUMNAS_ASPEL)
+        df.attrs["meta_por_clave"] = revision.get("meta_por_clave", {})
+        return df
     _normalizar_tipos_columnas_precios(df)
 
     # Si openpyxl guardó fórmulas sin caché de Excel, recalculamos los valores numéricos
@@ -712,6 +726,10 @@ def actualizar_precios_reporte_existente(
 
     También regenera los archivos TXT (_COMAS.txt y _TABS.txt) y opcionalmente el JSON de resumen.
     """
+    from app.services.revision_reportes import id_archivo
+    if id_archivo(ruta_excel):
+        return {"actualizado": False, "filas_actualizadas": 0, "total_filas": 0, "ruta": ruta_excel,
+                "mensaje": "Este reporte usa revisión de precios. Usa la tarjeta de validación para conservar sus decisiones."}
     if not os.path.isfile(ruta_excel):
         return {
             "actualizado": False,
@@ -1129,6 +1147,8 @@ def guardar_en_base_acumulada(
 
     # Generar TXT para importación Aspel SAE (comas y tabulaciones) con valores numéricos
     generar_ambos_txt(combinado, carpeta, prefijo)
+    from app.services.revision_reportes import registrar_reporte
+    registrar_reporte(Path(ruta), meta_combinada)
 
     return ruta
 

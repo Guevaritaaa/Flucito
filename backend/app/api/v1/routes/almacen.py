@@ -57,8 +57,10 @@ def descargar_base_almacen() -> FileResponse:
 
 
 @router.get("/download/txt", summary="Descarga TXT de entradas (comas por defecto)")
-def descargar_txt_almacen(separador: str = "comas") -> FileResponse:
+def descargar_txt_almacen(separador: str = "comas", usuario_actual: Usuario | None = Depends(obtener_usuario_opcional)) -> FileResponse:
     """Entrega TXT con comas o tabulaciones según parámetro `separador`."""
+    from app.services.revision_reportes import verificar_txt
+    verificar_txt(CARPETA_DATOS / NOMBRE_ARCHIVO_BASE, getattr(usuario_actual, "id", None))
     if separador == "tabs":
         nombre = NOMBRE_TXT_TABS
     else:
@@ -120,6 +122,44 @@ def descargar_reporte_historico(fecha: str, archivo_id: str) -> FileResponse:
         filename=destino.name,
         background=BackgroundTask(shutil.rmtree, directorio, ignore_errors=True),
     )
+
+
+@router.get("/reportes/{reporte_id}")
+def estado_revision(reporte_id: str, session_id: str, usuario_actual: Usuario | None = Depends(obtener_usuario_opcional)):
+    from app.services.revision_reportes import cargar, publico
+    return publico(cargar(reporte_id, session_id, getattr(usuario_actual, "id", None)))
+
+
+@router.get("/reportes/{reporte_id}/archivo")
+def descargar_revision(reporte_id: str, session_id: str, formato: str = "xlsx", usuario_actual: Usuario | None = Depends(obtener_usuario_opcional)):
+    from app.services.revision_reportes import cargar, directorio
+    meta = cargar(reporte_id, session_id, getattr(usuario_actual, "id", None))
+    if formato == "xlsx":
+        ruta = directorio() / (reporte_id + ".xlsx")
+        nombre = meta["nombre"]
+    elif formato in {"comas", "tabs"}:
+        if meta["pendientes"] or meta["estado"] != "validado":
+            raise HTTPException(409, "Primero valida los precios del reporte corregido.")
+        nombre = Path(meta["nombre"]).stem + "_" + ("COMAS" if formato == "comas" else "TABS") + ".txt"
+        ruta = directorio() / reporte_id / nombre
+    else:
+        raise HTTPException(422, "Formato no válido.")
+    if not ruta.is_file():
+        raise HTTPException(404, "El archivo ya no está disponible.")
+    return FileResponse(ruta, filename=nombre)
+
+
+@router.post("/reportes/{reporte_id}/validar")
+async def validar_revision(reporte_id: str, session_id: str, archivo: UploadFile = File(...), usuario_actual: Usuario | None = Depends(obtener_usuario_opcional)):
+    from app.services.revision_reportes import cargar, validar_corregido
+    uid = getattr(usuario_actual, "id", None)
+    cargar(reporte_id, session_id, uid)
+    if Path(archivo.filename or "").suffix.lower() != ".xlsx":
+        raise HTTPException(422, "Adjunta el reporte corregido en formato .xlsx.")
+    contenido = await archivo.read(MAX_BYTES + 1)
+    if len(contenido) > MAX_BYTES:
+        raise HTTPException(413, "El archivo supera 20 MB.")
+    return await run_in_threadpool(validar_corregido, reporte_id, contenido, uid)
 
 
 @router.post("/upload", summary="Sube documentos de facturas a Google Drive")
