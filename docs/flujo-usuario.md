@@ -113,6 +113,48 @@ Archivos no reconocidos o documentos homónimos se conservan y requieren revisi�
 
 ## 6. Descargar el Excel
 
+### Resolver las decisiones del asistente
+
+Cuando Flucito necesita una elección, muestra una tarjeta dentro del chat. Cada opción
+explica qué ocurrirá. Puedes elegir un factor, crear uno mediante la tabla de precios,
+decidir sobre metros/unidades, resolver documentos incompletos o seleccionar una carpeta.
+
+Las respuestas se guardan como borrador. **Cambiar respuesta** reabre cada pregunta.
+**Aplicar decisiones y continuar** confirma el resumen; **Cancelar operación** abandona
+la solicitud. Si la revisión descubre nuevas preguntas para el reporte, conserva las
+respuestas anteriores y permite modificarlas antes de generarlo. También puedes escribir
+respuestas claras, por ejemplo «Para DAYCO quiero aplicar FESTO»; una respuesta ambigua
+no autoriza cambios y el asistente solicita aclaración.
+
+**Recordar esta elección para mi usuario** guarda preferencias personales al confirmar.
+No cambia el catálogo compartido ni autoriza automáticamente eliminaciones. Las
+preferencias recuperadas aparecen señaladas y se pueden modificar. Desmarcar la casilla
+al confirmar elimina la preferencia correspondiente. Para metros, una longitud o unidad
+diferente vuelve a requerir elección.
+
+### Completar precios manualmente y generar el TXT
+
+Al elegir llenado manual, Flucito deja las celdas de precios vacías, las marca en el Excel
+y mantiene bloqueados los TXT de ese reporte. Para metros se conservan la unidad original
+y los seis precios vacíos; para una línea sin factor quedan vacíos los cinco de venta.
+
+1. Pulsa **Descargar Excel para llenar** en la tarjeta del reporte.
+2. Completa los precios pendientes con valores numéricos positivos. Conserva los productos,
+   las demás columnas y los identificadores ocultos del libro.
+3. Adjunta el `.xlsx` en **Subir Excel corregido** y pulsa **Validar y generar TXT**.
+4. Corrige los errores que se indiquen por producto y campo. Si todo es válido, podrás
+   descargar el Excel validado y ambos TXT. Los reportes relacionados del mismo lote se
+   actualizan cuando sus productos y datos originales coinciden; cualquier reporte que
+   siga pendiente conserva su propia tarjeta de validación.
+
+Avisar «ya lo llené» muestra la tarjeta de carga: Flucito necesita revisar el archivo
+corregido antes de generar el TXT. Esta carga es independiente de la carga de facturas.
+
+Los borradores y preferencias se guardan en la base de datos. Las versiones verificables
+del Excel se conservan en `ALMACEN_CARPETA_DATOS/.revisiones`; ese directorio requiere
+almacenamiento persistente para sobrevivir a reinicios o reemplazos de una instancia con
+disco efímero. Un reporte asociado a Drive se sincroniza antes de habilitar su TXT.
+
 Cuando el reporte termina, el asistente muestra un enlace de descarga. También puede descargarse mediante:
 
 ```text
