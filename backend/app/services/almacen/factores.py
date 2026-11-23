@@ -363,6 +363,11 @@ def normalizar_eleccion_factor(eleccion: str | int | None) -> str | None:
     """Convierte un número (1..9) o nombre de factor en la clave oficial del catálogo."""
     if eleccion is None:
         return None
+    if isinstance(eleccion, str) and eleccion.startswith("CUSTOM:"):
+        plantillas_factor(eleccion)
+        return eleccion
+    if eleccion == "LLENADO_MANUAL":
+        return eleccion
     nombres = list(CATALOGO_FACTORES.keys())
     if isinstance(eleccion, int):
         if 1 <= eleccion <= len(nombres):
@@ -578,12 +583,51 @@ def detectar_rollo_metros(
     }
 
 
+def evaluar_aritmetica(plantilla: str, costeo: float, publico: float = 0.0) -> float:
+    import ast
+    import math
+    import operator
+    expresion = plantilla.replace("{COSTEO}", repr(float(costeo))).replace("{PUBLICO}", repr(float(publico)))
+    if len(expresion) > 3000:
+        raise ValueError("Expresión demasiado larga")
+    operaciones = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv}
+    def evaluar(n):
+        if isinstance(n, ast.Constant) and type(n.value) in (int, float):
+            return float(n.value)
+        if isinstance(n, ast.BinOp) and type(n.op) in operaciones:
+            return operaciones[type(n.op)](evaluar(n.left), evaluar(n.right))
+        if isinstance(n, ast.UnaryOp) and isinstance(n.op, (ast.UAdd, ast.USub)):
+            return evaluar(n.operand) * (-1 if isinstance(n.op, ast.USub) else 1)
+        raise ValueError("La fórmula solo admite aritmética numérica")
+    valor = evaluar(ast.parse(expresion, mode="eval").body)
+    if not math.isfinite(valor):
+        raise ValueError("Resultado no finito")
+    return valor
+
+
+def plantillas_factor(nombre):
+    if nombre and nombre.startswith("CUSTOM:"):
+        import re
+        datos = json.loads(nombre[7:])
+        formulas = datos["formulas"]
+        if set(formulas) != set(COLUMNAS_FACTORES):
+            raise ValueError("Faltan precios del factor")
+        for precio, formula in formulas.items():
+            if not isinstance(formula, str) or len(formula) > 2000:
+                raise ValueError("Fórmula inválida")
+            limpia = formula.replace("{COSTEO}", "100").replace("{PUBLICO}", "100")
+            if not re.fullmatch(r"[0-9.eE+*/()\s-]+", limpia):
+                raise ValueError("La fórmula solo admite aritmética")
+            if precio == "PUBLICO" and "{PUBLICO}" in formula:
+                raise ValueError("Público no puede depender de sí mismo")
+            evaluar_aritmetica(formula, 100, 100)
+        return formulas
+    return CATALOGO_FACTORES.get(nombre.strip().upper()) if nombre else None
+
+
 def _evaluar_plantilla(plantilla: str, costeo: float, publico: float = 0.0) -> float:
     """Evalúa de forma segura una plantilla aritmética de factor de precios."""
-    expresion = plantilla.replace("{COSTEO}", repr(float(costeo))).replace(
-        "{PUBLICO}", repr(float(publico))
-    )
-    return float(eval(expresion, {"__builtins__": {}}, {}))  # noqa: S307
+    return evaluar_aritmetica(plantilla, costeo, publico)
 
 
 def calcular_precios_numericos(
@@ -593,10 +637,12 @@ def calcular_precios_numericos(
 ) -> dict[str, float]:
     """Calcula los 5 precios numéricos (para DataFrame y exportación TXT de Aspel SAE)."""
     ceros = {columna: 0.0 for columna in COLUMNAS_FACTORES}
+    if factor_nombre == "LLENADO_MANUAL":
+        return {columna: None for columna in COLUMNAS_FACTORES}
     if not factor_nombre or factor_nombre == SIN_FACTOR:
         return ceros
 
-    plantillas = CATALOGO_FACTORES.get(factor_nombre.strip().upper())
+    plantillas = plantillas_factor(factor_nombre)
     if not plantillas or precio_compra is None:
         return ceros
 
@@ -639,7 +685,7 @@ def generar_formulas_fila(
     if not factor_nombre or factor_nombre == SIN_FACTOR:
         return formulas
 
-    plantillas = CATALOGO_FACTORES.get(factor_nombre.strip().upper())
+    plantillas = plantillas_factor(factor_nombre)
     if not plantillas:
         return formulas
 
