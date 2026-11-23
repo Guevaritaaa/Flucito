@@ -35,6 +35,21 @@ def _compactar_codigo(codigo: str | None) -> str:
     return re.sub(r"[\s\-_]+", "", str(codigo).strip().upper())
 
 
+def firma_descripcion_dimensional(descripcion: str | None) -> str:
+    """Agrupa medidas de una misma descripción conservando material, acabado y modelo."""
+    texto = str(descripcion or "").upper()
+    texto = re.sub(r"(\d+)\s*MTS\.\s+\S+/\S+.*$", r"\1 MTS.", texto)
+    # Normalizar dimensiones, dejando intactos grados como G-2, A2 y 304.
+    medida = r"\d+(?:[./]\d+)*(?:-\d+)?"
+    texto, pares = re.subn(rf"(?<![\w-]){medida}\s*X\s*{medida}(?!\w)", "# X #", texto)
+    texto, simples = re.subn(rf'(?<![\w-]){medida}(?=\s*"|\s*$)', "#", texto)
+    if not (pares or simples) or len(re.findall(r"[A-Z]{2,}", texto)) < 2:
+        return ""
+    texto = re.sub(r"\bGALVANIZAD[AO]\b", "GALV", texto)
+    texto = re.sub(r"\b(NC|NF)\s+GALV\b", r"GALV \1", texto)
+    return " ".join(texto.replace(".", " ").split())
+
+
 def obtener_ruta_catalogo_sae() -> Path | None:
     """Resuelve la ruta de `catalogo_sae.json` desde variable de entorno o rutas por defecto."""
     env_path = os.getenv("CATALOGO_SAE_PATH", "").strip()
@@ -64,6 +79,7 @@ def _cargar_raw_desde_bd() -> dict[str, Any] | None:
             SaeHistorialCompra,
             SaeLinea,
             SaeProveedor,
+            SaeResumenCompra,
         )
 
         with SessionLocal() as db:
@@ -86,12 +102,12 @@ def _cargar_raw_desde_bd() -> dict[str, Any] | None:
                 if prov.rfc:
                     rfc_a_proveedor.setdefault(prov.rfc.upper(), []).append(prov.clave_proveedor)
 
-            claves_alternas: dict[str, dict[str, Any]] = {}
+            claves_alternas: dict[str, list[dict[str, Any]]] = {}
             for alt in db.scalars(select(SaeClaveAlterna)).all():
-                claves_alternas[alt.clave_alterna] = {
+                claves_alternas.setdefault(alt.clave_alterna, []).append({
                     "cve_art": alt.clave_articulo,
                     "proveedor": alt.clave_proveedor or "",
-                }
+                })
 
             compras_por_proveedor: dict[str, dict[str, Any]] = {}
             for hist in db.scalars(select(SaeHistorialCompra)).all():
@@ -104,9 +120,17 @@ def _cargar_raw_desde_bd() -> dict[str, Any] | None:
                 except json.JSONDecodeError:
                     arts_comp = []
                 compras_por_proveedor[hist.clave_proveedor] = {
+                    "lineas_frecuentes": list(lineas_comp),
+                    "total_articulos_comprados": len(arts_comp),
                     "lineas_compradas": lineas_comp,
                     "articulos_comprados": arts_comp,
                 }
+
+            for resumen in db.scalars(select(SaeResumenCompra)):
+                compras_por_proveedor.setdefault(resumen.clave_proveedor, {}).update(
+                    lineas_frecuentes=json.loads(resumen.lineas_frecuentes_json),
+                    total_articulos_comprados=resumen.total_articulos_comprados,
+                )
 
             articulos: dict[str, dict[str, Any]] = {}
             stmt_art = select(
@@ -195,6 +219,7 @@ def cargar_catalogo_sae() -> dict[str, Any]:
     articulos_compactos: dict[str, list[str]] = {}
     articulos_por_prefijo4: dict[str, list[str]] = {}
 
+    familias_sat: dict[tuple[str, str, str], set[str]] = {}
     for cve_key, datos in articulos_raw.items():
         cve_oficial = str(datos.get("cve_art") or cve_key).strip()
         if not cve_oficial:
@@ -209,6 +234,11 @@ def cargar_catalogo_sae() -> dict[str, Any]:
             "descr": str(datos.get("descr") or "").strip(),
         }
         articulos_exactos[cve_upper] = registro
+        if registro["cve_sat"] and registro["cve_unidad"] and registro["linea"]:
+            firma = firma_descripcion_dimensional(registro["descr"])
+            if firma:
+                familia = (registro["cve_sat"], registro["cve_unidad"], firma)
+                familias_sat.setdefault(familia, set()).add(registro["linea"])
 
         compacto = _compactar_codigo(cve_upper)
         if compacto:
@@ -225,27 +255,29 @@ def cargar_catalogo_sae() -> dict[str, Any]:
     claves_alternas: dict[str, list[dict[str, str]]] = {}
     claves_alternas_por_prov: dict[tuple[str, str], list[str]] = {}
 
-    for cve_alt, info_alt in claves_alt_raw.items():
+    for cve_alt, raw_alt in claves_alt_raw.items():
         alt_upper = str(cve_alt).strip().upper()
         if not alt_upper:
             continue
-        if isinstance(info_alt, dict):
-            cve_art_dest = str(info_alt.get("cve_art") or "").strip().upper()
-            prov_alt = str(info_alt.get("proveedor") or "").strip()
-        else:
-            cve_art_dest = str(info_alt or "").strip().upper()
-            prov_alt = ""
+        entradas_alt = raw_alt if isinstance(raw_alt, list) else [raw_alt]
+        for info_alt in entradas_alt:
+            if isinstance(info_alt, dict):
+                cve_art_dest = str(info_alt.get("cve_art") or "").strip().upper()
+                prov_alt = str(info_alt.get("proveedor") or "").strip()
+            else:
+                cve_art_dest = str(info_alt or "").strip().upper()
+                prov_alt = ""
 
-        if not cve_art_dest:
-            continue
+            if not cve_art_dest:
+                continue
 
-        claves_alternas.setdefault(alt_upper, []).append(
-            {"cve_art": cve_art_dest, "proveedor": prov_alt}
-        )
-        if prov_alt:
-            lista_prov = claves_alternas_por_prov.setdefault((prov_alt, alt_upper), [])
-            if cve_art_dest not in lista_prov:
-                lista_prov.append(cve_art_dest)
+            claves_alternas.setdefault(alt_upper, []).append(
+                {"cve_art": cve_art_dest, "proveedor": prov_alt}
+            )
+            if prov_alt:
+                lista_prov = claves_alternas_por_prov.setdefault((prov_alt, alt_upper), [])
+                if cve_art_dest not in lista_prov:
+                    lista_prov.append(cve_art_dest)
 
     rfc_a_proveedor: dict[str, list[str]] = {
         str(rfc).strip().upper(): [str(p).strip() for p in lista if str(p).strip()]
@@ -288,6 +320,7 @@ def cargar_catalogo_sae() -> dict[str, Any]:
         "claves_alternas_por_prov": claves_alternas_por_prov,
         "compras_por_proveedor": compras_prov_raw,
         "articulos_exactos": articulos_exactos,
+        "familias_sat": familias_sat,
         "articulos_compactos": articulos_compactos,
         "articulos_por_prefijo4": articulos_por_prefijo4,
     }
@@ -301,6 +334,7 @@ def limpiar_cache_catalogo_sae() -> None:
 def buscar_articulo_sae(
     *codigos: str | None,
     cve_prov: str | None = None,
+    prefijo_truncado: str | None = None,
 ) -> dict[str, Any] | None:
     """
     Busca un artículo en el catálogo SAE probando una lista ordenada de códigos candidatos
@@ -359,7 +393,7 @@ def buscar_articulo_sae(
                 return res
 
         if cod_upper in claves_alt:
-            entradas = claves_alt[cod_upper]
+            entradas = [e for e in claves_alt[cod_upper] if not prov_limpio or not e["proveedor"] or e["proveedor"] == prov_limpio]
             cves_unicas = list({e["cve_art"] for e in entradas if e["cve_art"] in articulos_exactos})
             if len(cves_unicas) == 1:
                 cve_dest = cves_unicas[0]
@@ -391,6 +425,8 @@ def buscar_articulo_sae(
 
     # 4. Coincidencia por prefijo (cuando el TXT truncó una clave larga de SAE)
     for comp, cod_upper in compactos_candidatos:
+        if prefijo_truncado is not None and cod_upper != prefijo_truncado.strip().upper():
+            continue
         if len(comp) < MIN_LEN_PREFIJO_TRUNCADO:
             continue
         pref4 = comp[:4]
@@ -519,8 +555,7 @@ def resolver_proveedor_sae(
 
     Prioridad:
     1. Número de proveedor explícito en TXT/PDF de apoyo (`TXT_APOYO`).
-    2. Proveedor registrado en `CVES_ALTER02` para el artículo (`CVES_ALTER02`).
-    3. RFC del emisor en `PROV02` (`PROV02_RFC_UNICO` o desambiguado por línea/historial).
+    2. RFC del emisor, desambiguado por alterna compatible, línea o historial.
     """
     if num_proveedor_apoyo is not None and str(num_proveedor_apoyo).strip():
         return str(num_proveedor_apoyo).strip(), "TXT_APOYO"
@@ -529,23 +564,22 @@ def resolver_proveedor_sae(
     if not catalogo["disponible"]:
         return None, "SIN_CATALOGO"
 
-    if cve_art:
-        cve_upper = str(cve_art).strip().upper()
-        for entradas in catalogo["claves_alternas"].values():
-            for entrada in entradas:
-                if entrada.get("cve_art") == cve_upper and entrada.get("proveedor"):
-                    return str(entrada["proveedor"]).strip(), "CVES_ALTER02"
-
     rfc_limpio = str(rfc or "").strip().upper()
-    if not rfc_limpio:
-        return None, "SIN_RFC"
 
     claves_prov = catalogo["rfc_a_proveedor"].get(rfc_limpio, [])
-    if not claves_prov:
-        return None, "RFC_NO_REGISTRADO"
-
     if len(claves_prov) == 1:
         return claves_prov[0], "PROV02_RFC_UNICO"
+
+    if cve_art and (claves_prov or not rfc_limpio):
+        asociados = {
+            e["proveedor"] for entradas in catalogo["claves_alternas"].values() for e in entradas
+            if e["cve_art"] == str(cve_art).strip().upper() and e["proveedor"]
+            and (not claves_prov or e["proveedor"] in claves_prov)
+        }
+        if len(asociados) == 1:
+            return asociados.pop(), "CVES_ALTER02"
+    if not claves_prov:
+        return None, "RFC_NO_REGISTRADO" if rfc_limpio else "SIN_RFC"
 
     # Desambiguar RFC compartido entre varias claves de proveedor (ej. Parker 2 vs 3, Kuriyama 37 vs 151)
     compras_prov: dict[str, dict[str, Any]] = catalogo["compras_por_proveedor"]
@@ -593,6 +627,8 @@ def resolver_proveedor_sae(
 def inferir_linea_por_proveedor(
     cve_prov: str | None,
     descripcion: str = "",
+    clave_sat: str | None = None,
+    unidad: str | None = None,
 ) -> tuple[str | None, str]:
     """
     Infiere la línea de producto (`LIN_PROD`) a partir del historial de compras del proveedor en SAE.
@@ -645,6 +681,12 @@ def inferir_linea_por_proveedor(
         if len(coincidencias) == 1:
             return coincidencias[0], "HISTORIAL_KEYWORD"
 
+    # Una familia del maestro solo sirve si coincide también con el historial del emisor.
+    firma = firma_descripcion_dimensional(descripcion)
+    familia = (str(clave_sat or "").strip(), str(unidad or "").strip(), firma)
+    lineas = catalogo["familias_sat"].get(familia, set())
+    if len(lineas) == 1 and lineas.issubset(lineas_frec):
+        return next(iter(lineas)), "VARIANTE_INVE02"
     return None, "HISTORIAL_AMBIGUO"
 
 

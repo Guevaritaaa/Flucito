@@ -335,3 +335,22 @@ def test_procesar_carpeta_local_multiples_fechas_no_acumula_entre_dias(tmp_path:
     assert resumen["fecha_reporte_base"] == "30-10-2026"
     assert resumen["fechas_procesadas_en_corrida"] == ["25-09-2026", "30-10-2026"]
 
+
+def test_xml_variantes_por_medida_sin_confundir_clave_con_descripcion(tmp_path):
+    ruta = tmp_path / "factura.xml"
+    ruta.write_text("""<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" Fecha="2026-11-17">
+    <cfdi:Emisor Nombre="TORNICENTER DE MEXICO" Rfc="TME230621QM1"/>
+    <cfdi:Conceptos>
+      <cfdi:Concepto NoIdentificacion="RON11106" Descripcion="RONDANA PRESION GALV 5/16" ClaveProdServ="31161801" ClaveUnidad="H87" Cantidad="1" ValorUnitario="10"/>
+      <cfdi:Concepto NoIdentificacion="RON11105" Descripcion="RONDANA PRESION GALV 1/4" ClaveProdServ="31161801" ClaveUnidad="H87" Cantidad="1" ValorUnitario="11"/>
+      <cfdi:Concepto NoIdentificacion="TCA10911" Descripcion="TUERCA INSERTO NYLON NC 5/16" ClaveProdServ="31161700" ClaveUnidad="H87" Cantidad="1" ValorUnitario="12"/>
+    </cfdi:Conceptos></cfdi:Comprobante>""", encoding="utf8")
+    df = excel.procesar_xml(str(ruta), str(tmp_path))
+    filas = df.set_index("Clave Artículo")
+    assert set(filas.index) == {"RON11106", "RON11105", "TCA10911"}
+    assert set(filas["PROVEEDOR"]) == {"453"}
+    assert filas.loc["RON11106", "Línea"] == "FERR"
+    assert filas.loc["RON11106", "PUBLICO"] > 0
+    assert filas.loc["TCA10911", "Línea"] == ""
+    assert df.attrs["meta_por_clave"]["RON11106"]["origen_linea"] == "VARIANTE_MISMA_FACTURA"
+    assert not sincronizador.carpeta_solo_xml_resuelta_por_sae([ruta])

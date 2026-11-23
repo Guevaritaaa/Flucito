@@ -334,6 +334,9 @@ def test_catalogo_sae_factores_y_reportes_desde_base_de_datos(entorno_bd, tmp_pa
     catalogo = cargar_catalogo_sae()
     assert catalogo["disponible"] is True
     assert catalogo["ruta"] == "database:sae_articulos"
+    compra = catalogo["compras_por_proveedor"]["453"]
+    assert compra["lineas_frecuentes"] == ["INOX", "VARIO"]
+    assert compra["total_articulos_comprados"] == 10
 
     encontrado = buscar_articulo_sae("PU14TRANSBLUE")
     assert encontrado is not None

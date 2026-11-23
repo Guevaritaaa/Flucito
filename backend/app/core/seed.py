@@ -21,6 +21,7 @@ from app.models.catalogo_sae import (
     SaeHistorialCompra,
     SaeLinea,
     SaeProveedor,
+    SaeResumenCompra,
 )
 from app.models.usuario import Usuario
 from app.services.almacen.catalogo_sae import (
@@ -99,7 +100,8 @@ def _sembrar_catalogo_sae(db: Session, *, cargar_articulos: bool = True) -> dict
 
     total_lineas = db.scalar(select(func.count()).select_from(SaeLinea)) or 0
     total_articulos = db.scalar(select(func.count()).select_from(SaeArticulo)) or 0
-    if total_lineas > 0 and (not cargar_articulos or total_articulos > 0):
+    proveedores_con_resumen = set(db.scalars(select(SaeResumenCompra.clave_proveedor)))
+    if total_lineas and (not cargar_articulos or total_articulos) and proveedores_con_resumen:
         return resumen
 
     ruta_json = obtener_ruta_catalogo_sae()
@@ -209,30 +211,23 @@ def _sembrar_catalogo_sae(db: Session, *, cargar_articulos: bool = True) -> dict
             db.execute(insert(SaeClaveAlterna), filas_alt)
             resumen["claves_alternas"] = len(filas_alt)
 
-    total_historial = db.scalar(select(func.count()).select_from(SaeHistorialCompra)) or 0
-    if total_historial == 0:
-        compras_raw: dict[str, dict[str, Any]] = raw.get("compras_por_proveedor") or {}
-        filas_hist = []
-        for cve_prov, datos_comp in compras_raw.items():
-            prov_key = str(cve_prov).strip()[:32]
-            if not prov_key or not isinstance(datos_comp, dict):
-                continue
-            filas_hist.append(
-                {
-                    "clave_proveedor": prov_key,
-                    "lineas_compradas_json": json.dumps(
-                        datos_comp.get("lineas_compradas") or {},
-                        ensure_ascii=False,
-                    ),
-                    "articulos_comprados_json": json.dumps(
-                        datos_comp.get("articulos_comprados") or [],
-                        ensure_ascii=False,
-                    ),
-                }
-            )
-        if filas_hist:
-            db.execute(insert(SaeHistorialCompra), filas_hist)
-            resumen["historial_compras"] = len(filas_hist)
+    historial_existente = set(db.scalars(select(SaeHistorialCompra.clave_proveedor)))
+    for clave, compra in (raw.get("compras_por_proveedor") or {}).items():
+        proveedor = str(clave).strip()
+        if proveedor not in historial_existente:
+            db.add(SaeHistorialCompra(
+                clave_proveedor=proveedor,
+                lineas_compradas_json=json.dumps(compra.get("lineas_compradas") or {}),
+                articulos_comprados_json=json.dumps(compra.get("articulos_comprados") or []),
+            ))
+        if proveedor not in proveedores_con_resumen:
+            lineas = compra.get("lineas_frecuentes") or list(compra.get("lineas_compradas") or {})
+            total = compra.get("total_articulos_comprados", len(compra.get("articulos_comprados") or []))
+            db.add(SaeResumenCompra(
+                clave_proveedor=proveedor, lineas_frecuentes_json=json.dumps(lineas),
+                total_articulos_comprados=int(total),
+            ))
+            resumen["historial_compras"] += 1
 
     db.commit()
     return resumen

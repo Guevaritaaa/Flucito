@@ -85,3 +85,15 @@ class SaeHistorialCompra(Base):
     )
     lineas_compradas_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     articulos_comprados_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+
+
+class SaeResumenCompra(Base):
+    """Resumen de la extracción cuando SAE proporciona frecuencias en vez del detalle."""
+
+    __tablename__ = "sae_resumen_compras"
+
+    clave_proveedor: Mapped[str] = mapped_column(
+        String(32), ForeignKey("sae_proveedores.clave_proveedor", ondelete="CASCADE"), primary_key=True
+    )
+    lineas_frecuentes_json: Mapped[str] = mapped_column(Text, nullable=False)
+    total_articulos_comprados: Mapped[int] = mapped_column(Integer, nullable=False)

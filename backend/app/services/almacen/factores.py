@@ -514,7 +514,7 @@ def recuperar_clave_truncada(
     apoyo_limpio = str(clave_apoyo or "").strip()
     xml_limpio = str(clave_xml or "").strip()
 
-    art_sae = buscar_articulo_sae(apoyo_limpio, xml_limpio, cve_prov=cve_prov)
+    art_sae = buscar_articulo_sae(apoyo_limpio, xml_limpio, cve_prov=cve_prov, prefijo_truncado=apoyo_limpio)
     if art_sae and art_sae.get("cve_art"):
         cve_oficial = str(art_sae["cve_art"]).strip()
         if claves_usadas_lote is not None:

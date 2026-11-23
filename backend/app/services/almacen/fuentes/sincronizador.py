@@ -13,16 +13,14 @@ import pandas as pd
 
 from app.core.config import settings
 from app.services.almacen.apoyo import buscar_dato, emparejar_conceptos_con_apoyo, obtener_apoyo_por_folio
-from app.services.almacen.catalogo_sae import (
-    buscar_articulo_sae,
-    inferir_linea_por_proveedor,
-    resolver_proveedor_sae,
-)
+from app.services.almacen.catalogo_sae import resolver_proveedor_sae
 from app.services.almacen.excel import (
     CARPETA_DATOS,
     NOMBRE_ARCHIVO_BASE,
     NOMBRE_ARCHIVO_RESUMEN,
     _buscar_decision_rollo,
+    _fila_desde_concepto,
+    _lineas_variantes_factura,
     _combinar_meta_por_clave,
     _extraer_orden_fecha_nombre,
     _precio_con_descuento,
@@ -35,7 +33,6 @@ from app.services.almacen.factores import (
     detectar_rollo_metros,
     formatear_menu_factores,
     guardar_factor_personalizado,
-    recuperar_clave_truncada,
     resolver_linea,
 )
 from app.services.almacen.fuentes.google_drive import (
@@ -94,9 +91,7 @@ def _concatenar_con_meta(dfs: list[pd.DataFrame]) -> pd.DataFrame:
 
 
 def carpeta_solo_xml_resuelta_por_sae(rutas_xml: list[Path]) -> bool:
-    """Devuelve True si hay al menos un concepto y el 100% de los conceptos de los XML
-    existen en el catálogo maestro SAE (INVE02) con línea de producto asignada.
-    """
+    """Comprueba cada concepto con la misma resolución que el reporte, antes de deduplicar."""
     if not rutas_xml:
         return False
 
@@ -115,14 +110,11 @@ def carpeta_solo_xml_resuelta_por_sae(rutas_xml: list[Path]) -> bool:
             rfc=meta.get("rfc"),
             num_proveedor_apoyo=None,
         )
+        variantes = _lineas_variantes_factura(conceptos, [None] * len(conceptos), prov_resuelto)
         for c in conceptos:
             total_conceptos += 1
-            art_sae = buscar_articulo_sae(
-                c.get("no_identificacion"),
-                c.get("codigo_secundario"),
-                cve_prov=prov_resuelto,
-            )
-            if not art_sae or not str(art_sae.get("linea") or "").strip():
+            fila = _fila_desde_concepto(c, None, lineas_variantes=variantes)
+            if not fila["Línea"]:
                 return False
 
     return total_conceptos > 0
@@ -185,52 +177,15 @@ def inspeccionar_pendientes_carpeta(
             None,
         )
 
+        proveedor, _ = resolver_proveedor_sae(meta.get("rfc"), num_proveedor)
+        variantes = _lineas_variantes_factura(conceptos, datos, proveedor)
         for c, dato in zip(conceptos, datos):
-            clave_apoyo = dato["clave_articulo"] if dato else None
+            fila = _fila_desde_concepto(c, dato, num_proveedor, lineas_variantes=variantes)
+            clave_apoyo = (dato or {}).get("clave_articulo")
             clave_xml = c.get("no_identificacion")
-            codigo_sec = c.get("codigo_secundario")
-
-            prov_resuelto, _ = resolver_proveedor_sae(
-                rfc=meta.get("rfc") or c.get("proveedor_rfc"),
-                num_proveedor_apoyo=num_proveedor,
-                linea=(dato.get("linea") if dato else None),
-                cve_art=clave_apoyo or clave_xml,
-            )
-            art_sae = buscar_articulo_sae(
-                clave_apoyo,
-                clave_xml,
-                codigo_sec,
-                cve_prov=prov_resuelto,
-            )
-
-            clave_articulo = (
-                recuperar_clave_truncada(
-                    clave_apoyo,
-                    clave_xml,
-                    cve_prov=prov_resuelto,
-                )
-                or clave_xml
-                or ""
-            )
-            descripcion_corta = (
-                (dato.get("descripcion_corta") if dato else None)
-                or (art_sae.get("descripcion") if art_sae else None)
-                or c["descripcion"]
-            )
-
-            linea_raw = (
-                (dato["linea"] if dato and dato.get("linea") else None)
-                or (art_sae["linea"] if art_sae and art_sae.get("linea") else None)
-                or ""
-            )
-            if not linea_raw and prov_resuelto:
-                linea_inf, _ = inferir_linea_por_proveedor(
-                    prov_resuelto,
-                    descripcion=f"{c.get('descripcion') or ''} {descripcion_corta or ''}",
-                )
-                if linea_inf:
-                    linea_raw = linea_inf
-
+            clave_articulo = fila["Clave Artículo"]
+            descripcion_corta = fila["DESCRIPCION"]
+            linea_raw = fila["Línea"]
             if linea_raw:
                 info_linea = resolver_linea(
                     linea_raw,

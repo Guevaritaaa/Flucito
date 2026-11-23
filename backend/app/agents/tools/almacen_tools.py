@@ -717,9 +717,14 @@ def generar_entradas_almacen(
         salida["xmls_sin_apoyo"] = sincronizacion["xmls_sin_apoyo"]
         salida["advertencia_xmls_sin_apoyo"] = (
             "Las siguientes facturas XML no tenían su archivo TXT o PDF de apoyo en su carpeta "
-            "(se procesaron solo con los datos del XML, sin línea ni precios con factor): "
+            "(se procesaron con el XML y la información disponible en SAE): "
             + ", ".join(sincronizacion["xmls_sin_apoyo"])
         )
+        pendientes = resumen.get("trazabilidad_catalogo_sae", {}).get("origen_linea", {}).get("SIN_LINEA", 0)
+        if pendientes:
+            salida["advertencia_xmls_sin_apoyo"] += (
+                f". En el reporte, {pendientes} artículo(s) requieren confirmar línea antes de importar precios."
+            )
     if carpetas_reubicadas:
         salida["carpetas_reubicadas"] = carpetas_reubicadas
         salida["advertencia_ubicacion"] = construir_advertencia_ubicacion(

@@ -11,14 +11,17 @@ import json
 import logging
 import os
 import re
+from pathlib import Path
 
 import openpyxl
 import pandas as pd
+from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Font, PatternFill
 
 from app.services.almacen.apoyo import buscar_dato, emparejar_conceptos_con_apoyo, obtener_apoyo_por_folio
 from app.services.almacen.catalogo_sae import (
     buscar_articulo_sae,
+    firma_descripcion_dimensional,
     inferir_linea_por_proveedor,
     resolver_proveedor_sae,
 )
@@ -287,6 +290,38 @@ def _buscar_decision_rollo(
     return mapa_upper.get("*", {})
 
 
+def _articulo_factura(c, dato, proveedor):
+    clave_apoyo = (dato or {}).get("clave_articulo") or ""
+    secundario = c.get("codigo_secundario") or ""
+    # La primera palabra del concepto también puede ser un sustantivo como TUERCA.
+    return buscar_articulo_sae(
+        clave_apoyo, c.get("no_identificacion"), secundario if any(ch.isdigit() for ch in secundario) else None,
+        cve_prov=proveedor, prefijo_truncado=clave_apoyo,
+    )
+
+
+def _familia_dimensional(c):
+    codigo = str(c.get("no_identificacion") or "").upper()
+    prefijo = re.match(r"[A-Z]{2,}(?=[-\d])", codigo)
+    firma = firma_descripcion_dimensional(c.get("descripcion"))
+    if prefijo and firma and c.get("clave_prod_serv") and c.get("clave_unidad"):
+        return (prefijo[0], c["clave_prod_serv"], c["clave_unidad"], firma)
+    return None
+
+
+def _lineas_variantes_factura(conceptos, datos, proveedor):
+    """Solo propaga línea entre medidas de una factura con referencias directas concordantes."""
+    lineas = {}
+    for c, dato in zip(conceptos, datos):
+        familia = _familia_dimensional(c)
+        if familia:
+            art = _articulo_factura(c, dato, proveedor) or {}
+            linea = art.get("linea") or (dato or {}).get("linea")
+            if linea:
+                lineas.setdefault(familia, set()).add(linea)
+    return {f: next(iter(ls)) for f, ls in lineas.items() if len(ls) == 1}
+
+
 def _fila_desde_concepto(
     c: dict,
     dato: dict | None,
@@ -295,19 +330,13 @@ def _fila_desde_concepto(
     decisiones_rollos: dict[str, dict[str, object]] | None = None,
     meta_por_clave: dict[str, dict[str, object]] | None = None,
     claves_usadas_lote: dict[str, str] | None = None,
+    lineas_variantes: dict | None = None,
 ) -> dict:
     clave_apoyo = dato.get("clave_articulo") if dato else None
     clave_xml = c.get("no_identificacion")
-    codigo_sec = c.get("codigo_secundario")
     num_prov_apoyo = (dato.get("numero_proveedor") if dato else None) or num_proveedor
-
-    # 1. Buscar artículo en el Catálogo Maestro SAE (INVE02 / CVES_ALTER02)
-    art_sae = buscar_articulo_sae(
-        clave_apoyo,
-        clave_xml,
-        codigo_sec,
-        cve_prov=str(num_prov_apoyo) if num_prov_apoyo else None,
-    )
+    prov_prelim, _ = resolver_proveedor_sae(c.get("proveedor_rfc"), num_prov_apoyo)
+    art_sae = _articulo_factura(c, dato, prov_prelim)
 
     if art_sae and art_sae.get("cve_art"):
         clave_articulo = str(art_sae["cve_art"]).strip()
@@ -322,7 +351,7 @@ def _fila_desde_concepto(
             recuperar_clave_truncada(
                 clave_apoyo,
                 clave_xml,
-                cve_prov=str(num_prov_apoyo) if num_prov_apoyo else None,
+                cve_prov=prov_prelim,
                 claves_usadas_lote=claves_usadas_lote,
             )
             or clave_xml
@@ -347,15 +376,14 @@ def _fila_desde_concepto(
     elif linea_txt:
         linea_raw = linea_txt
         origen_linea = "TXT_APOYO"
+    elif linea_variante := (lineas_variantes or {}).get(_familia_dimensional(c)):
+        linea_raw = linea_variante
+        origen_linea = "VARIANTE_MISMA_FACTURA"
     else:
-        prov_prelim, _ = resolver_proveedor_sae(
-            c.get("proveedor_rfc"),
-            num_prov_apoyo,
-            cve_art=clave_articulo,
-        )
         linea_hist, nivel_hist = inferir_linea_por_proveedor(
             prov_prelim,
-            descripcion=f"{c.get('descripcion') or ''} {descripcion_corta or ''}",
+            descripcion=c.get("descripcion") or descripcion_corta or "",
+            clave_sat=c.get("clave_prod_serv"), unidad=c.get("clave_unidad"),
         )
         if linea_hist:
             linea_raw = linea_hist
@@ -503,6 +531,8 @@ def procesar_xml(
         None,
     )
 
+    proveedor, _ = resolver_proveedor_sae(meta.get("rfc"), num_proveedor)
+    variantes = _lineas_variantes_factura(conceptos, datos, proveedor)
     meta_por_clave: dict[str, dict[str, object]] = {}
     claves_usadas_lote: dict[str, str] = {}
     filas = [
@@ -514,6 +544,7 @@ def procesar_xml(
             decisiones_rollos=decisiones_rollos,
             meta_por_clave=meta_por_clave,
             claves_usadas_lote=claves_usadas_lote,
+            lineas_variantes=variantes,
         )
         for c, d in zip(conceptos, datos)
     ]
@@ -748,7 +779,7 @@ def actualizar_precios_reporte_existente(
         if not linea_actual and info_apoyo.get("linea"):
             linea_actual = info_apoyo["linea"]
         if not linea_actual and clave:
-            art_sae_existente = buscar_articulo_sae(clave)
+            art_sae_existente = buscar_articulo_sae(clave, prefijo_truncado="")
             if art_sae_existente and art_sae_existente.get("linea"):
                 linea_actual = str(art_sae_existente["linea"]).strip()
 
@@ -776,6 +807,14 @@ def actualizar_precios_reporte_existente(
             f"{df.at[idx, 'DESCRIPCION'] if 'DESCRIPCION' in df.columns and pd.notna(df.at[idx, 'DESCRIPCION']) else ''} "
             f"{df.at[idx, 'Descripción CFDI'] if 'Descripción CFDI' in df.columns and pd.notna(df.at[idx, 'Descripción CFDI']) else ''}"
         ).strip()
+
+        if not linea_actual:
+            fila_reporte = df.iloc[idx].fillna("")
+            linea_actual, _ = inferir_linea_por_proveedor(
+                str(fila_reporte.get("PROVEEDOR", "")),
+                descripcion=str(fila_reporte.get("Descripción CFDI") or fila_reporte.get("DESCRIPCION", "")),
+                clave_sat=str(fila_reporte.get("Clave SAT", "")), unidad=str(fila_reporte.get("Clave unidad", "")),
+            )
 
         info_linea = resolver_linea(
             linea_actual,
@@ -967,6 +1006,30 @@ def _aplicar_estilo(
             fila_excel = idx + 2
             clave = str(fila.get("Clave Artículo") or "")
             meta_item = mapa_meta.get(clave, {})
+            origen = meta_item.get("origen_linea")
+            razones = {
+                "VARIANTE_MISMA_FACTURA": "Línea inferida de otra medida de esta familia en la misma factura.",
+                "VARIANTE_INVE02": "Línea inferida por familia, clave SAT y unidad en SAE, compatible con el historial del proveedor.",
+                "HISTORIAL_UNICA": "Línea inferida del historial del proveedor en SAE.",
+                "HISTORIAL_KEYWORD": "Línea inferida por la descripción del producto y el historial del proveedor en SAE.",
+            }
+            if origen in razones:
+                ws.cell(fila_excel, indice_col["Línea"]).comment = Comment(razones[origen], "Flucito")
+            if meta_item.get("origen_linea") == "SIN_LINEA":
+                celda_linea = ws.cell(fila_excel, indice_col["Línea"])
+                celda_linea.fill = PatternFill("solid", fgColor="FFF3CD")
+                celda_linea.comment = Comment(
+                    "Línea pendiente de confirmar. Los precios de venta en cero no tienen factor aplicado.",
+                    "Flucito",
+                )
+            if meta_item.get("manual"):
+                for nombre in ("PRECIO COMPRA", "PUBLICO", "MINIMO", "MOSTRADOR", "MAYOREO", "DISTRIBUIDOR"):
+                    celda = ws.cell(fila_excel, indice_col[nombre])
+                    if pd.isna(fila.get(nombre)):
+                        celda.value = None
+                        celda.fill = PatternFill("solid", fgColor="FFF3CD")
+                        celda.comment = Comment("Pendiente de llenado manual. Completa este precio antes de generar el TXT.", "Flucito")
+                continue
             factor = meta_item.get("factor")
             if factor is None:
                 linea_fila = fila.get("Línea")
