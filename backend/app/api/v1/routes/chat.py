@@ -734,9 +734,23 @@ def _continuar_decisiones(request, uid):
                 texto = "Revisa las siguientes decisiones para continuar." if siguiente else resultado.get("mensaje") or ("Las decisiones se aplicaron y el reporte está listo." if reporte else "Las decisiones se aplicaron." if not fallo else resultado.get("error", "No se pudo completar la operación."))
                 if reporte:
                     resumen = resultado.get("resumen", {})
-                    total = resumen.get("total_productos_acumulados", resumen.get("total_productos"))
+                    total = resumen.get("productos_acumulados", resumen.get("total_productos_acumulados", resumen.get("total_productos")))
                     if total is not None:
                         texto += f" El reporte contiene {total} productos."
+                    fecha = resumen.get("fecha_reporte_base") or args.get("carpeta_especifica")
+                    if fecha:
+                        texto += f" La carpeta procesada es {fecha}."
+                    elecciones = []
+                    for pregunta in i.get("preguntas", []):
+                        seleccion = i.get("respuestas", {}).get(pregunta["id"], {})
+                        opcion = next((o for o in pregunta.get("opciones", []) if o["id"] == seleccion.get("opcion")), None)
+                        if opcion:
+                            elecciones.append(f"- {pregunta['titulo']} {opcion['titulo']}")
+                    if elecciones:
+                        texto += "\n\nDecisiones aplicadas\n" + "\n".join(elecciones)
+                    explicacion = explicar_procedencia_reporte(resumen)
+                    if explicacion:
+                        texto += "\n\n" + explicacion
                 avisos = [resultado.get(k) for k in ("advertencia_ubicacion", "advertencia_xmls_sin_apoyo", "advertencia_productos_regalo") if isinstance(resultado.get(k), str)]
                 if avisos:
                     texto += "\n\n" + "\n\n".join(avisos)
@@ -754,7 +768,7 @@ def _continuar_decisiones(request, uid):
     config = {"configurable": {"thread_id": request.session_id}}
     if callable(getattr(grafo, "update_state", None)) and _memoria_grafo_tiene_mensajes(config):
         try:
-            grafo.update_state(config, {"messages": [HumanMessage(content=request.mensaje), AIMessage(content=respuesta.respuesta)]})
+            grafo.update_state(config, {"messages": [HumanMessage(content=request.mensaje), AIMessage(content=respuesta.respuesta)]}, as_node="flucito")
         except Exception:
             logger.warning("No se pudo actualizar la memoria del grafo tras confirmar decisiones", exc_info=True)
     _guardar_interaccion_en_bd(session_id=request.session_id, usuario_id=uid, mensaje_usuario=request.mensaje, respuesta_chat=respuesta)
