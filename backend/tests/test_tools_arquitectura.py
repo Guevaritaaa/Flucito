@@ -53,7 +53,7 @@ def test_esquemas_pydantic_planos_validan_literales_y_limitan_parametros() -> No
             f"La herramienta {herramienta.name} no debe tener submodelos anidados ($defs)"
         )
         # La generación añade un selector de fecha para no ampliar una petición puntual.
-        limite = 8 if herramienta.name == "generar_entradas_almacen" else 7
+        limite = 9 if herramienta.name == "generar_entradas_almacen" else 7
         assert len(propiedades) <= limite, (
             f"La herramienta {herramienta.name} excede el límite de parámetros planos"
         )

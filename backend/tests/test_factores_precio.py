@@ -349,11 +349,16 @@ def test_confirmacion_interactiva_carpeta_solo_xml(
     assert resp_no["cancelado_por_usuario"] is True
     assert "revisar que hayas subido todos los documentos" in resp_no["mensaje"]
 
-    # 3. Usuario responde 'y' (confirmar_solo_xml=True): genera el reporte con éxito
+    # Autorizar XML no autoriza inventar la línea: se pide una decisión por producto.
     resp_si = json.loads(tools.generar_entradas_almacen.invoke({"confirmar_solo_xml": True}))
     assert resp_si["ok"] is True
-    assert resp_si["reporte_generado"] is True
-    assert resp_si["resumen"]["productos_nuevos"] == 1
+    assert resp_si["reporte_generado"] is False
+    assert resp_si["productos_sin_linea"]
+    clave = resp_si["productos_sin_linea"][0]["clave_articulo"]
+    final = json.loads(tools.generar_entradas_almacen.invoke({"confirmar_solo_xml": True,
+        "decisiones_lineas": {clave: {"manual": True}}}))
+    assert final["reporte_generado"] is True
+    assert final["resumen"]["productos_nuevos"] == 1
 
 
 def test_confirmacion_interactiva_linea_sin_factor_y_guardado(

@@ -410,3 +410,94 @@ def test_rechaza_formato_linea_incompatible_con_sae(entorno, linea):
     with pytest.raises(HTTPException) as exc:
         rr.validar_corregido(revision["id"], bytes_libro(wb), None)
     assert exc.value.status_code == 422
+
+
+def test_api_excel_factor_pendiente_continua_y_guarda_contexto(entorno, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.api.v1.routes import almacen, chat
+    from app.core.security import obtener_usuario_opcional
+    from app.schemas.chat import ChatRequest
+    archivo, revision = crear_reporte_linea_pendiente(entorno)
+    wb = openpyxl.load_workbook(archivo)
+    cols = {c.value: c.column for c in wb.active[1]}
+    wb.active.cell(2, cols["Línea"], "ZZ9")
+    wb.active.cell(2, cols["PUBLICO"], 987.65)
+    app = FastAPI()
+    app.include_router(almacen.router, prefix="/api/v1")
+    app.dependency_overrides[obtener_usuario_opcional] = lambda: None
+    client = TestClient(app)
+    ruta = f"/api/v1/almacen/reportes/{revision['id']}"
+    response = client.post(ruta + "/validar?session_id=chat-uno", files={"archivo": ("corregido.xlsx", bytes_libro(wb))})
+    assert response.status_code == 200
+    salida = response.json()
+    assert salida["estado"] == "factor_pendiente"
+    assert "línea ZZ9" in salida["resumen_revision"]
+    assert client.get(ruta + "?session_id=chat-uno").json()["interaccion"]["id"] == salida["interaccion"]["id"]
+    assert client.get(ruta + "/archivo?session_id=chat-uno&formato=tabs").status_code == 409
+    monkeypatch.setattr(chat, "_ejecutar_chat_impl", lambda *a: pytest.fail("La confirmación no debe llamar al modelo"))
+    i = salida["interaccion"]
+    r = {"factor:ZZ9": {"opcion": "YPC", "recordar": False, "campos": {}}}
+    req = ChatRequest(session_id="chat-uno", mensaje="Aplicar decisiones y continuar", decisiones=envio(i, r, "confirmar"))
+    final = chat._ejecutar_chat(req)
+    assert final.revision_reporte["estado"] == "validado"
+    assert "ZZ9" in final.respuesta and "factor YPC" in final.respuesta and "PRUEBA-4000D" in final.respuesta
+    assert client.get(ruta + "/archivo?session_id=chat-uno&formato=tabs").status_code == 200
+    memoria = chat._obtener_mensajes_previos_bd("chat-uno", None)
+    assert any("factor YPC" in str(m.content) for m in memoria)
+    with pytest.raises(HTTPException):
+        chat._ejecutar_chat(req)
+
+
+def test_solo_lineas_pendientes_pueden_editarse_y_compra_se_conserva(entorno):
+    archivo, revision = crear_reporte(entorno)
+    wb = corregir(archivo)
+    wb.active.cell(2, excel.COLUMNAS_ASPEL.index("Línea") + 1, "ZZ9")
+    with pytest.raises(HTTPException):
+        rr.validar_corregido(revision["id"], bytes_libro(wb), None)
+    archivo, revision = crear_reporte_linea_pendiente(entorno)
+    wb = openpyxl.load_workbook(archivo)
+    wb.active.cell(2, excel.COLUMNAS_ASPEL.index("Línea") + 1, "YPC")
+    wb.active.cell(2, excel.COLUMNAS_ASPEL.index("PRECIO COMPRA") + 1, 101)
+    with pytest.raises(HTTPException):
+        rr.validar_corregido(revision["id"], bytes_libro(wb), None)
+
+
+def test_correccion_proveedor_actualiza_consolidado_sin_borrar_otros_pendientes(entorno):
+    mini, rm = crear_reporte_linea_pendiente(entorno)
+    # Conservar una proyección con un producto y crear un consolidado de dos.
+    df = pd.read_excel(mini).reindex(columns=excel.COLUMNAS_ASPEL)
+    df2 = df.copy()
+    df2["Clave Artículo"] = "OTRO-4000D"
+    combinado = pd.concat([df, df2], ignore_index=True)
+    combinado.attrs["meta_por_clave"] = {k: {"manual": True, "linea_pendiente": True} for k in ("PRUEBA-4000D", "OTRO-4000D")}
+    base = excel.guardar_en_base_acumulada(combinado, str(entorno[0]), limpiar_previos=True, prefijo="CONSOLIDADO")
+    rb = rr.revision_actual(base, "chat-uno", None)
+    wb = openpyxl.load_workbook(rr.directorio() / (rm["id"] + ".xlsx"))
+    wb.active.cell(2, excel.COLUMNAS_ASPEL.index("Línea") + 1, "YPC")
+    rr.validar_corregido(rm["id"], bytes_libro(wb), None)
+    parcial = rr.cargar(rb["id"], uid=None)
+    assert parcial["version"] == 2
+    assert [p["producto"] for p in parcial["pendientes"]] == ["OTRO-4000D"]
+    ws = openpyxl.load_workbook(base).active
+    assert ws.cell(2, excel.COLUMNAS_ASPEL.index("Línea") + 1).value == "YPC"
+    assert ws.cell(3, excel.COLUMNAS_ASPEL.index("Línea") + 1).value is None
+
+
+def test_error_al_confirmar_factor_conserva_excel_y_ofrece_reintento_explicito(entorno, monkeypatch):
+    from app.api.v1.routes import chat
+    from app.schemas.chat import ChatRequest
+    archivo, revision = crear_reporte_linea_pendiente(entorno)
+    wb = openpyxl.load_workbook(archivo)
+    wb.active.cell(2, excel.COLUMNAS_ASPEL.index("Línea") + 1, "ZZ9")
+    salida = rr.validar_corregido(revision["id"], bytes_libro(wb), None)
+    i = d.registrar("chat-uno", None, {"lineas_sin_factor": salida["factores_pendientes"]},
+        "revisar_reporte_almacen", {"reporte_id": revision["id"], "version": salida["version"]})
+    def fallar(*a, **kw):
+        raise HTTPException(503, "Drive no pudo actualizarse. El TXT sigue bloqueado.")
+    monkeypatch.setattr(rr, "reanudar_revision", fallar)
+    r = {"factor:ZZ9": {"opcion": "YPC", "recordar": False, "campos": {}}}
+    respuesta = chat._ejecutar_chat(ChatRequest(session_id="chat-uno", mensaje="Confirmar", decisiones=envio(i, r, "confirmar")))
+    assert respuesta.avisos[0]["nivel"] == "error"
+    assert respuesta.interaccion["estado"] == "pendiente" and respuesta.interaccion["id"] != i["id"]
+    assert rr.cargar(revision["id"], uid=None)["version"] == salida["version"]
