@@ -32,8 +32,10 @@ class ApoyoLeido(list):
 def fuentes_apoyo(apoyo, dato):
     return {"estado": "LEIDO" if dato else "SIN_PARTIDA" if apoyo else getattr(apoyo, "estado", "AUSENTE"),
             "archivo": getattr(apoyo, "archivo", None),
+            "archivos_no_leidos": getattr(apoyo, "errores", []),
             "tipo": (os.path.splitext(getattr(apoyo, "archivo", None) or "")[1][1:].upper() or "TXT/PDF"),
             "clave": (dato or {}).get("clave_articulo"),
+            "linea_lectura": (dato or {}).get("linea_lectura"),
             "linea_original": (dato or {}).get("linea_original", (dato or {}).get("linea"))}
 
 
@@ -150,6 +152,7 @@ def _procesar_fila(fila) -> dict | None:
         "codigo_norm": _normaliza(cve_art),
         "clave_articulo": cve_art,
         "linea": linea,
+        "linea_lectura": "LEIDA" if linea else "NO_IDENTIFICADA",
         "descripcion_corta": descripcion_corta,
     }
 
@@ -360,7 +363,8 @@ def obtener_apoyo_por_folio(carpeta: str, year: str, folio: int | str, rfc_prove
         if datos:
             return ApoyoLeido(datos, estado="LEIDO", archivo=os.path.basename(ruta), errores=errores)
         errores.append(os.path.basename(ruta))
-    return ApoyoLeido(estado="LECTURA_FALLIDA" if candidatos else "AUSENTE", errores=errores)
+    return ApoyoLeido(estado="LECTURA_FALLIDA" if candidatos else "AUSENTE", errores=errores,
+                      archivo=os.path.basename(candidatos[0]) if candidatos else None)
 
 
 def buscar_dato(

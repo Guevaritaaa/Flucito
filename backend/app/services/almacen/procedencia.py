@@ -27,11 +27,16 @@ def explicar_producto(clave: str, meta: dict) -> str:
         partes.append("No se encontró un documento de apoyo correspondiente a esta factura.")
     elif apoyo.get("linea_original"):
         partes.append(f"La línea en el {tipo} es {apoyo['linea_original']}.")
+    elif estado == "LEIDO" and apoyo.get("linea_lectura") == "NO_IDENTIFICADA":
+        partes.append(f"No se logró identificar la columna de línea en el {tipo}; no se comprobó si estaba vacía.")
     elif estado == "LEIDO":
         partes.append(f"La columna de línea de esta partida está vacía en el {tipo}.")
     sae = fuentes.get("catalogo", {})
     if sae.get("clave"):
-        partes.append(f"El catálogo del SAE confirmó la clave {sae['clave']} ({sae.get('coincidencia', 'coincidencia registrada')}).")
+        coincidencias = {"INVE02_EXACTO": "coincidencia exacta", "INVE02_COMPACTO": "código normalizado",
+            "CVES_ALTER02": "clave alterna", "INVE02_PREFIJO_UNICO": "prefijo único",
+            "INVE02_PREFIJO_DESAMBIGUADO": "prefijo comprobado con el XML"}
+        partes.append(f"El catálogo del SAE confirmó la clave {sae['clave']} ({coincidencias.get(sae.get('coincidencia'), 'coincidencia registrada')}).")
         partes.append(f"Su línea en el catálogo del SAE es {sae['linea']}." if sae.get("linea") else
                       "Ese artículo tampoco tiene línea en el catálogo del SAE.")
     else:

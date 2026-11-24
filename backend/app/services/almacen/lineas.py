@@ -2,6 +2,7 @@
 from __future__ import annotations
 import os
 import re
+from difflib import SequenceMatcher
 
 from app.services.almacen.catalogo_sae import cargar_catalogo_sae
 
@@ -34,7 +35,8 @@ def sugerir_lineas(clave, clave_sat, unidad_sat):
             _familia(art.get("cve_art")) != familia):
             continue
         referencias.append({k: art.get(k, "") for k in ("cve_art", "descr", "linea", "cve_sat", "cve_unidad")})
-    referencias.sort(key=lambda a: (-len(os.path.commonprefix([str(clave), a["cve_art"]])), a["cve_art"]))
+    referencias.sort(key=lambda a: (-len(os.path.commonprefix([str(clave), a["cve_art"]])),
+        -SequenceMatcher(None, str(clave), a["cve_art"]).ratio(), a["cve_art"]))
     grupos = {}
     for ref in referencias[:3]:
         grupos.setdefault(ref["linea"], []).append(ref)

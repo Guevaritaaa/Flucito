@@ -660,6 +660,9 @@ def generar_entradas_almacen(
             else:
                 tipo_conf = "rollos_pendientes"
             pregunta = construir_pregunta_interactiva(lista_lineas, lista_rollos)
+            if pendientes_local.get("productos_sin_linea"):
+                tipo_conf = "lineas_pendientes" if not (lista_lineas or lista_rollos) else "decisiones_almacen"
+                pregunta += "\n\nFalta confirmar la línea de: " + ", ".join(p["clave_articulo"] for p in pendientes_local["productos_sin_linea"]) + ". Revisa las referencias de la tarjeta o elige completar el Excel."
             return json.dumps(
                 {
                     "ok": True,

@@ -773,9 +773,22 @@ def _continuar_decisiones(request, uid):
                     actividades=actividad.actividades,
                     archivo_almacen_url="/api/v1/almacen/download" if reporte else None,
                     archivo_txt_url="/api/v1/almacen/download/txt" if reporte and not (revision and revision.get("pendientes")) else None)
-        except Exception:
+        except Exception as exc:
             servicio.finalizar(request.session_id, uid, estado, {}, error=True)
-            respuesta = ChatResponse(respuesta="La operación se interrumpió. Revisa su resultado antes de iniciar otra; no se repetirá automáticamente.", interaccion=i, actividades=actividad.actividades)
+            revision_error, reintento = None, None
+            if estado["herramienta"] == "revisar_reporte_almacen":
+                from app.services.revision_reportes import cargar, publico
+                meta_error = cargar(estado["argumentos"]["reporte_id"], uid=uid)
+                revision_error = publico(meta_error)
+                if meta_error.get("estado") == "factor_pendiente":
+                    reintento = servicio.registrar(request.session_id, uid,
+                        {"lineas_sin_factor": meta_error["factores_pendientes"]}, "revisar_reporte_almacen",
+                        {"reporte_id": meta_error["id"], "version": meta_error["version"]})
+            respuesta = ChatResponse(respuesta="La operación se interrumpió. El Excel revisado se conserva; revisa el estado antes de continuar." if revision_error else "La operación se interrumpió. Revisa su resultado antes de iniciar otra; no se repetirá automáticamente.", interaccion=reintento or i,
+                revision_reporte=revision_error, actividades=actividad.actividades,
+                avisos=[{"nivel": "error", "titulo": "No se pudo completar la operación",
+                    "descripcion": str(exc.detail) if isinstance(exc, HTTPException) else "La ejecución se interrumpió y no se repetirá automáticamente.",
+                    "accion": "Revisa la tarjeta y confirma de nuevo para reintentar." if reintento else "Revisa el resultado antes de iniciar otra operación."}])
             logger.exception("Error al aplicar decisiones %s", i["id"])
     # La continuación directa también debe quedar en la memoria del grafo.
     config = {"configurable": {"thread_id": request.session_id}}

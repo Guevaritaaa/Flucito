@@ -254,6 +254,7 @@ def validar_corregido(id, contenido, uid, propagar=True, factores_elegidos=None)
                     faltan_ventas = any(valores[cols.index(p)] is None for p in ventas)
                     if faltan_ventas and factor is None:
                         factores_pendientes[codigo] = {"linea": codigo, "descripcion": "Línea escrita en el Excel revisado"}
+                        explicaciones.append(f"{clave}: guardé la línea {codigo}. Falta elegir su factor; conservé los precios ya escritos.")
                     permitir_vacios = faltan_ventas and factor in (None, "LLENADO_MANUAL")
                     if factor and factor not in {"LLENADO_MANUAL", "SIN_FACTOR"}:
                         compra = valores[cols.index("PRECIO COMPRA")]
@@ -400,25 +401,67 @@ def validar_corregido(id, contenido, uid, propagar=True, factores_elegidos=None)
 
 
 def _propagar_correcciones(meta, datos, uid):
-    """Actualiza las proyecciones del mismo lote solo si coinciden sus datos originales."""
+    """Propaga filas verificadas a reportes del mismo lote, sin perder otros pendientes."""
     cols = meta["columnas"]
     clave_idx = cols.index("Clave Artículo")
     mapa = {str(f[clave_idx]): f for f in datos}
     for archivo in directorio().glob("*.json"):
         otro = json.loads(archivo.read_text(encoding="utf-8"))
-        if otro["id"] == meta["id"] or not otro["pendientes"] or otro.get("lote_id") != meta.get("lote_id") or otro["columnas"] != cols:
+        if (otro["id"] == meta["id"] or not otro["pendientes"] or
+            otro.get("lote_id") != meta.get("lote_id") or otro["columnas"] != cols or
+            otro.get("estado") == "factor_pendiente"):
             continue
-        if any(str(f["valores"][clave_idx]) not in mapa or any(str(f["valores"][c] or "") != str(mapa[str(f["valores"][clave_idx])][c] or "") for c, nombre in enumerate(cols) if nombre not in PRECIOS and not (nombre == "Línea" and str(f["valores"][clave_idx]) in otro.get("lineas_editables", []))) for f in otro["filas"]):
+        compatibles = {}
+        for f in otro["filas"]:
+            clave = str(f["valores"][clave_idx])
+            if clave not in mapa:
+                continue
+            editable = clave in otro.get("lineas_editables", [])
+            if all(str(f["valores"][c] or "") == str(mapa[clave][c] or "") for c, nombre in enumerate(cols)
+                   if nombre not in PRECIOS and not (nombre == "Línea" and editable)):
+                compatibles[clave] = mapa[clave]
+        if not compatibles:
             continue
         wb = openpyxl.load_workbook(directorio() / (otro["id"] + ".xlsx"))
-        for r, f in enumerate(otro["filas"], 2):
+        originales = {f["id"]: f for f in otro["filas"]}
+        for r in range(2, wb.active.max_row + 1):
+            f = originales[wb.active.cell(r, len(cols) + 1).value]
+            clave = str(f["valores"][clave_idx])
+            if clave not in compatibles:
+                continue
             for c, nombre in enumerate(cols, 1):
-                if nombre in PRECIOS or (nombre == "Línea" and str(f["valores"][clave_idx]) in otro.get("lineas_editables", [])):
-                    wb.active.cell(r, c, mapa[str(f["valores"][clave_idx])][c - 1])
+                if nombre in PRECIOS or (nombre == "Línea" and clave in otro.get("lineas_editables", [])):
+                    wb.active.cell(r, c).value = compatibles[clave][c - 1]
+                    from openpyxl.comments import Comment
+                    from app.services.almacen.procedencia import explicar_producto
+                    texto = explicar_producto(clave, meta.get("meta_por_clave", {}).get(clave, {}))
+                    wb.active.cell(r, c).comment = Comment(texto or "Corrección verificada del mismo lote de reportes.", "Flucito")
         contenido = io.BytesIO()
         wb.save(contenido)
         try:
-            validar_corregido(otro["id"], contenido.getvalue(), uid, propagar=False)
-        except HTTPException:
-            # La tarjeta del reporte asociado conserva su estado pendiente y permite reintentar.
-            continue
+            validar_corregido(otro["id"], contenido.getvalue(), uid, propagar=False,
+                             factores_elegidos=meta.get("factores_elegidos"))
+        except HTTPException as exc:
+            # Un consolidado puede contener filas de otros proveedores todavía
+            # pendientes. Guardar la corrección parcial exige nueva versión.
+            restantes = [p for p in otro["pendientes"] if p["producto"] not in compatibles]
+            if exc.status_code != 422 or not restantes:
+                continue
+            with _LOCK, bloquear_reporte(otro["id"]):
+                actual = cargar(otro["id"], uid=uid)
+                if actual["version"] != otro["version"] or actual["estado"] == "validado":
+                    continue
+                for f in otro["filas"]:
+                    clave = str(f["valores"][clave_idx])
+                    if clave in compatibles:
+                        f["valores"] = compatibles[clave]
+                        otro.setdefault("meta_por_clave", {})[clave] = meta.get("meta_por_clave", {}).get(clave, {})
+                otro.update(version=otro["version"] + 1, pendientes=restantes,
+                    resumen_revision=f"Reporte {otro['nombre']}: se actualizaron {', '.join(compatibles)} desde la revisión del mismo lote. Las demás filas siguen pendientes.")
+                otro["lineas_editables"] = [c for c in otro.get("lineas_editables", []) if c not in compatibles]
+                wb["_FLUCITO"].cell(1, 2, otro["version"])
+                stage = directorio() / (otro["id"] + ".parcial.xlsx")
+                wb.save(stage)
+                os.replace(stage, directorio() / (otro["id"] + ".xlsx"))
+                _guardar(otro)
+                _copiar_version(otro)
