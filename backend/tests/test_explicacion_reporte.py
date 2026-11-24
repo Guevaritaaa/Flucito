@@ -38,13 +38,16 @@ def test_explicacion_distingue_historial_apoyo_y_codigo_original():
             {"clave_articulo": "D62-04", "linea": "UF", "trazabilidad_sae": {
                 "origen_linea": "HISTORIAL_UNICA", "origen_clave": "CVES_ALTER02",
                 "codigo_xml_original": "UQ62-DOT-04",
-            }}
+            }},
+            {"clave_articulo": "SIN001", "linea": None, "trazabilidad_sae": {"origen_linea": "SIN_LINEA"}},
         ],
+        "productos_sin_linea": 1,
     }
     texto = explicar_procedencia_reporte(resumen)
     assert "única línea registrada en el historial" in texto
     assert "TXT o PDF de apoyo" in texto
-    assert "la línea quedó pendiente" in texto
+    assert "1 producto(s) quedaron con la línea vacía" in texto
+    assert "SIN001" in texto
     assert "UQ62-DOT-04 → D62-04" in texto
     assert explicar_procedencia_reporte({}) == ""
 

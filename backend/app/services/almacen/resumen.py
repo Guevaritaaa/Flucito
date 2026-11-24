@@ -47,7 +47,6 @@ def explicar_procedencia_reporte(resumen: dict[str, Any]) -> str:
             "HISTORIAL_KEYWORD": "relacioné la descripción con una línea del historial de ese proveedor",
             "VARIANTE_INVE02": "usé la línea de artículos de la misma familia dimensional en el catálogo histórico",
             "VARIANTE_MISMA_FACTURA": "usé la línea de otras medidas de la misma familia dentro de la factura",
-            "SIN_LINEA": "la línea quedó pendiente porque las fuentes disponibles no permitieron resolverla",
         },
         "origen_clave": {
             "INVE02_EXACTO": "utilicé la clave que coincidía exactamente en el catálogo histórico de SAE",
@@ -100,6 +99,14 @@ def explicar_procedencia_reporte(resumen: dict[str, Any]) -> str:
     if duplicados:
         filas = "fila repetida" if duplicados == 1 else "filas repetidas"
         explicaciones.append(f"- Consolidé {duplicados} {filas} por clave, conservando el precio de compra más alto.")
+    sin_linea = resumen.get("productos_sin_linea")
+    if isinstance(sin_linea, int) and sin_linea > 0:
+        ejemplos = [str(p["clave_articulo"]) for p in detalles if p.get("clave_articulo") and not p.get("linea")][:5]
+        muestra = f" Entre ellos: {', '.join(ejemplos)}." if ejemplos else ""
+        explicaciones.append(
+            f"- {sin_linea} producto(s) quedaron con la línea vacía y necesitan revisión antes de usar el reporte."
+            + muestra
+        )
     if not explicaciones:
         return ""
     return "**Cómo se preparó este reporte**\n\n" + "\n".join(explicaciones)
@@ -142,6 +149,7 @@ def construir_resumen(
     conteo_origen_linea: dict[str, int] = {}
     conteo_origen_proveedor: dict[str, int] = {}
     conversiones_a_metros: dict[str, float] = {}
+    productos_sin_linea = 0
 
     for _, fila in filas_acumuladas.iterrows():
         clave_articulo = _limpiar_texto(fila.get("Clave Artículo")) or ""
@@ -183,6 +191,8 @@ def construir_resumen(
             else {"linea_resuelta": None, "factor": None, "descripcion_linea": None}
         )
         linea_final = _limpiar_texto(info_linea.get("linea_resuelta")) or linea_raw or None
+        if not linea_final:
+            productos_sin_linea += 1
         factor_aplicado = (
             _limpiar_texto(meta_item.get("factor"))
             or _limpiar_texto(info_linea.get("factor"))
@@ -369,6 +379,7 @@ def construir_resumen(
             "origen_proveedor": conteo_origen_proveedor,
         },
         "conversiones_a_metros": conversiones_a_metros,
+        "productos_sin_linea": productos_sin_linea,
         "desglose_por_proveedor": desglose_proveedores,
         "desglose_por_linea": desglose_lineas,
         "productos_detalle": productos_detalle,
