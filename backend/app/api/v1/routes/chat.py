@@ -686,7 +686,7 @@ def _ejecutar_chat(request: ChatRequest, usuario_id: int | None = None) -> ChatR
         from app.services.revision_reportes import revision_actual
         revision = revision_actual(CARPETA_DATOS / NOMBRE_ARCHIVO_BASE, request.session_id, usuario_id)
         if revision and (revision["pendientes"] or revision.get("relacionados")) and re.search(r"(ya\b.*\b(llen|complet|correg)|\btxt\b)", request.mensaje, re.IGNORECASE):
-            respuesta = ChatResponse(respuesta="Adjunta el Excel corregido en la tarjeta y pulsa Validar y generar TXT. Revisaré los precios antes de generar los archivos.", revision_reporte=revision)
+            respuesta = ChatResponse(respuesta="Adjunta el Excel corregido en la tarjeta y pulsa Validar y generar TXT. Revisaré las líneas introducidas y conservaré los precios que hayas escrito; completaré solo los vacíos con el factor confirmado.", revision_reporte=revision)
             _guardar_interaccion_en_bd(session_id=request.session_id, usuario_id=usuario_id, mensaje_usuario=request.mensaje, respuesta_chat=respuesta)
             return respuesta
         return _ejecutar_chat_impl(request, usuario_id)
@@ -719,17 +719,22 @@ def _continuar_decisiones(request, uid):
                 respuesta = ChatResponse(respuesta="Operación cancelada; no se ejecutaron las decisiones.", interaccion=i)
             else:
                 contexto.get()["continuacion"] = args
-                herramienta = next(h for h in HERRAMIENTAS if h.name == estado["herramienta"])
-                resultado = servicio.revalidar_aprobacion(estado, args)
-                if resultado is None:
-                    resultado = json.loads(herramienta.invoke(args, config={"callbacks": [actividad]}))
+                if estado["herramienta"] == "revisar_reporte_almacen":
+                    from app.services.revision_reportes import reanudar_revision
+                    revision = reanudar_revision(args["reporte_id"], args["version"], args.get("factores_elegidos", {}), uid)
+                    resultado = {"ok": True, "mensaje": revision["resumen_revision"], "revision_reporte": revision}
+                else:
+                    herramienta = next(h for h in HERRAMIENTAS if h.name == estado["herramienta"])
+                    resultado = servicio.revalidar_aprobacion(estado, args)
+                    if resultado is None:
+                        resultado = json.loads(herramienta.invoke(args, config={"callbacks": [actividad]}))
                 fallo = resultado.get("ok") is False and not resultado.get("requiere_confirmacion")
                 servicio.finalizar(request.session_id, uid, estado, resultado, error=fallo)
                 siguiente = None
                 if resultado.get("requiere_confirmacion"):
                     anteriores = [*i.get("anteriores", []), {k: deepcopy(v) for k, v in i.items() if k != "anteriores"}]
                     siguiente = servicio.registrar(request.session_id, uid, resultado, herramienta.name, contexto.get().get("continuacion", args), anteriores)
-                revision = revision_actual(CARPETA_DATOS / NOMBRE_ARCHIVO_BASE, request.session_id, uid)
+                revision = resultado.get("revision_reporte") or revision_actual(CARPETA_DATOS / NOMBRE_ARCHIVO_BASE, request.session_id, uid)
                 reporte = resultado.get("reporte_generado") is True
                 texto = "Revisa las siguientes decisiones para continuar." if siguiente else resultado.get("mensaje") or ("Las decisiones se aplicaron y el reporte está listo." if reporte else "Las decisiones se aplicaron." if not fallo else resultado.get("error", "No se pudo completar la operación."))
                 if reporte:

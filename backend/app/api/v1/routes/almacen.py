@@ -127,7 +127,13 @@ def descargar_reporte_historico(fecha: str, archivo_id: str) -> FileResponse:
 @router.get("/reportes/{reporte_id}")
 def estado_revision(reporte_id: str, session_id: str, usuario_actual: Usuario | None = Depends(obtener_usuario_opcional)):
     from app.services.revision_reportes import cargar, publico
-    return publico(cargar(reporte_id, session_id, getattr(usuario_actual, "id", None)))
+    from app.services import decisiones
+    uid = getattr(usuario_actual, "id", None)
+    salida = publico(cargar(reporte_id, session_id, uid))
+    pendiente = decisiones.leer(session_id, uid)
+    if pendiente and pendiente["herramienta"] == "revisar_reporte_almacen" and pendiente["argumentos"].get("reporte_id") == reporte_id and pendiente["argumentos"].get("version") == salida["version"]:
+        salida["interaccion"] = pendiente["interaccion"]
+    return salida
 
 
 @router.get("/reportes/{reporte_id}/archivo")
@@ -159,7 +165,24 @@ async def validar_revision(reporte_id: str, session_id: str, archivo: UploadFile
     contenido = await archivo.read(MAX_BYTES + 1)
     if len(contenido) > MAX_BYTES:
         raise HTTPException(413, "El archivo supera 20 MB.")
-    return await run_in_threadpool(validar_corregido, reporte_id, contenido, uid)
+    salida = await run_in_threadpool(validar_corregido, reporte_id, contenido, uid)
+    from app.services import decisiones
+    from app.schemas.chat import ChatResponse
+    from app.api.v1.routes import chat
+    if salida.get("factores_pendientes"):
+        salida["interaccion"] = decisiones.registrar(session_id, uid,
+            {"lineas_sin_factor": salida["factores_pendientes"]}, "revisar_reporte_almacen",
+            {"reporte_id": reporte_id, "version": salida["version"]})
+    respuesta = ChatResponse(respuesta=salida["resumen_revision"], revision_reporte=salida,
+                             interaccion=salida.get("interaccion"))
+    mensaje = f"Adjunté el Excel corregido de {salida['nombre']}."
+    config = {"configurable": {"thread_id": session_id}}
+    if callable(getattr(chat.grafo, "update_state", None)) and chat._memoria_grafo_tiene_mensajes(config):
+        from langchain_core.messages import AIMessage, HumanMessage
+        chat.grafo.update_state(config, {"messages": [HumanMessage(content=mensaje), AIMessage(content=respuesta.respuesta)]}, as_node="flucito")
+    chat._guardar_interaccion_en_bd(session_id=session_id, usuario_id=uid,
+        mensaje_usuario=mensaje, respuesta_chat=respuesta)
+    return salida
 
 
 @router.post("/upload", summary="Sube documentos de facturas a Google Drive")

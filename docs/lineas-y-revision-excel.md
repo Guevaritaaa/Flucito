@@ -22,3 +22,11 @@ Validación inicial: 16 pruebas aprobadas (procedencia general, `BW-SAF4000DME`,
 Se agrupan hasta tres referencias por línea, exigiendo familia de código, secuencia de medidas, clave SAT y unidad SAT iguales. Las diferencias de sufijo/modelo se muestran mediante la clave y descripción completas. No se equiparan fracciones con enteros. Sin referencia fiable se ofrece completar el Excel. La elección registra referencia y confirmación; una referencia que cambió se rechaza. La línea vacía bloquea ambos TXT y deja únicamente los cinco precios de venta vacíos, conservando compra.
 
 Validación: 32 pruebas aprobadas de decisiones, catálogo y líneas. Se consultó el esquema de la copia reciente de Firebird en transacción de solo lectura: `INVE02.LIN_PROD` y `CLIN02.CVE_LIN` tienen longitud 5. Los códigos manuales se validarán con ese límite.
+
+## Fase 3: Excel corregido y factores
+
+Solo las filas originalmente pendientes admiten cambio de línea. Se normalizan espacios exteriores y mayúsculas; los códigos admitidos son de 1 a 5 caracteres ASCII alfanuméricos, guion y guion bajo. No se exige que existan en la copia del catálogo ni se expanden por parecido a otra línea. Se conserva compra; los precios manuales positivos y finitos se respetan y únicamente los vacíos se calculan.
+
+Sin factor, se guarda una nueva versión del Excel recibido y se abre la tarjeta de factores existente. La confirmación reanuda esa copia persistida; elegir precios manuales conserva los pendientes y permite descargar esa versión para terminarla. Una versión anterior o una confirmación repetida se rechazan. Las preferencias de factor se consultan por código exacto y únicamente se guardan con la casilla expresa del usuario. La línea confirmada no crea altas en SAE.
+
+Validación de esta fase: 30 pruebas aprobadas, incluidas líneas YPC con cero, dos o cinco precios manuales; líneas DAYCO sin factor y ZZ9 ausente del catálogo; reanudación; precios manuales y rechazo de formatos incompatibles.

@@ -106,6 +106,7 @@ def registrar_reporte(ruta, meta_por_clave=None):
             "filas": filas, "pendientes": pendientes, "drive": None, "estado": "pendiente"}
     meta["lote_id"] = ctx.setdefault("lote_id", uuid.uuid4().hex)
     meta["meta_por_clave"] = meta_por_clave or {}
+    meta["lineas_editables"] = [p["producto"] for p in pendientes if "Línea" in p["campos"]]
     _guardar(meta)
     ctx.setdefault("reportes", []).append(id)
 
@@ -124,7 +125,48 @@ def id_archivo(ruta):
 
 
 def publico(meta):
-    return {k: meta[k] for k in ("id", "version", "nombre", "pendientes", "estado")}
+    salida = {k: meta[k] for k in ("id", "version", "nombre", "pendientes", "estado")}
+    salida["factores_pendientes"] = meta.get("factores_pendientes", [])
+    salida["resumen_revision"] = meta.get("resumen_revision", "")
+    return salida
+
+
+def _factor_linea(codigo, factores, uid):
+    from app.services.almacen.factores import obtener_catalogo_lineas, normalizar_eleccion_factor
+    if codigo in (factores or {}):
+        factor = normalizar_eleccion_factor(factores[codigo])
+        if factor is None:
+            raise HTTPException(422, "Selecciona un factor válido.")
+        return factor
+    # El código escrito se conserva exactamente: no expandirlo por prefijo.
+    if uid is not None:
+        from app.services.decisiones import SessionLocal, clave_preferencia
+        from app.models.preferencia import PreferenciaDecision
+        from sqlalchemy import select
+        with SessionLocal() as db:
+            pref = db.scalar(select(PreferenciaDecision).where(PreferenciaDecision.usuario_id == uid,
+                PreferenciaDecision.clave == clave_preferencia("factor", {"linea": codigo})))
+            if pref:
+                respuesta = json.loads(pref.respuesta_json)
+                from app.services.decisiones import validar_factor
+                return validar_factor(respuesta.get("campos", {})) if respuesta["opcion"] == "custom" else "LLENADO_MANUAL" if respuesta["opcion"] == "manual" else normalizar_eleccion_factor(respuesta["opcion"])
+    return obtener_catalogo_lineas().get(codigo, {}).get("factor")
+
+
+def _copiar_version(meta):
+    from app.services.almacen.excel import CARPETA_DATOS, NOMBRE_ARCHIVO_BASE
+    copia = directorio() / (meta["id"] + ".xlsx")
+    for ruta in (Path(meta["origen"]), Path(CARPETA_DATOS) / NOMBRE_ARCHIVO_BASE):
+        if ruta.exists() and id_archivo(ruta) == meta["id"]:
+            shutil.copy2(copia, ruta)
+
+
+def reanudar_revision(reporte_id, version, factores_elegidos, uid):
+    meta = cargar(reporte_id, uid=uid)
+    if version != meta["version"] or meta["estado"] != "factor_pendiente":
+        raise HTTPException(409, "La versión revisada cambió. Recarga la tarjeta del reporte.")
+    return validar_corregido(reporte_id, (directorio() / (reporte_id + ".xlsx")).read_bytes(), uid,
+                            factores_elegidos=factores_elegidos)
 
 
 def revision_actual(ruta, sid, uid):
@@ -159,7 +201,7 @@ def asociar_drive(ruta, archivo_id, carpeta_id):
         _guardar(meta)
 
 
-def validar_corregido(id, contenido, uid, propagar=True):
+def validar_corregido(id, contenido, uid, propagar=True, factores_elegidos=None):
     """Valida todo antes de escribir; jamás usa los cachés de fórmulas subidos."""
     with _LOCK, bloquear_reporte(id):
         meta = cargar(id, uid=uid)
@@ -180,6 +222,9 @@ def validar_corregido(id, contenido, uid, propagar=True):
             raise HTTPException(422, "Se modificaron las filas o columnas del reporte.")
         originales = {f["id"]: f["valores"] for f in meta["filas"]}
         vistos, errores, datos = set(), [], []
+        factores_pendientes, pendientes, explicaciones = {}, [], []
+        factores = {**meta.get("factores_elegidos", {}), **(factores_elegidos or {})}
+        ventas = PRECIOS - {"PRECIO COMPRA"}
         from app.services.almacen.factores import evaluar_aritmetica
         for r in range(2, ws.max_row + 1):
             fila_id = ws.cell(r, len(cols) + 1).value
@@ -189,6 +234,43 @@ def validar_corregido(id, contenido, uid, propagar=True):
             original = originales[fila_id]
             clave = str(original[cols.index("Clave Artículo")])
             valores = [ws.cell(r, c).value for c in range(1, len(cols) + 1)]
+            editable = clave in meta.get("lineas_editables", [])
+            compra_idx = cols.index("PRECIO COMPRA")
+            if editable and original[compra_idx] is not None and valores[compra_idx] != original[compra_idx]:
+                errores.append({"producto": clave, "campo": "PRECIO COMPRA", "motivo": "Conserva el costo de compra extraído."})
+            factor = None
+            permitir_vacios = False
+            if editable:
+                from app.services.almacen.lineas import normalizar_linea
+                from app.services.almacen.factores import calcular_precios_numericos
+                try:
+                    codigo = normalizar_linea(valores[cols.index("Línea")])
+                except ValueError as exc:
+                    errores.append({"producto": clave, "campo": "Línea", "motivo": str(exc)})
+                    codigo = ""
+                valores[cols.index("Línea")] = codigo
+                if codigo:
+                    factor = _factor_linea(codigo, factores, uid)
+                    faltan_ventas = any(valores[cols.index(p)] is None for p in ventas)
+                    if faltan_ventas and factor is None:
+                        factores_pendientes[codigo] = {"linea": codigo, "descripcion": "Línea escrita en el Excel revisado"}
+                    permitir_vacios = faltan_ventas and factor in (None, "LLENADO_MANUAL")
+                    if factor and factor not in {"LLENADO_MANUAL", "SIN_FACTOR"}:
+                        compra = valores[cols.index("PRECIO COMPRA")]
+                        if isinstance(compra, (int, float)) and not isinstance(compra, bool) and math.isfinite(compra) and compra > 0:
+                            calculados = calcular_precios_numericos(factor, compra)
+                            completados = []
+                            for p in ventas:
+                                if valores[cols.index(p)] is None:
+                                    valores[cols.index(p)] = calculados[p]
+                                    completados.append(p)
+                            if completados:
+                                explicaciones.append(f"{clave}: línea {codigo}, factor {factor}; completé {', '.join(sorted(completados))}. Conservé los precios escritos por el asesor.")
+                    if not faltan_ventas:
+                        explicaciones.append(f"{clave}: línea {codigo}; conservé los cinco precios de venta escritos por el asesor.")
+                    info = meta.setdefault("meta_por_clave", {}).setdefault(clave, {})
+                    info.update(origen_linea="ASESOR_EXCEL", linea_confirmada=codigo,
+                                confirmacion_asesor=True, usuario_confirmacion=uid, factor=factor or "LLENADO_MANUAL")
             memo = {}
             def precio(c, pila=None):
                 if c in memo:
@@ -215,25 +297,54 @@ def validar_corregido(id, contenido, uid, propagar=True):
                 return memo[c]
             for c, nombre in enumerate(cols):
                 if nombre not in PRECIOS:
-                    if str(valores[c] if valores[c] is not None else "") != str(original[c] if original[c] is not None else ""):
+                    if not (nombre == "Línea" and editable) and str(valores[c] if valores[c] is not None else "") != str(original[c] if original[c] is not None else ""):
                         errores.append({"producto": clave, "campo": nombre, "motivo": "Solo se permiten correcciones de precios."})
                 else:
+                    if nombre in ventas and valores[c] is None and permitir_vacios:
+                        continue
                     try:
                         valores[c] = precio(c)
                     except (ValueError, TypeError, ZeroDivisionError, OverflowError) as exc:
                         errores.append({"producto": clave, "campo": nombre, "motivo": str(exc)})
             datos.append(valores)
+            campos = [p for p in ventas if valores[cols.index(p)] is None]
+            if campos:
+                pendientes.append({"producto": clave, "campos": sorted(campos)})
         if errores:
             raise HTTPException(422, {"mensaje": "Corrige los campos indicados y vuelve a subir el Excel.", "errores": errores})
         # Escribir números verificados, sin depender del cálculo de Excel.
         for r, valores in enumerate(datos, 2):
             for c, valor in enumerate(valores, 1):
-                if cols[c - 1] in PRECIOS:
-                    ws.cell(r, c, valor)
-                    ws.cell(r, c).comment = None
+                if cols[c - 1] in PRECIOS or (cols[c - 1] == "Línea" and str(valores[cols.index("Clave Artículo")]) in meta.get("lineas_editables", [])):
+                    ws.cell(r, c).value = valor
+            clave = str(valores[cols.index("Clave Artículo")])
+            from app.services.almacen.procedencia import explicar_producto
+            from openpyxl.comments import Comment
+            explicacion = explicar_producto(clave, meta.get("meta_por_clave", {}).get(clave, {}))
+            detalles = [e for e in explicaciones if e.startswith(clave + ":")]
+            for campo in ("Línea", *PRECIOS):
+                celda = ws.cell(r, cols.index(campo) + 1)
+                if celda.value is not None:
+                    celda.comment = Comment(" ".join([explicacion, *detalles]).strip() or "Precio revisado por el asesor.", "Flucito")
         wb["_FLUCITO"].cell(1, 2, meta["version"] + 1)
         staging = directorio() / (id + ".corregido.xlsx")
         wb.save(staging)
+        meta["resumen_revision"] = f"Reporte {meta['nombre']}. " + " ".join(explicaciones)
+        if pendientes:
+            # Se conserva la versión recibida, incluidos los precios manuales; la
+            # continuación nunca vuelve al Excel anterior ni a los documentos fuente.
+            os.replace(staging, directorio() / (id + ".xlsx"))
+            meta.update(version=meta["version"] + 1, pendientes=pendientes,
+                        factores_pendientes=list(factores_pendientes.values()),
+                        factores_elegidos=factores,
+                        estado="factor_pendiente" if factores_pendientes else "pendiente")
+            revisadas = {ws.cell(r, len(cols) + 1).value: valores for r, valores in enumerate(datos, 2)}
+            for f in meta["filas"]:
+                f["valores"] = revisadas[f["id"]]
+            meta["resumen_revision"] += " El Excel revisado quedó guardado. " + ("Elige el factor para completar los precios vacíos." if factores_pendientes else "Completa los precios pendientes y adjunta esta nueva versión del Excel.")
+            _guardar(meta)
+            _copiar_version(meta)
+            return publico(meta)
         # TXT listo únicamente después de validar todo el libro.
         from app.services.almacen.txt_aspel import generar_ambos_txt
         carpeta_txt = directorio() / id
@@ -274,7 +385,8 @@ def validar_corregido(id, contenido, uid, propagar=True):
             shutil.copy2(directorio() / (id + ".xlsx"), base)
             for txt in carpeta_txt.glob("*.txt"):
                 shutil.copy2(txt, Path(CARPETA_DATOS) / txt.name)
-        meta.update(version=meta["version"] + 1, pendientes=[])
+        meta.update(version=meta["version"] + 1, pendientes=[], factores_pendientes=[], factores_elegidos=factores)
+        meta["resumen_revision"] += " Líneas y precios validados; los TXT de comas y tabulaciones están listos."
         _guardar(meta)
         if propagar:
             _propagar_correcciones(meta, datos, uid)
@@ -290,12 +402,12 @@ def _propagar_correcciones(meta, datos, uid):
         otro = json.loads(archivo.read_text(encoding="utf-8"))
         if otro["id"] == meta["id"] or not otro["pendientes"] or otro.get("lote_id") != meta.get("lote_id") or otro["columnas"] != cols:
             continue
-        if any(str(f["valores"][clave_idx]) not in mapa or any(str(f["valores"][c] or "") != str(mapa[str(f["valores"][clave_idx])][c] or "") for c, nombre in enumerate(cols) if nombre not in PRECIOS) for f in otro["filas"]):
+        if any(str(f["valores"][clave_idx]) not in mapa or any(str(f["valores"][c] or "") != str(mapa[str(f["valores"][clave_idx])][c] or "") for c, nombre in enumerate(cols) if nombre not in PRECIOS and not (nombre == "Línea" and str(f["valores"][clave_idx]) in otro.get("lineas_editables", []))) for f in otro["filas"]):
             continue
         wb = openpyxl.load_workbook(directorio() / (otro["id"] + ".xlsx"))
         for r, f in enumerate(otro["filas"], 2):
             for c, nombre in enumerate(cols, 1):
-                if nombre in PRECIOS:
+                if nombre in PRECIOS or (nombre == "Línea" and str(f["valores"][clave_idx]) in otro.get("lineas_editables", [])):
                     wb.active.cell(r, c, mapa[str(f["valores"][clave_idx])][c - 1])
         contenido = io.BytesIO()
         wb.save(contenido)

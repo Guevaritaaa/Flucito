@@ -331,3 +331,82 @@ def test_migracion_preferencias_upgrade_y_downgrade():
             modulo.downgrade()
             assert "preferencias_decision" not in inspect(conexion).get_table_names()
     engine.dispose()
+
+
+def crear_reporte_linea_pendiente(entorno):
+    fila = {c: 0 for c in excel.COLUMNAS_ASPEL}
+    fila.update({"Clave Artículo": "PRUEBA-4000D", "DESCRIPCION": "Producto sin línea", "Línea": "", "PRECIO COMPRA": 100})
+    for p in d.PRECIOS:
+        fila[p] = None
+    df = pd.DataFrame([fila], columns=excel.COLUMNAS_ASPEL)
+    df.attrs["meta_por_clave"] = {"PRUEBA-4000D": {"manual": True, "linea_pendiente": True, "origen_linea": "SIN_LINEA"}}
+    excel.guardar_en_base_acumulada(df, str(entorno[0]), limpiar_previos=True)
+    archivo = entorno[0] / excel.NOMBRE_ARCHIVO_BASE
+    return archivo, rr.revision_actual(archivo, "chat-uno", None)
+
+
+@pytest.mark.parametrize("manuales", [0, 2, 5])
+def test_excel_linea_existente_completa_solo_precios_vacios(entorno, manuales):
+    archivo, revision = crear_reporte_linea_pendiente(entorno)
+    wb = openpyxl.load_workbook(archivo)
+    ws = wb.active
+    cols = {c.value: c.column for c in ws[1]}
+    ws.cell(2, cols["Línea"], " ypc ")
+    for n, p in enumerate(d.PRECIOS[:manuales]):
+        ws.cell(2, cols[p], 800 + n)
+    salida = rr.validar_corregido(revision["id"], bytes_libro(wb), None)
+    assert salida["estado"] == "validado"
+    final = openpyxl.load_workbook(archivo).active
+    assert final.cell(2, cols["Línea"]).value == "YPC"
+    assert final.cell(2, cols["PRECIO COMPRA"]).value == 100
+    calculados = factores.calcular_precios_numericos("YPC", 100)
+    for n, p in enumerate(d.PRECIOS):
+        assert final.cell(2, cols[p]).value == pytest.approx(800 + n if n < manuales else calculados[p])
+
+
+@pytest.mark.parametrize("linea", ["ZZ9", "DAYCO"])
+def test_excel_linea_sin_factor_conserva_version_y_reanuda(entorno, linea):
+    archivo, revision = crear_reporte_linea_pendiente(entorno)
+    wb = openpyxl.load_workbook(archivo)
+    cols = {c.value: c.column for c in wb.active[1]}
+    wb.active.cell(2, cols["Línea"], linea)
+    wb.active.cell(2, cols["PUBLICO"], 987.65)
+    subido = bytes_libro(wb)
+    salida = rr.validar_corregido(revision["id"], subido, None)
+    assert salida["estado"] == "factor_pendiente" and salida["version"] == 2
+    assert salida["factores_pendientes"][0]["linea"] == linea
+    with pytest.raises(HTTPException):
+        rr.validar_corregido(revision["id"], subido, None)
+    final = rr.reanudar_revision(revision["id"], 2, {linea: "YPC"}, None)
+    assert final["estado"] == "validado" and final["version"] == 3
+    ws = openpyxl.load_workbook(archivo).active
+    assert ws.cell(2, cols["PUBLICO"]).value == 987.65
+    assert ws.cell(2, cols["MINIMO"]).value == pytest.approx(100 / .6 * .8)
+    assert ws.cell(2, cols["Línea"]).value == linea
+    with pytest.raises(HTTPException):
+        rr.reanudar_revision(revision["id"], 2, {linea: "YPC"}, None)
+
+
+def test_factor_manual_conserva_excel_hasta_completar_precios(entorno):
+    archivo, revision = crear_reporte_linea_pendiente(entorno)
+    wb = openpyxl.load_workbook(archivo)
+    cols = {c.value: c.column for c in wb.active[1]}
+    wb.active.cell(2, cols["Línea"], "ZZ9")
+    salida = rr.validar_corregido(revision["id"], bytes_libro(wb), None)
+    manual = rr.reanudar_revision(revision["id"], salida["version"], {"ZZ9": "LLENADO_MANUAL"}, None)
+    assert manual["estado"] == "pendiente" and manual["factores_pendientes"] == []
+    assert manual["version"] == 3
+    wb = openpyxl.load_workbook(archivo)
+    for p in d.PRECIOS:
+        wb.active.cell(2, cols[p], 123.45)
+    assert rr.validar_corregido(revision["id"], bytes_libro(wb), None)["estado"] == "validado"
+
+
+@pytest.mark.parametrize("linea", ["DEMASIADO", "A B", "=A1", "", "Ñ"])
+def test_rechaza_formato_linea_incompatible_con_sae(entorno, linea):
+    archivo, revision = crear_reporte_linea_pendiente(entorno)
+    wb = openpyxl.load_workbook(archivo)
+    wb.active.cell(2, excel.COLUMNAS_ASPEL.index("Línea") + 1, linea)
+    with pytest.raises(HTTPException) as exc:
+        rr.validar_corregido(revision["id"], bytes_libro(wb), None)
+    assert exc.value.status_code == 422
