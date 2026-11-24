@@ -6,6 +6,25 @@ from app.api.v1.routes.chat import contenido_a_texto
 from app.schemas.chat import ChatRequest, ChatResponse
 
 
+def test_fecha_sin_resultado_no_ofrece_base_de_otra_fecha(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    from langchain_core.messages import HumanMessage
+    from app.services import revision_reportes
+
+    (tmp_path / chat_route.NOMBRE_ARCHIVO_BASE).write_bytes(b"base de otra fecha")
+    monkeypatch.setattr(chat_route, "CARPETA_DATOS", tmp_path)
+    monkeypatch.setattr(chat_route, "_obtener_mensajes_previos_bd", lambda *args: [])
+    monkeypatch.setattr(chat_route, "recuperar_operaciones_drive", lambda *args: "")
+    monkeypatch.setattr(chat_route, "_guardar_interaccion_en_bd", lambda **kwargs: None)
+    monkeypatch.setattr(revision_reportes, "revision_actual", lambda *args: None)
+    monkeypatch.setattr(chat_route, "grafo", SimpleNamespace(invoke=lambda *args, **kwargs: {
+        "messages": [HumanMessage(content="Dame el reporte del 10 de octubre"),
+                     AIMessage(content="¿De qué año necesitas el reporte?")]
+    }))
+    resultado = chat_route._ejecutar_chat(ChatRequest(mensaje="Dame el reporte del 10 de octubre", session_id="fecha"))
+    assert resultado.archivo_almacen_url is None
+
+
 def test_contenido_a_texto_normaliza_responses_api() -> None:
     mensaje = AIMessage(content=[{"type": "text", "text": "Respuesta Luna"}])
 

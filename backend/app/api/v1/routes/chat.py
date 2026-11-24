@@ -474,6 +474,11 @@ def _ejecutar_chat_impl(request: ChatRequest, usuario_id: int | None = None) -> 
     pide_reciente = bool(re.search(r"\b([uú]ltim[oa]s?|m[aá]s recientes?|recientes?)\b", texto_usuario))
     pide_txt = _solicita_descarga(request.mensaje, "txt")
     pide_excel = _solicita_descarga(request.mensaje, "excel")
+    solicita_fecha = bool(re.search(
+        r"\b(?:\d{1,4}[-/]\d{1,2}(?:[-/]\d{2,4})?|\d{1,2}\s+de\s+"
+        r"(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre))\b",
+        texto_usuario,
+    ))
     if not pide_txt and re.fullmatch(r"\s*(s[ií]|claro|ok|adelante|comas|tabulaciones|tabs)([ ,.!]*(por favor|comas|tabulaciones|tabs))*[.! ]*", texto_usuario):
         previos = list(resultado["messages"])
         for indice in range(len(previos) - 1, -1, -1):
@@ -607,6 +612,7 @@ def _ejecutar_chat_impl(request: ChatRequest, usuario_id: int | None = None) -> 
     if (
         not bloqueado_por_confirmacion
         and archivo_almacen_url is None and pide_excel and not reportes_historicos
+        and not solicita_fecha
         and (CARPETA_DATOS / NOMBRE_ARCHIVO_BASE).is_file()
     ):
         archivo_almacen_url = "/api/v1/almacen/download"
