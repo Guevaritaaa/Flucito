@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { LoginView } from "./components/auth/LoginView";
 import { ChatWorkspace } from "./components/chat/ChatWorkspace";
 import { HomeView } from "./components/home/HomeView";
@@ -24,10 +24,16 @@ export default function App() {
     refrescarConversaciones,
   } = useConversations(autenticado);
 
-  const [tabActiva, setTabActiva] = useState<AppTab>("chat");
+  const [tabActiva, setTabActiva] = useState<AppTab>("inicio");
   const [sidebarAbierto, setSidebarAbierto] = useState<boolean>(() =>
     typeof window !== "undefined" ? window.innerWidth >= 768 : true
   );
+
+  useEffect(() => {
+    if (!autenticado) {
+      setTabActiva("inicio");
+    }
+  }, [autenticado]);
 
   const estiloFondoAtmosferico = {
     background: esOscuro

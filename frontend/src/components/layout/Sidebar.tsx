@@ -8,7 +8,6 @@ import {
   Plus,
   RefreshCw,
   Settings,
-  Shield,
   Trash2,
   User as UserIcon,
   X,
@@ -326,24 +325,12 @@ export function Sidebar({
           <div className="flex items-center justify-between gap-2 rounded-2xl border border-white/75 dark:border-sky-300/15 bg-white/65 dark:bg-[#0a1936]/75 px-2.5 py-2">
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="h-8 w-8 flex-shrink-0 rounded-full bg-[#0022e6]/10 dark:bg-sky-400/15 flex items-center justify-center text-[#0022e6] dark:text-sky-300">
-                {usuario.rol === "admin" ? (
-                  <Shield className="h-4 w-4" />
-                ) : (
-                  <UserIcon className="h-4 w-4" />
-                )}
+                <UserIcon className="h-4 w-4" />
               </div>
               <div className="min-w-0">
                 <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
                   {usuario.nombre_completo}
                 </p>
-                <div className="flex items-center gap-1.5 mt-0.5">
-                  <span className="text-[11px] text-slate-600 dark:text-sky-200/75 truncate">
-                    @{usuario.username}
-                  </span>
-                  <span className="inline-flex items-center rounded-md bg-[#0022e6]/10 dark:bg-sky-400/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#0018cc] dark:text-sky-200">
-                    {usuario.rol}
-                  </span>
-                </div>
               </div>
             </div>
 
