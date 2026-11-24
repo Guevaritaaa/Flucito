@@ -43,14 +43,14 @@ def _codigo_desde_descripcion(descripcion: str) -> str | None:
 def leer_meta(ruta_xml: str | Path) -> dict:
     """Folio, año y RFC del emisor, para emparejar con el pdf/txt de apoyo."""
     root = ET.parse(ruta_xml).getroot()
-    folio = root.get("Folio")
+    folio = (root.get("Folio") or "").strip()
     fecha = root.get("Fecha") or ""
     year = fecha[:4] if fecha else None
     emisor = root.find("cfdi:Emisor", NS)
     rfc = emisor.get("Rfc") if emisor is not None else None
     proveedor_nombre = emisor.get("Nombre") if emisor is not None else None
     return {
-        "folio": int(folio) if folio else None,
+        "folio": int(folio) if folio.isdecimal() else folio or None,
         "year": year,
         "rfc": rfc,
         "proveedor_nombre": proveedor_nombre,

@@ -3,6 +3,23 @@ from pathlib import Path
 import pandas as pd
 
 from app.services.almacen import apoyo, excel
+from app.services.almacen.extractor import leer_meta
+
+
+def test_xml_solo_con_folio_alfanumerico(tmp_path: Path) -> None:
+    xml = tmp_path / "factura.xml"
+    xml.write_text(
+        '<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" Folio="A/12345" Fecha="2026-10-01">'
+        '<cfdi:Conceptos><cfdi:Concepto NoIdentificacion="197385" Descripcion="Conector" '
+        'Cantidad="2" ValorUnitario="10"/></cfdi:Conceptos></cfdi:Comprobante>', encoding="utf-8",
+    )
+    assert leer_meta(xml)["folio"] == "A/12345"
+    resultado = excel.procesar_xml(str(xml), str(tmp_path))
+    assert len(resultado) == 1 and not resultado.attrs["tiene_apoyo"]
+    for encabezado, esperado in [("A/12345", True), ("B12345", False), ("A123456", False)]:
+        txt = tmp_path / "A-12345.txt"
+        txt.write_text(f"COMPRA {encabezado}\n", encoding="utf-8")
+        assert apoyo._folio_coincide_con_archivo(str(txt), "A/12345") is esperado
 
 
 def test_apoyo_txt_usa_folio_y_extension_mayuscula(tmp_path: Path) -> None:

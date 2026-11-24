@@ -248,7 +248,16 @@ def _extraer_rfcs_de_texto(texto: str) -> list[str]:
     return re.findall(r"RFC:\s*([A-ZÑ&]{3,4}\d{6}[A-Z\d]{3})", texto)
 
 
-def _folio_coincide_con_archivo(ruta_archivo: str, folio: int, rfc_proveedor: str | None = None) -> bool:
+def _coincide_folio_alfanumerico(texto: str, folio: str) -> bool:
+    # SAE puede representar A/295382 como A295382 o A-295382 en el archivo.
+    partes = re.findall(r"[^\W_]+", folio)
+    if not partes:
+        return False
+    patron = r"[\W_]*".join(re.escape(p) for p in partes)
+    return re.search(rf"(?<![^\W_]){patron}(?![^\W_])", texto, re.IGNORECASE) is not None
+
+
+def _folio_coincide_con_archivo(ruta_archivo: str, folio: int | str, rfc_proveedor: str | None = None) -> bool:
     """
     Verifica si un archivo TXT/PDF de apoyo corresponde al XML.
     1. Número COMPRA: busca 'COMPRA  XXXXX' en el encabezado.
@@ -266,6 +275,8 @@ def _folio_coincide_con_archivo(ruta_archivo: str, folio: int, rfc_proveedor: st
             # Paso 1: Match por número COMPRA
             num_compra = extraer_numero_compra(contenido)
             if num_compra:
+                if not folio_str.isdecimal():
+                    return _coincide_folio_alfanumerico(num_compra, folio_str)
                 digitos_compra = "".join(c for c in num_compra if c.isdigit())
                 if folio_str in digitos_compra or digitos_compra in folio_str:
                     logger.debug("Match por encabezado COMPRA: %s <-> folio %s", num_compra, folio_str)
@@ -279,6 +290,8 @@ def _folio_coincide_con_archivo(ruta_archivo: str, folio: int, rfc_proveedor: st
                     # Paso 1: Match por COMPRA
                     num_compra = extraer_numero_compra(texto_pagina1)
                     if num_compra:
+                        if not folio_str.isdecimal():
+                            return _coincide_folio_alfanumerico(num_compra, folio_str)
                         digitos_compra = "".join(c for c in num_compra if c.isdigit())
                         if folio_str in digitos_compra or digitos_compra in folio_str:
                             return True
@@ -287,6 +300,8 @@ def _folio_coincide_con_archivo(ruta_archivo: str, folio: int, rfc_proveedor: st
 
     # Paso 2: Fallback por nombre de archivo (contención bidireccional)
     nombre = os.path.basename(ruta_archivo)
+    if not folio_str.isdecimal():
+        return _coincide_folio_alfanumerico(os.path.splitext(nombre)[0], folio_str)
     digitos_nombre = "".join(c for c in os.path.splitext(nombre)[0] if c.isdigit())
     if not digitos_nombre:
         return False
@@ -294,7 +309,7 @@ def _folio_coincide_con_archivo(ruta_archivo: str, folio: int, rfc_proveedor: st
     return folio_str in digitos_nombre or digitos_nombre in folio_str
 
 
-def obtener_apoyo_por_folio(carpeta: str, year: str, folio: int, rfc_proveedor: str | None = None) -> list:
+def obtener_apoyo_por_folio(carpeta: str, year: str, folio: int | str, rfc_proveedor: str | None = None) -> list:
     """
     Busca en carpeta un pdf o txt que corresponda al XML usando:
     1. RFC del proveedor (más confiable)
@@ -407,12 +422,14 @@ def emparejar_conceptos_con_apoyo(conceptos: list[dict], apoyo: list[dict]) -> l
 
 
 # Mantener es_apoyo_de_folio como wrapper para sincronizador.py
-def es_apoyo_de_folio(nombre_archivo: str, year: str, folio: int) -> bool:
+def es_apoyo_de_folio(nombre_archivo: str, year: str, folio: int | str) -> bool:
     """
     Verifica si el nombre de archivo (PDF/TXT) corresponde al folio del XML.
     Compara usando contención bidireccional los dígitos del nombre vs el folio.
     """
     nombre_sin_ext = os.path.splitext(nombre_archivo)[0]
+    if not str(folio).isdecimal():
+        return _coincide_folio_alfanumerico(nombre_sin_ext, str(folio))
     digitos_nombre = "".join(c for c in nombre_sin_ext if c.isdigit())
     if not digitos_nombre:
         return False
