@@ -21,7 +21,7 @@ def test_procedencia_cuenta_todo_el_reporte_y_conserva_conversion_fuera_de_los_5
     resumen = construir_resumen(df, duplicados_ignorados=2)
     assert len(resumen["productos_detalle"]) == 50
     explicacion = explicar_procedencia_reporte(resumen)
-    assert "En 51 productos, tomé la línea del catálogo histórico de SAE" in explicacion
+    assert "En 51 productos, tomé la línea del catálogo del SAE" in explicacion
     assert "0 → FESTO" in explicacion
     assert "50 (50 m)" in explicacion
     assert "FESTO con el factor FESTO" in explicacion

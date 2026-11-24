@@ -18,7 +18,7 @@ import pandas as pd
 from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Font, PatternFill
 
-from app.services.almacen.apoyo import buscar_dato, emparejar_conceptos_con_apoyo, obtener_apoyo_por_folio
+from app.services.almacen.apoyo import fuentes_apoyo, buscar_dato, emparejar_conceptos_con_apoyo, obtener_apoyo_por_folio
 from app.services.almacen.catalogo_sae import (
     buscar_articulo_sae,
     firma_descripcion_dimensional,
@@ -331,6 +331,7 @@ def _fila_desde_concepto(
     meta_por_clave: dict[str, dict[str, object]] | None = None,
     claves_usadas_lote: dict[str, str] | None = None,
     lineas_variantes: dict | None = None,
+    fuente_apoyo: dict | None = None,
 ) -> dict:
     clave_apoyo = dato.get("clave_articulo") if dato else None
     clave_xml = c.get("no_identificacion")
@@ -375,7 +376,7 @@ def _fila_desde_concepto(
         origen_linea = "INVE02"
     elif linea_txt:
         linea_raw = linea_txt
-        origen_linea = "TXT_APOYO"
+        origen_linea = "APOYO_LINEA_UNICA" if (dato or {}).get("linea_inferida_apoyo") else "TXT_APOYO"
     elif linea_variante := (lineas_variantes or {}).get(_familia_dimensional(c)):
         linea_raw = linea_variante
         origen_linea = "VARIANTE_MISMA_FACTURA"
@@ -465,6 +466,12 @@ def _fila_desde_concepto(
                     "origen_linea": origen_linea,
                     "origen_proveedor": origen_proveedor,
                     "codigo_xml_original": str(clave_xml or ""),
+                    "fuentes": {
+                        "apoyo": fuente_apoyo or fuentes_apoyo([], dato),
+                        "xml": {"clave": clave_xml},
+                        "catalogo": {"clave": (art_sae or {}).get("cve_art"),
+                                     "linea": linea_sae, "coincidencia": origen_clave},
+                    },
                 }
             },
         )
@@ -552,6 +559,7 @@ def procesar_xml(
             meta_por_clave=meta_por_clave,
             claves_usadas_lote=claves_usadas_lote,
             lineas_variantes=variantes,
+            fuente_apoyo=fuentes_apoyo(apoyo, d),
         )
         for c, d in zip(conceptos, datos)
     ]
@@ -1024,6 +1032,11 @@ def _aplicar_estilo(
             fila_excel = idx + 2
             clave = str(fila.get("Clave Artículo") or "")
             meta_item = mapa_meta.get(clave, {})
+            from app.services.almacen.procedencia import explicar_producto
+            explicacion = explicar_producto(clave, meta_item)
+            if explicacion:
+                for campo in ("Clave Artículo", "Línea"):
+                    ws.cell(fila_excel, indice_col[campo]).comment = Comment(explicacion, "Flucito")
             origen = meta_item.get("origen_linea")
             razones = {
                 "VARIANTE_MISMA_FACTURA": "Línea inferida de otra medida de esta familia en la misma factura.",
@@ -1031,13 +1044,13 @@ def _aplicar_estilo(
                 "HISTORIAL_UNICA": "Línea inferida del historial del proveedor en SAE.",
                 "HISTORIAL_KEYWORD": "Línea inferida por la descripción del producto y el historial del proveedor en SAE.",
             }
-            if origen in razones:
+            if origen in razones and not explicacion:
                 ws.cell(fila_excel, indice_col["Línea"]).comment = Comment(razones[origen], "Flucito")
             if meta_item.get("origen_linea") == "SIN_LINEA":
                 celda_linea = ws.cell(fila_excel, indice_col["Línea"])
                 celda_linea.fill = PatternFill("solid", fgColor="FFF3CD")
                 celda_linea.comment = Comment(
-                    "Línea pendiente de confirmar. Los precios de venta en cero no tienen factor aplicado.",
+                    explicacion or "Línea pendiente de confirmar. Completa la línea y los precios de venta antes del TXT.",
                     "Flucito",
                 )
             if meta_item.get("manual"):

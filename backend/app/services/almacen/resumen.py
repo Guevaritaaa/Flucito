@@ -11,6 +11,7 @@ from typing import Any
 import pandas as pd
 
 from app.services.almacen.factores import calcular_precios_numericos, resolver_linea
+from app.services.almacen.procedencia import explicar_producto
 
 
 def _limpiar_numero(valor: Any, decimales: int = 4) -> float | None:
@@ -41,18 +42,18 @@ def explicar_procedencia_reporte(resumen: dict[str, Any]) -> str:
     explicaciones = []
     motivos = {
         "origen_linea": {
-            "INVE02": "tomé la línea del catálogo histórico de SAE",
+            "INVE02": "tomé la línea del catálogo del SAE",
             "TXT_APOYO": "tomé la línea del TXT o PDF de apoyo",
             "HISTORIAL_UNICA": "usé la única línea registrada en el historial de compras de ese proveedor",
             "HISTORIAL_KEYWORD": "relacioné la descripción con una línea del historial de ese proveedor",
-            "VARIANTE_INVE02": "usé la línea de artículos de la misma familia dimensional en el catálogo histórico",
+            "VARIANTE_INVE02": "usé la línea de artículos de la misma familia dimensional en el catálogo del SAE",
             "VARIANTE_MISMA_FACTURA": "usé la línea de otras medidas de la misma familia dentro de la factura",
         },
         "origen_clave": {
-            "INVE02_EXACTO": "utilicé la clave que coincidía exactamente en el catálogo histórico de SAE",
+            "INVE02_EXACTO": "utilicé la clave que coincidía exactamente en el catálogo del SAE",
             "CVES_ALTER02": "relacioné el código con una clave alterna registrada en SAE",
-            "INVE02_COMPACTO": "encontré una coincidencia única del código normalizado en el catálogo histórico",
-            "INVE02_PREFIJO_UNICO": "completé la clave con una coincidencia única por prefijo en el catálogo histórico",
+            "INVE02_COMPACTO": "encontré una coincidencia única del código normalizado en el catálogo del SAE",
+            "INVE02_PREFIJO_UNICO": "completé la clave con una coincidencia única por prefijo en el catálogo del SAE",
             "INVE02_PREFIJO_DESAMBIGUADO": "completé el prefijo de la clave de apoyo usando el código del XML para resolver la coincidencia",
             "TXT_APOYO": "utilicé la clave obtenida con el documento de apoyo",
             "XML": "utilicé el código obtenido del XML",
@@ -107,6 +108,8 @@ def explicar_procedencia_reporte(resumen: dict[str, Any]) -> str:
             f"- {sin_linea} producto(s) quedaron con la línea vacía y necesitan revisión antes de usar el reporte."
             + muestra
         )
+    for caso in resumen.get("explicaciones_productos", []):
+        explicaciones.append("- " + caso)
     if not explicaciones:
         return ""
     return "**Cómo se preparó este reporte**\n\n" + "\n".join(explicaciones)
@@ -380,6 +383,12 @@ def construir_resumen(
         },
         "conversiones_a_metros": conversiones_a_metros,
         "productos_sin_linea": productos_sin_linea,
+        "explicaciones_productos": [
+            explicar_producto(clave, info)
+            for clave, info in meta_por_clave.items()
+            if info.get("fuentes") and (info.get("origen_linea") == "SIN_LINEA" or
+                info["fuentes"].get("apoyo", {}).get("clave") not in (None, "", clave))
+        ],
         "desglose_por_proveedor": desglose_proveedores,
         "desglose_por_linea": desglose_lineas,
         "productos_detalle": productos_detalle,

@@ -20,6 +20,23 @@ PATRON_CANTIDAD = re.compile(r"^\d+\.\d{2}$")
 logger = logging.getLogger(__name__)
 
 
+class ApoyoLeido(list):
+    """Conserva la API de lista y el diagnóstico aun cuando no se extrajeron filas."""
+    def __init__(self, datos=(), *, estado="AUSENTE", archivo=None, errores=None):
+        super().__init__(datos)
+        self.estado = estado
+        self.archivo = archivo
+        self.errores = errores or []
+
+
+def fuentes_apoyo(apoyo, dato):
+    return {"estado": "LEIDO" if dato else "SIN_PARTIDA" if apoyo else getattr(apoyo, "estado", "AUSENTE"),
+            "archivo": getattr(apoyo, "archivo", None),
+            "tipo": (os.path.splitext(getattr(apoyo, "archivo", None) or "")[1][1:].upper() or "TXT/PDF"),
+            "clave": (dato or {}).get("clave_articulo"),
+            "linea_original": (dato or {}).get("linea_original", (dato or {}).get("linea"))}
+
+
 def _normaliza(codigo: str) -> str:
     return (codigo or "").strip().upper()
 
@@ -50,11 +67,14 @@ def _completar_linea_unica_faltante(datos: list[dict]) -> None:
     propaga esa línea única a las partidas vacías del mismo documento.
     """
     lineas_presentes = {d.get("linea") for d in datos if d.get("linea")}
+    for d in datos:
+        d["linea_original"] = d.get("linea")
     if len(lineas_presentes) == 1:
         linea_unica = next(iter(lineas_presentes))
         for d in datos:
             if not d.get("linea"):
                 d["linea"] = linea_unica
+                d["linea_inferida_apoyo"] = True
 
 
 def extraer_numero_compra(texto: str) -> str | None:
@@ -329,11 +349,18 @@ def obtener_apoyo_por_folio(carpeta: str, year: str, folio: int | str, rfc_prove
             candidatos.append(ruta_completa)
     candidatos.sort(key=lambda p: 0 if p.lower().endswith(".pdf") else 1)
 
+    errores = []
     for ruta in candidatos:
-        datos = _leer_desde_pdf(ruta) if ruta.lower().endswith(".pdf") else _leer_desde_txt(ruta)
+        try:
+            datos = _leer_desde_pdf(ruta) if ruta.lower().endswith(".pdf") else _leer_desde_txt(ruta)
+        except Exception:
+            logger.exception("No se pudo leer el apoyo %s", ruta)
+            errores.append(os.path.basename(ruta))
+            continue
         if datos:
-            return datos
-    return []
+            return ApoyoLeido(datos, estado="LEIDO", archivo=os.path.basename(ruta), errores=errores)
+        errores.append(os.path.basename(ruta))
+    return ApoyoLeido(estado="LECTURA_FALLIDA" if candidatos else "AUSENTE", errores=errores)
 
 
 def buscar_dato(
