@@ -305,6 +305,9 @@ def _guardar_interaccion_en_bd(
     respuesta_chat: ChatResponse,
 ) -> None:
     """Guarda la conversación y los mensajes del usuario y de Flucito en la base de datos."""
+    from app.services.almacen.avisos import avisos_estado
+    if not respuesta_chat.avisos:
+        respuesta_chat.avisos = avisos_estado(respuesta_chat.interaccion, respuesta_chat.revision_reporte)
     try:
         Base.metadata.create_all(bind=engine)
         ahora = datetime.now(timezone.utc)
@@ -334,6 +337,7 @@ def _guardar_interaccion_en_bd(
                 )
             )
             metadatos = {
+                "avisos": respuesta_chat.avisos,
                 "interaccion": respuesta_chat.interaccion,
                 "revision_reporte": respuesta_chat.revision_reporte,
                 "archivo_almacen_url": respuesta_chat.archivo_almacen_url,
@@ -654,7 +658,9 @@ def _ejecutar_chat_impl(request: ChatRequest, usuario_id: int | None = None) -> 
     respuesta_final.revision_reporte = revision_actual(CARPETA_DATOS / NOMBRE_ARCHIVO_BASE, request.session_id, usuario_id)
     if respuesta_final.revision_reporte and respuesta_final.revision_reporte.get("pendientes"):
         respuesta_final.archivo_txt_url = None
-        respuesta_final.respuesta += "\n\nLos precios quedarán vacíos para su llenado manual. En cuanto los rellenes, avísame para validar el reporte y generar el TXT."
+        respuesta_final.respuesta += "\n\nLos campos pendientes están señalados en el Excel. Conservé el costo de compra cuando estaba disponible. Completa las líneas y los precios pendientes y adjunta el Excel para validar y generar los TXT."
+    from app.services.almacen.avisos import avisos_estado
+    respuesta_final.avisos = avisos_estado(respuesta_final.interaccion, respuesta_final.revision_reporte, resumen_reporte)
     _guardar_interaccion_en_bd(
         session_id=request.session_id,
         usuario_id=usuario_id,
@@ -759,9 +765,11 @@ def _continuar_decisiones(request, uid):
                 avisos = [resultado.get(k) for k in ("advertencia_ubicacion", "advertencia_xmls_sin_apoyo", "advertencia_productos_regalo") if isinstance(resultado.get(k), str)]
                 if avisos:
                     texto += "\n\n" + "\n\n".join(avisos)
+                from app.services.almacen.avisos import avisos_estado
+                avisos_estructurados = avisos_estado(siguiente or i, revision, resultado.get("resumen"))
                 if revision and revision.get("pendientes"):
-                    texto += "\n\nLos precios quedarán vacíos para su llenado manual. En cuanto los rellenes, avísame para validar el reporte y generar el TXT."
-                respuesta = ChatResponse(respuesta=texto, interaccion=siguiente or i, revision_reporte=revision,
+                    texto += "\n\nLos campos pendientes están señalados en el Excel. Conservé el costo de compra cuando estaba disponible. Completa las líneas y los precios pendientes y adjunta el Excel para validar y generar los TXT."
+                respuesta = ChatResponse(respuesta=texto, interaccion=siguiente or i, revision_reporte=revision, avisos=avisos_estructurados,
                     actividades=actividad.actividades,
                     archivo_almacen_url="/api/v1/almacen/download" if reporte else None,
                     archivo_txt_url="/api/v1/almacen/download/txt" if reporte and not (revision and revision.get("pendientes")) else None)
@@ -973,6 +981,7 @@ def obtener_detalle_conversacion(
                 id=msg.id,
                 rol=msg.rol,
                 contenido=msg.contenido,
+                avisos=meta.get("avisos") or [],
                 interaccion=(decision_actual["interaccion"] if decision_actual and (meta.get("interaccion") or {}).get("id") == decision_actual["interaccion"]["id"] else meta.get("interaccion")),
                 revision_reporte=meta.get("revision_reporte"),
                 archivo_almacen_url=meta.get("archivo_almacen_url"),

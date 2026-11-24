@@ -257,6 +257,12 @@ def validar_corregido(id, contenido, uid, propagar=True, factores_elegidos=None)
                     permitir_vacios = faltan_ventas and factor in (None, "LLENADO_MANUAL")
                     if factor and factor not in {"LLENADO_MANUAL", "SIN_FACTOR"}:
                         compra = valores[cols.index("PRECIO COMPRA")]
+                        if isinstance(compra, str) and compra.startswith("=") and compra == original[compra_idx]:
+                            try:
+                                from app.services.almacen.factores import evaluar_aritmetica
+                                compra = evaluar_aritmetica(compra[1:], 0)
+                            except (ValueError, TypeError, ZeroDivisionError, OverflowError):
+                                compra = None
                         if isinstance(compra, (int, float)) and not isinstance(compra, bool) and math.isfinite(compra) and compra > 0:
                             calculados = calcular_precios_numericos(factor, compra)
                             completados = []

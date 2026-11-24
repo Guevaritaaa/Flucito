@@ -6,6 +6,7 @@ import type { MensajeUI } from "../../hooks/useChat";
 import { descargarArchivo } from "../../services/almacenService";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { ActividadDesplegable } from "./ActividadDesplegable";
+import { AvisoEstado } from "./AvisoEstado";
 import { DecisionCard, ReportRevisionCard } from "./DecisionCard";
 import type { EnvioDecisiones } from "../../schemas/chat";
 
@@ -90,10 +91,11 @@ export function MessageBubble({ mensaje, sessionId, onDecision, ocupado }: Messa
           >
             <ChatMarkdown contenido={mensaje.contenido} />
           </div>
+          {mensaje.avisos?.map((aviso, i) => <AvisoEstado key={`${aviso.titulo}:${i}`} aviso={aviso} />)}
           {mensaje.interaccion && sessionId && onDecision && <DecisionCard key={mensaje.interaccion.id} interaccion={mensaje.interaccion} sessionId={sessionId} onEnviar={onDecision} ocupado={ocupado} />}
           {mensaje.revision_reporte && sessionId && <>
-            <ReportRevisionCard reporte={mensaje.revision_reporte} sessionId={sessionId} />
-            {mensaje.revision_reporte.relacionados?.map(r => <ReportRevisionCard key={r.id} reporte={r} sessionId={sessionId} />)}
+            <ReportRevisionCard reporte={mensaje.revision_reporte} sessionId={sessionId} onEnviar={mensaje.interaccion && mensaje.interaccion.id === mensaje.revision_reporte.interaccion?.id ? undefined : onDecision} ocupado={ocupado} />
+            {mensaje.revision_reporte.relacionados?.map(r => <ReportRevisionCard key={r.id} reporte={r} sessionId={sessionId} onEnviar={onDecision} ocupado={ocupado} />)}
           </>}
 
           {/* Botones reales de descarga de archivos generados (Excel, TXT Aspel, Históricos) */}

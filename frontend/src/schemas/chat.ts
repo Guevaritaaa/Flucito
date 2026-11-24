@@ -26,7 +26,10 @@ export interface ChatRequest {
   decisiones?: EnvioDecisiones;
 }
 
+export interface AvisoReporte { nivel: "advertencia" | "error"; titulo: string; descripcion: string; accion: string }
+
 export interface ChatResponse {
+  avisos?: AvisoReporte[];
   respuesta: string;
   interaccion?: InteraccionDecision | null;
   revision_reporte?: RevisionReporte | null;
@@ -61,6 +64,7 @@ export interface ConversacionResumenOut {
 }
 
 export interface MensajeChatOut {
+  avisos?: AvisoReporte[];
   id: number;
   rol: "user" | "assistant" | string;
   contenido: string;
@@ -92,6 +96,7 @@ export interface PreguntaDecision {
   id: string; tipo: string; titulo: string;
   opciones: { id: string; titulo: string; descripcion: string }[];
   contexto: Record<string, string | number | null>;
+  explicacion?: string;
   clave_preferencia: string | null; recordada?: boolean; costo_ejemplo?: number;
 }
 export interface InteraccionDecision {
@@ -107,4 +112,7 @@ export interface RevisionReporte {
   id: string; version: number; nombre: string; estado: string;
   pendientes: { producto: string; campos: string[] }[];
   relacionados?: RevisionReporte[];
+  interaccion?: InteraccionDecision | null;
+  resumen_revision?: string;
+  factores_pendientes?: { linea: string; descripcion: string }[];
 }

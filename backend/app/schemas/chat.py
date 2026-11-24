@@ -21,6 +21,7 @@ class ActividadChat(BaseModel):
 
 class ChatResponse(BaseModel):
     respuesta: str
+    avisos: list[dict[str, str]] = Field(default_factory=list)
     interaccion: dict | None = None
     revision_reporte: dict | None = None
     archivo_almacen_url: str | None = None
@@ -57,6 +58,7 @@ class MensajeChatOut(BaseModel):
     id: int
     rol: str
     contenido: str
+    avisos: list[dict[str, str]] = Field(default_factory=list)
     interaccion: dict | None = None
     revision_reporte: dict | None = None
     archivo_almacen_url: str | None = None

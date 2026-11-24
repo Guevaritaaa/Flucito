@@ -86,14 +86,14 @@ test("adjuntar Excel corregido habilita TXT solo tras validarlo", async ({ page 
       : r.fulfill({ json: { id: "a".repeat(32), version: 2, nombre: "ENTRADAS.xlsx", estado: "validado", pendientes: [] } });
   });
   await page.goto("/tests/ui/decisiones.html");
-  await expect(page.getByText("Los precios quedarán vacíos para su llenado manual.", { exact: false })).toBeVisible();
+  await expect(page.getByText("La línea y los precios señalados quedarán vacíos para su llenado manual.", { exact: false })).toBeVisible();
   await expect(page.getByRole("button", { name: /Descargar TXT/ })).toHaveCount(0);
   await page.getByLabel("Subir Excel corregido").setInputFiles({ name: "corregido.xlsx", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buffer: Buffer.from("fixture: validation is exercised in backend tests") });
   await page.getByRole("button", { name: "Validar y generar TXT" }).click();
   await expect(page.getByRole("alert")).toContainText("M1 · PUBLICO");
   await expect(page.getByRole("button", { name: /Descargar TXT/ })).toHaveCount(0);
   await page.getByRole("button", { name: "Validar y generar TXT" }).click();
-  await expect(page.getByText("Precios validados. Los TXT están listos.")).toBeVisible();
+  await expect(page.getByText("Líneas y precios validados. Los TXT están listos.")).toBeVisible();
   await expect(page.getByRole("button", { name: /Descargar TXT/ })).toHaveCount(2);
 });
 

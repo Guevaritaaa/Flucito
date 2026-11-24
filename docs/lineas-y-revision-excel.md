@@ -30,3 +30,16 @@ Solo las filas originalmente pendientes admiten cambio de línea. Se normalizan 
 Sin factor, se guarda una nueva versión del Excel recibido y se abre la tarjeta de factores existente. La confirmación reanuda esa copia persistida; elegir precios manuales conserva los pendientes y permite descargar esa versión para terminarla. Una versión anterior o una confirmación repetida se rechazan. Las preferencias de factor se consultan por código exacto y únicamente se guardan con la casilla expresa del usuario. La línea confirmada no crea altas en SAE.
 
 Validación de esta fase: 30 pruebas aprobadas, incluidas líneas YPC con cero, dos o cinco precios manuales; líneas DAYCO sin factor y ZZ9 ausente del catálogo; reanudación; precios manuales y rechazo de formatos incompatibles.
+
+## Fase 4: estado visible y continuidad
+
+Se aplicó la guía local `emil-design-eng`: avisos ámbar con icono, título, explicación y acción; contraste en claro y oscuro; controles nativos por teclado y foco visible. Los errores bloqueantes conservan rojo. No se añadieron animaciones a estas decisiones frecuentes. Los avisos estructurados viajan en la respuesta y se guardan en el historial.
+
+| Antes | Después |
+| --- | --- |
+| Línea ausente dentro del texto general | Aviso ámbar con fuentes y acción explícita |
+| Subida centrada solo en precios | Revisión de líneas, precios manuales y factor |
+| Excel subido sin estado intermedio visible | Versión guardada y tarjeta de factor recuperable al recargar |
+| Tarjetas repetidas al continuar | Solo la tarjeta vigente de cada reporte; texto histórico conservado |
+
+La confirmación de un factor de revisión continúa sin llamar al modelo ni reprocesar los documentos. El chat y su memoria registran el nombre del reporte, la línea, el factor y los precios completados o conservados. Las descargas de ambos TXT permanecen bloqueadas durante los pendientes.

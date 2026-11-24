@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { PRECIOS_FACTOR, type CamposDecision, type EnvioDecisiones, type InteraccionDecision, type PrecioFactor, type RespuestaDecision, type RevisionReporte } from "../../schemas/chat";
+import { AvisoEstado } from "./AvisoEstado";
 import { apiFetch } from "../../services/http";
 import { descargarArchivo } from "../../services/almacenService";
 
@@ -150,13 +151,24 @@ export function DecisionCard({ interaccion, sessionId, onEnviar, ocupado = false
   </section>;
 }
 
-export function ReportRevisionCard({ reporte, sessionId }: { reporte: RevisionReporte; sessionId: string }) {
+export function ReportRevisionCard({ reporte, sessionId, onEnviar, ocupado: chatOcupado = false }: { reporte: RevisionReporte; sessionId: string; onEnviar?: (texto: string, envio: EnvioDecisiones) => Promise<void>; ocupado?: boolean }) {
   const [actual, setActual] = useState(reporte);
   const [archivo, setArchivo] = useState<File | null>(null);
   const [error, setError] = useState("");
-  const [ocupado, setOcupado] = useState(false);
+  const [trabajando, setOcupado] = useState(false);
+  const ocupado = trabajando || chatOcupado;
   const prefijo = `/almacen/reportes/${reporte.id}`;
-  useEffect(() => { void apiFetch<RevisionReporte>(`${prefijo}?session_id=${encodeURIComponent(sessionId)}`).then(setActual).catch(e => setError(e.message)); }, [prefijo, sessionId]);
+  useEffect(() => {
+    let activo = true;
+    setActual(reporte);
+    void apiFetch<RevisionReporte>(`${prefijo}?session_id=${encodeURIComponent(sessionId)}`).then(r => { if (activo) setActual(r); }).catch(e => { if (activo) setError(e.message); });
+    return () => { activo = false; };
+  }, [prefijo, sessionId, reporte]);
+  async function aplicarFactor(texto: string, envio: EnvioDecisiones) {
+    if (!onEnviar) return;
+    await onEnviar(texto, envio);
+    setActual(await apiFetch<RevisionReporte>(`${prefijo}?session_id=${encodeURIComponent(sessionId)}`));
+  }
   async function descargar(formato: string) {
     setOcupado(true); setError("");
     try { await descargarArchivo(`/api/v1${prefijo}/archivo?session_id=${encodeURIComponent(sessionId)}&formato=${formato}`, formato === "xlsx" ? actual.nombre : `ENTRADAS_${formato}.txt`); }
@@ -173,11 +185,16 @@ export function ReportRevisionCard({ reporte, sessionId }: { reporte: RevisionRe
     } catch (e) { setError(e instanceof Error ? e.message : "No se pudo validar el reporte."); }
     finally { setOcupado(false); }
   }
-  return <section aria-label="Revisión de precios del reporte" className="space-y-3 border-t border-slate-300 pt-4 dark:border-slate-600">
+  return <section aria-label="Revisión de líneas y precios del reporte" className="space-y-3 border-t border-slate-300 pt-4 dark:border-slate-600">
     <h3 className="break-words text-sm font-semibold">{actual.nombre} · Versión {actual.version}</h3>
-    {actual.pendientes.length > 0 ? <><p className="text-sm">Los precios quedarán vacíos para su llenado manual. En cuanto los rellenes, avísame para validar el reporte y generar el TXT.</p><details><summary className="cursor-pointer text-sm">Ver productos pendientes ({actual.pendientes.length})</summary><ul className="mt-2 space-y-1 text-xs">{actual.pendientes.map(p => <li key={p.producto}>{p.producto}: {p.campos.join(", ")}</li>)}</ul></details></> : <p role="status" className="text-sm">Precios validados. Los TXT están listos.</p>}
+    {actual.resumen_revision && <p role="status" className="text-sm leading-relaxed">{actual.resumen_revision}</p>}
+    {actual.pendientes.length > 0 ? <>
+      <AvisoEstado aviso={{ nivel: "advertencia", titulo: actual.estado === "factor_pendiente" ? "El Excel revisado está guardado" : "Hay campos pendientes antes de generar los TXT", descripcion: actual.estado === "factor_pendiente" ? "Falta confirmar el factor de las líneas escritas. Conservé los precios que ya capturaste en esta versión." : "La línea y los precios señalados quedarán vacíos para su llenado manual. Se conserva el costo de compra extraído cuando está disponible.", accion: actual.estado === "factor_pendiente" ? "Elige el factor o continúa con precios manuales en la tarjeta." : "Completa el Excel y adjúntalo aquí para revisar las líneas y los precios." }} />
+      <details><summary className="cursor-pointer rounded text-sm focus-visible:outline-2 focus-visible:outline-offset-2">Ver productos pendientes ({actual.pendientes.length})</summary><ul className="mt-2 space-y-1 text-xs">{actual.pendientes.map(p => <li key={p.producto}>{p.producto}: {p.campos.join(", ")}</li>)}</ul></details>
+    </> : <p role="status" className="text-sm">Líneas y precios validados. Los TXT están listos.</p>}
+    {actual.interaccion?.estado === "pendiente" && onEnviar && <DecisionCard interaccion={actual.interaccion} sessionId={sessionId} onEnviar={aplicarFactor} ocupado={ocupado} />}
     <div className="flex flex-wrap gap-2"><button type="button" className={control} disabled={ocupado} onClick={() => void descargar("xlsx")}>Descargar Excel {actual.pendientes.length ? "para llenar" : "validado"}</button>{!actual.pendientes.length && ["comas", "tabs"].map(f => <button key={f} type="button" className={boton} disabled={ocupado} onClick={() => void descargar(f)}>Descargar TXT ({f === "tabs" ? "tabulaciones" : f})</button>)}</div>
-    {!!actual.pendientes.length && <><label className="grid gap-2 text-sm">Subir Excel corregido<input disabled={ocupado} type="file" accept=".xlsx" className={`${control} max-w-full`} onChange={e => setArchivo(e.target.files?.[0] ?? null)} /></label><p className="text-xs">Completa los precios y conserva los productos y las demás columnas. Para los precios que corrijas, usa valores numéricos.</p><button type="button" className={boton} disabled={ocupado || !archivo} onClick={() => void validar()}>{ocupado ? "Validando…" : "Validar y generar TXT"}</button></>}
+    {!!actual.pendientes.length && actual.estado !== "factor_pendiente" && <><label className="grid gap-2 text-sm">Subir Excel corregido<input disabled={ocupado} type="file" accept=".xlsx" className={`${control} max-w-full`} onChange={e => setArchivo(e.target.files?.[0] ?? null)} /></label><p className="text-xs">Edita la línea solo en los productos señalados como pendientes (1 a 5 caracteres). Puedes usar una línea que no figure en el catálogo disponible. Conserva los productos, filas y columnas; usa valores numéricos para los precios manuales.</p><button type="button" className={boton} disabled={ocupado || !archivo} onClick={() => void validar()}>{ocupado ? "Validando…" : "Validar y generar TXT"}</button></>}
     {error && <p role="alert" className="whitespace-pre-wrap text-sm text-red-700 dark:text-red-300">{error}</p>}
   </section>;
 }

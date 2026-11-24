@@ -1,3 +1,4 @@
+import { mensajeVigente } from "./mensajeVigente";
 import { useEffect, useRef } from "react";
 import { ASSETS } from "../../core/config";
 import { useChat } from "../../hooks/useChat";
@@ -102,7 +103,7 @@ export function ChatWorkspace({
               ) : (
                 <>
                   {mensajes.map((msg, index) => (
-                    <MessageBubble key={msg.id} mensaje={{ ...msg, interaccion: msg.interaccion && mensajes.slice(index + 1).some(m => m.interaccion?.id === msg.interaccion?.id || m.interaccion?.anteriores?.some(a => a.id === msg.interaccion?.id)) ? null : msg.interaccion }} sessionId={sessionId} onDecision={enviarMensaje} ocupado={enviando} />
+                    <MessageBubble key={msg.id} mensaje={mensajeVigente(msg, mensajes.slice(index + 1))} sessionId={sessionId} onDecision={enviarMensaje} ocupado={enviando} />
                   ))}
                   {enviando && <FlucitoLoadingBubble actividades={actividades} etapa={etapa} textoProvisional={textoProvisional} />}
                 </>

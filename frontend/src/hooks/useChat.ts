@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ActividadChat, ReporteHistoricoItem, InteraccionDecision, RevisionReporte, EnvioDecisiones } from "../schemas/chat";
+import type { AvisoReporte, ActividadChat, ReporteHistoricoItem, InteraccionDecision, RevisionReporte, EnvioDecisiones } from "../schemas/chat";
 import {
   enviarMensajeChat,
   obtenerDetalleConversacion,
@@ -16,6 +16,7 @@ export interface MensajeUI {
   archivo_txt_url?: string | null;
   reportes_historicos?: ReporteHistoricoItem[];
   esError?: boolean;
+  avisos?: AvisoReporte[];
   actividades?: ActividadChat[];
   interaccion?: InteraccionDecision | null;
   revision_reporte?: RevisionReporte | null;
@@ -90,6 +91,7 @@ export function useChat({
           archivo_txt_url: m.archivo_txt_url,
           reportes_historicos: m.reportes_historicos ?? [],
           actividades: m.actividades ?? [],
+          avisos: m.avisos,
           interaccion: m.interaccion,
           revision_reporte: m.revision_reporte,
         }));
@@ -172,6 +174,7 @@ export function useChat({
           archivo_txt_url: respuesta.archivo_txt_url,
           reportes_historicos: respuesta.reportes_historicos ?? [],
           actividades: respuesta.actividades ?? [],
+          avisos: respuesta.avisos,
           interaccion: respuesta.interaccion,
           revision_reporte: respuesta.revision_reporte,
         };
