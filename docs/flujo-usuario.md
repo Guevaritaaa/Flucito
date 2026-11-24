@@ -97,6 +97,8 @@ Durante el procesamiento:
 
 Si una factura ya fue procesada, el estado de Drive ayuda a evitar duplicarla en el reporte.
 
+Al terminar, el chat incluye una explicación de cómo se preparó el reporte. Indica si las claves y líneas se obtuvieron del XML, del apoyo, del catálogo histórico de SAE o de su historial de compras. Incluye ejemplos y señala los factores aplicados, las conversiones a metros confirmadas y la consolidación de claves repetidas cuando esos datos quedaron registrados. Las coincidencias con SAE se refieren a la copia del catálogo disponible.
+
 ### Restablecer una o varias fechas
 
 «Restablece la carpeta 17-11-2026» devuelve esa fecha al estado sin procesar:

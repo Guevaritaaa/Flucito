@@ -34,6 +34,77 @@ def _limpiar_texto(valor: Any) -> str | None:
     return texto if texto else None
 
 
+def explicar_procedencia_reporte(resumen: dict[str, Any]) -> str:
+    """Explica únicamente las decisiones cuya procedencia quedó registrada."""
+    trazabilidad = resumen.get("trazabilidad_catalogo_sae") or {}
+    detalles = resumen.get("productos_detalle") or []
+    explicaciones = []
+    motivos = {
+        "origen_linea": {
+            "INVE02": "tomé la línea del catálogo histórico de SAE",
+            "TXT_APOYO": "tomé la línea del TXT o PDF de apoyo",
+            "HISTORIAL_UNICA": "usé la única línea registrada en el historial de compras de ese proveedor",
+            "HISTORIAL_KEYWORD": "relacioné la descripción con una línea del historial de ese proveedor",
+            "VARIANTE_INVE02": "usé la línea de artículos de la misma familia dimensional en el catálogo histórico",
+            "VARIANTE_MISMA_FACTURA": "usé la línea de otras medidas de la misma familia dentro de la factura",
+            "SIN_LINEA": "la línea quedó pendiente porque las fuentes disponibles no permitieron resolverla",
+        },
+        "origen_clave": {
+            "INVE02_EXACTO": "utilicé la clave que coincidía exactamente en el catálogo histórico de SAE",
+            "CVES_ALTER02": "relacioné el código con una clave alterna registrada en SAE",
+            "INVE02_COMPACTO": "encontré una coincidencia única del código normalizado en el catálogo histórico",
+            "INVE02_PREFIJO_UNICO": "completé la clave con una coincidencia única por prefijo en el catálogo histórico",
+            "INVE02_PREFIJO_DESAMBIGUADO": "completé el prefijo de la clave de apoyo usando el código del XML para resolver la coincidencia",
+            "TXT_APOYO": "utilicé la clave obtenida con el documento de apoyo",
+            "XML": "utilicé el código obtenido del XML",
+        },
+    }
+    for campo, origenes in motivos.items():
+        for origen, motivo in origenes.items():
+            cantidad = (trazabilidad.get(campo) or {}).get(origen, 0)
+            if not cantidad:
+                continue
+            ejemplos = []
+            for producto in detalles:
+                if (producto.get("trazabilidad_sae") or {}).get(campo) != origen:
+                    continue
+                clave = producto.get("clave_articulo")
+                valor = producto.get("linea") if campo == "origen_linea" else clave
+                codigo = (producto.get("trazabilidad_sae") or {}).get("codigo_xml_original")
+                ejemplo = f"{clave} → {valor}" if campo == "origen_linea" and valor else str(clave or "")
+                if campo == "origen_clave" and codigo:
+                    ejemplo = f"{codigo} → {clave}"
+                if ejemplo and ejemplo not in ejemplos:
+                    ejemplos.append(ejemplo)
+                if len(ejemplos) == 2:
+                    break
+            muestra = f" Por ejemplo, {', '.join(ejemplos)}." if ejemplos else ""
+            unidad = "producto" if cantidad == 1 else "productos"
+            explicaciones.append(f"- En {cantidad} {unidad}, {motivo}.{muestra}")
+    factores = [
+        f"{item['linea']} con el factor {item['factor_aplicado']}"
+        for item in resumen.get("desglose_por_linea", [])
+        if item.get("factor_aplicado") and item["factor_aplicado"] not in ("SIN_FACTOR", "LLENADO_MANUAL")
+    ]
+    if factores:
+        explicaciones.append("- Para los precios de venta apliqué los factores indicados en el reporte, "
+                             + ", ".join(factores[:5])
+                             + (f" y los de otras {len(factores) - 5} líneas." if len(factores) > 5 else "."))
+    conversiones = resumen.get("conversiones_a_metros") or {}
+    if conversiones:
+        muestra_conversiones = list(conversiones.items())[:5]
+        explicaciones.append("- Dividí el precio neto de compra entre los metros confirmados por rollo o tramo en "
+                             + ", ".join(f"{clave} ({metros:g} m)" for clave, metros in muestra_conversiones)
+                             + (f" y otros {len(conversiones) - 5} productos." if len(conversiones) > 5 else "."))
+    duplicados = resumen.get("duplicados_ignorados", 0)
+    if duplicados:
+        filas = "fila repetida" if duplicados == 1 else "filas repetidas"
+        explicaciones.append(f"- Consolidé {duplicados} {filas} por clave, conservando el precio de compra más alto.")
+    if not explicaciones:
+        return ""
+    return "**Cómo se preparó este reporte**\n\n" + "\n".join(explicaciones)
+
+
 def construir_resumen(
     filas_nuevas: pd.DataFrame,
     filas_acumuladas: pd.DataFrame | None = None,
@@ -70,6 +141,7 @@ def construir_resumen(
     conteo_origen_clave: dict[str, int] = {}
     conteo_origen_linea: dict[str, int] = {}
     conteo_origen_proveedor: dict[str, int] = {}
+    conversiones_a_metros: dict[str, float] = {}
 
     for _, fila in filas_acumuladas.iterrows():
         clave_articulo = _limpiar_texto(fila.get("Clave Artículo")) or ""
@@ -83,6 +155,9 @@ def construir_resumen(
         origen_linea = _limpiar_texto(meta_item.get("origen_linea"))
         origen_proveedor = _limpiar_texto(meta_item.get("origen_proveedor"))
         codigo_xml_original = _limpiar_texto(meta_item.get("codigo_xml_original"))
+        divisor_metros = _limpiar_numero(meta_item.get("divisor_metros"))
+        if divisor_metros and divisor_metros > 0:
+            conversiones_a_metros[clave_articulo] = divisor_metros
 
         if origen_clave:
             conteo_origen_clave[origen_clave] = conteo_origen_clave.get(origen_clave, 0) + 1
@@ -293,6 +368,7 @@ def construir_resumen(
             "origen_linea": conteo_origen_linea,
             "origen_proveedor": conteo_origen_proveedor,
         },
+        "conversiones_a_metros": conversiones_a_metros,
         "desglose_por_proveedor": desglose_proveedores,
         "desglose_por_linea": desglose_lineas,
         "productos_detalle": productos_detalle,

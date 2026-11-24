@@ -37,6 +37,7 @@ from app.schemas.chat import (
 )
 from app.services.almacen.excel import CARPETA_DATOS, NOMBRE_ARCHIVO_BASE
 from app.services.almacen.txt_aspel import NOMBRE_TXT_COMAS, NOMBRE_TXT_TABS
+from app.services.almacen.resumen import explicar_procedencia_reporte
 from app.services.almacen.fuentes.google_drive_client import normalizar_fecha_reporte
 
 
@@ -465,6 +466,7 @@ def _ejecutar_chat_impl(request: ChatRequest, usuario_id: int | None = None) -> 
     advertencia_archivos_sueltos: str | None = None
     advertencia_xmls_sin_apoyo: str | None = None
     advertencia_productos_regalo: str | None = None
+    resumen_reporte = None
     bloqueado_por_confirmacion = False
     factores_consultados = None
     texto_usuario = request.mensaje.lower()
@@ -549,6 +551,8 @@ def _ejecutar_chat_impl(request: ChatRequest, usuario_id: int | None = None) -> 
             archivo_almacen_url = "/api/v1/almacen/download"
         if datos.get("ok") and datos.get("reporte_generado") and datos.get("resumen"):
             archivo_almacen_url = "/api/v1/almacen/download"
+            if resumen_reporte is None:
+                resumen_reporte = datos["resumen"]
 
     if factores_consultados:
         respuesta = _tabla_factores(factores_consultados)
@@ -622,6 +626,11 @@ def _ejecutar_chat_impl(request: ChatRequest, usuario_id: int | None = None) -> 
         archivo_almacen_url = None
         archivo_txt_url = None
         reportes_historicos = []
+
+    if resumen_reporte and not bloqueado_por_confirmacion:
+        explicacion = explicar_procedencia_reporte(resumen_reporte)
+        if explicacion:
+            respuesta = f"{respuesta}\n\n{explicacion}"
 
     respuesta_final = ChatResponse(
         respuesta=respuesta,
