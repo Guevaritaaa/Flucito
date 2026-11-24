@@ -21,7 +21,8 @@ def generar_txt(df: pd.DataFrame, carpeta: str, separador: str, nombre: str) -> 
     os.makedirs(carpeta, exist_ok=True)
     ruta = os.path.join(carpeta, nombre)
     precios = [c for c in ("PRECIO COMPRA", "PUBLICO", "MINIMO", "MOSTRADOR", "MAYOREO", "DISTRIBUIDOR") if c in df.columns]
-    if precios and df[precios].isna().any().any():
+    linea_pendiente = "Línea" in df.columns and df["Línea"].fillna("").astype(str).str.strip().eq("").any()
+    if linea_pendiente or (precios and df[precios].isna().any().any()):
         Path(ruta).unlink(missing_ok=True)
         return ""
     

@@ -74,6 +74,20 @@ def construir(datos, herramienta, argumentos, uid):
                 [opcion(k, k, " · ".join(f"{p}: {v}" for p, v in fs.items())) for k, fs in CATALOGO_FACTORES.items()] +
                 [opcion("custom", "Crear factor personalizado", "Define los cinco precios en una tabla guiada."),
                  opcion("manual", "Dejar precios de venta para llenado manual", "Los cinco precios de venta quedarán vacíos; el TXT esperará su corrección.")], {"linea": codigo}, costo_ejemplo=100)
+    for producto in datos.get("productos_sin_linea", []):
+        clave = str(producto["clave_articulo"])
+        opciones = []
+        for grupo in producto.get("sugerencias", []):
+            from app.services.almacen.factores import resolver_linea
+            factor = resolver_linea(grupo["linea"])["factor"]
+            referencias = grupo["referencias"]
+            opciones.append(opcion("linea:" + grupo["linea"], "Aplicar línea " + grupo["linea"],
+                "; ".join(f"{r['cve_art']} — {r['descr']} · línea {r['linea']}" for r in referencias)
+                + f". Factor: {factor or 'se preguntará a continuación'}. Son referencias similares; conserva las diferencias de modelo y medida."))
+        opciones.append(opcion("manual", "Completar línea y precios en el Excel",
+            "Se conserva el costo de compra. La línea y los cinco precios de venta quedan vacíos; los TXT esperan la revisión."))
+        agregar("linea:" + clave, "linea", f"{clave}: confirma la línea del producto", opciones,
+                {"producto": clave}, explicacion=producto.get("explicacion"), sugerencias=producto.get("sugerencias", []))
     for rollo in datos.get("rollos_pendientes", []):
         clave = str(rollo["clave_articulo"])
         ctx = {"producto": clave, "unidad": rollo.get("clave_unidad"), "metros": rollo.get("metros")}
@@ -236,6 +250,13 @@ def traducir(estado):
         if p["tipo"] == "factor":
             args.setdefault("factores_elegidos", {})[p["contexto"]["linea"]] = validar_factor(campos) if valor == "custom" else MANUAL if valor == "manual" else valor
             args["guardar_factores"] = False
+        elif p["tipo"] == "linea":
+            d = {"manual": True}
+            if valor != "manual":
+                linea = valor.removeprefix("linea:")
+                grupo = next(g for g in p["sugerencias"] if g["linea"] == linea)
+                d = {"linea": linea, "referencia": grupo["referencias"][0]["cve_art"], "confirmada": True}
+            args.setdefault("decisiones_lineas", {})[p["contexto"]["producto"]] = d
         elif p["tipo"] in {"unidad", "metros"}:
             d = args.setdefault("decisiones_rollos", {}).setdefault(p["contexto"]["producto"], {})
             if p["tipo"] == "unidad":

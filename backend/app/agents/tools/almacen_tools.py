@@ -368,6 +368,7 @@ def generar_entradas_almacen(
     cambiar_xro_a_mtr: bool | None = None,
     dividir_precio_entre_metros: bool | None = None,
     decisiones_rollos: dict[str, dict[str, object]] | None = None,
+    decisiones_lineas: dict[str, dict[str, object]] | None = None,
     carpeta_especifica: str | None = None,
 ) -> str:
     """Sincroniza facturas nuevas desde Google Drive o carpeta local, genera reportes Excel y actualiza la base acumulada."""
@@ -382,6 +383,7 @@ def generar_entradas_almacen(
             cambiar_xro_a_mtr,
             dividir_precio_entre_metros,
             decisiones_rollos,
+            decisiones_lineas,
         )
     )
     if tiene_parametros_confirmacion:
@@ -410,6 +412,7 @@ def generar_entradas_almacen(
             if decisiones_rollos:
                 combinados_r.update(decisiones_rollos)
             decisiones_rollos = combinados_r
+        decisiones_lineas = {**(previa.get("decisiones_lineas") or {}), **(decisiones_lineas or {})} or None
     else:
         _limpiar_sesion_confirmacion(carpeta_datos)
 
@@ -422,6 +425,7 @@ def generar_entradas_almacen(
         "cambiar_xro_a_mtr": cambiar_xro_a_mtr,
         "dividir_precio_entre_metros": dividir_precio_entre_metros,
         "decisiones_rollos": decisiones_rollos,
+        "decisiones_lineas": decisiones_lineas,
     }
 
     usar_drive = bool(
@@ -456,6 +460,8 @@ def generar_entradas_almacen(
                 kwargs_sync["omitir_incompletas"] = bool(omitir_incompletas)
             if carpeta_especifica is not None:
                 kwargs_sync["carpeta_especifica"] = carpeta_especifica
+            if decisiones_lineas is not None:
+                kwargs_sync["decisiones_lineas"] = decisiones_lineas
             sincronizacion = sincronizar_drive(**kwargs_sync)
         except Exception as error:
             logger.exception("Error durante sincronización con Drive: %s", error)
@@ -641,8 +647,9 @@ def generar_entradas_almacen(
             carpeta,
             factores_elegidos=factores_elegidos,
             decisiones_rollos=decisiones_rollos_norm,
+            decisiones_lineas=decisiones_lineas,
         )
-        if pendientes_local["lineas_sin_factor"] or pendientes_local["rollos_pendientes"]:
+        if pendientes_local["lineas_sin_factor"] or pendientes_local["rollos_pendientes"] or pendientes_local.get("productos_sin_linea"):
             _guardar_sesion_confirmacion(carpeta_datos, estado_confirmacion_actual)
             lista_lineas = pendientes_local["lineas_sin_factor"]
             lista_rollos = pendientes_local["rollos_pendientes"]
@@ -660,6 +667,7 @@ def generar_entradas_almacen(
                     "requiere_confirmacion": True,
                     "tipo_confirmacion": tipo_conf,
                     "lineas_sin_factor": lista_lineas,
+                    "productos_sin_linea": pendientes_local.get("productos_sin_linea", []),
                     "rollos_pendientes": lista_rollos,
                     "menu_factores": (
                         formatear_menu_factores() if lista_lineas else None
@@ -677,6 +685,7 @@ def generar_entradas_almacen(
                 str(carpeta),
                 factores_elegidos=factores_elegidos,
                 decisiones_rollos=decisiones_rollos_norm,
+                decisiones_lineas=decisiones_lineas,
             )
         ruta_resumen = carpeta / NOMBRE_ARCHIVO_RESUMEN
         if not ruta_resumen.is_file():

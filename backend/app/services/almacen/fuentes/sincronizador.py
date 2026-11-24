@@ -143,10 +143,12 @@ def inspeccionar_pendientes_carpeta(
     carpeta_local: Path,
     factores_elegidos: dict[str, str | None] | None = None,
     decisiones_rollos: dict[str, dict[str, object]] | None = None,
+    decisiones_lineas: dict[str, dict[str, object]] | None = None,
 ) -> dict[str, list[dict[str, object]]]:
     """Revisa qué líneas no tienen factor definido y qué rollos requieren confirmación."""
     lineas_sin_factor: dict[str, dict[str, object]] = {}
     rollos_pendientes: dict[str, dict[str, object]] = {}
+    productos_sin_linea = {}
 
     for ruta_xml in rutas_xml:
         try:
@@ -180,12 +182,24 @@ def inspeccionar_pendientes_carpeta(
         proveedor, _ = resolver_proveedor_sae(meta.get("rfc"), num_proveedor)
         variantes = _lineas_variantes_factura(conceptos, datos, proveedor)
         for c, dato in zip(conceptos, datos):
-            fila = _fila_desde_concepto(c, dato, num_proveedor, lineas_variantes=variantes)
+            from app.services.almacen.apoyo import fuentes_apoyo
+            from app.services.almacen.lineas import sugerir_lineas
+            from app.services.almacen.procedencia import explicar_producto
+            trazas = {}
+            fila = _fila_desde_concepto(c, dato, num_proveedor, lineas_variantes=variantes,
+                factores_elegidos=factores_elegidos, decisiones_lineas=decisiones_lineas,
+                meta_por_clave=trazas, fuente_apoyo=fuentes_apoyo(apoyo, dato))
             clave_apoyo = (dato or {}).get("clave_articulo")
             clave_xml = c.get("no_identificacion")
             clave_articulo = fila["Clave Artículo"]
             descripcion_corta = fila["DESCRIPCION"]
             linea_raw = fila["Línea"]
+            if not linea_raw and str(clave_articulo) not in (decisiones_lineas or {}):
+                productos_sin_linea.setdefault(clave_articulo, {
+                    "clave_articulo": clave_articulo, "descripcion": descripcion_corta,
+                    "explicacion": explicar_producto(clave_articulo, trazas.get(str(clave_articulo), {})),
+                    "sugerencias": sugerir_lineas(clave_articulo, c.get("clave_prod_serv"), c.get("clave_unidad")),
+                })
             if linea_raw:
                 info_linea = resolver_linea(
                     linea_raw,
@@ -235,6 +249,7 @@ def inspeccionar_pendientes_carpeta(
     return {
         "lineas_sin_factor": list(lineas_sin_factor.values()),
         "rollos_pendientes": list(rollos_pendientes.values()),
+        "productos_sin_linea": list(productos_sin_linea.values()),
     }
 
 
@@ -470,6 +485,7 @@ def sincronizar_drive(
     factores_elegidos: dict[str, str | None] | None = None,
     guardar_factores: bool | None = None,
     decisiones_rollos: dict[str, dict[str, object]] | None = None,
+    decisiones_lineas: dict[str, dict[str, object]] | None = None,
     carpeta_especifica: str | None = None,
 ) -> dict:
     """Descarga carpetas Drive temporalmente y actualiza reportes por fecha y reporte base local."""
@@ -728,19 +744,23 @@ def sincronizar_drive(
         if interactivo:
             todas_lineas_sin_factor: dict[str, dict[str, object]] = {}
             todos_rollos_pendientes: dict[str, dict[str, object]] = {}
+            todos_sin_linea = {}
             for _carpeta, destino, rutas_xml, _archivo_by_name in descargas_por_carpeta:
                 pendientes = inspeccionar_pendientes_carpeta(
                     rutas_xml,
                     destino,
                     factores_elegidos=factores_elegidos,
                     decisiones_rollos=decisiones_rollos,
+                    decisiones_lineas=decisiones_lineas,
                 )
+                for producto in pendientes.get("productos_sin_linea", []):
+                    todos_sin_linea.setdefault(producto["clave_articulo"], producto)
                 for item_linea in pendientes["lineas_sin_factor"]:
                     todas_lineas_sin_factor.setdefault(str(item_linea["linea"]), item_linea)
                 for item_rollo in pendientes["rollos_pendientes"]:
                     todos_rollos_pendientes.setdefault(str(item_rollo["clave_articulo"]), item_rollo)
 
-            if todas_lineas_sin_factor or todos_rollos_pendientes:
+            if todas_lineas_sin_factor or todos_rollos_pendientes or todos_sin_linea:
                 lista_lineas = list(todas_lineas_sin_factor.values())
                 lista_rollos = list(todos_rollos_pendientes.values())
                 if lista_lineas and lista_rollos:
@@ -772,6 +792,7 @@ def sincronizar_drive(
                     "requiere_confirmacion": True,
                     "tipo_confirmacion": tipo_conf,
                     "lineas_sin_factor": lista_lineas,
+                    "productos_sin_linea": list(todos_sin_linea.values()),
                     "rollos_pendientes": lista_rollos,
                     "menu_factores": formatear_menu_factores() if lista_lineas else None,
                     "pregunta_usuario": pregunta,
@@ -813,7 +834,7 @@ def sincronizar_drive(
 
             for ruta_xml in rutas_xml:
                 logger.info("  Extrayendo datos de XML: %s", ruta_xml.name)
-                if factores_elegidos is None and decisiones_rollos is None:
+                if factores_elegidos is None and decisiones_rollos is None and decisiones_lineas is None:
                     df_xml = procesar_xml(str(ruta_xml), str(destino))
                 else:
                     df_xml = procesar_xml(
@@ -821,6 +842,7 @@ def sincronizar_drive(
                         str(destino),
                         factores_elegidos=factores_elegidos,
                         decisiones_rollos=decisiones_rollos,
+                        decisiones_lineas=decisiones_lineas,
                     )
                 if df_xml.empty:
                     continue

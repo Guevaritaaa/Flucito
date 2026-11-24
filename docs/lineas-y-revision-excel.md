@@ -16,3 +16,9 @@ Validación inicial: 16 pruebas aprobadas (procedencia general, `BW-SAF4000DME`,
 3. Corrección de líneas pendientes y precios en Excel, con persistencia de la versión revisada mientras se elige factor.
 4. Avisos ámbar accesibles, resumen de decisiones, continuidad en el chat y descargas verificadas.
 5. Regresiones, revisión visual y reproceso aislado de las 44 carpetas locales. Resultados y capturas se documentarán aquí.
+
+## Fase 2: sugerencias confirmadas
+
+Se agrupan hasta tres referencias por línea, exigiendo familia de código, secuencia de medidas, clave SAT y unidad SAT iguales. Las diferencias de sufijo/modelo se muestran mediante la clave y descripción completas. No se equiparan fracciones con enteros. Sin referencia fiable se ofrece completar el Excel. La elección registra referencia y confirmación; una referencia que cambió se rechaza. La línea vacía bloquea ambos TXT y deja únicamente los cinco precios de venta vacíos, conservando compra.
+
+Validación: 32 pruebas aprobadas de decisiones, catálogo y líneas. Se consultó el esquema de la copia reciente de Firebird en transacción de solo lectura: `INVE02.LIN_PROD` y `CLIN02.CVE_LIN` tienen longitud 5. Los códigos manuales se validarán con ese límite.

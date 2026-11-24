@@ -328,6 +328,7 @@ def _fila_desde_concepto(
     num_proveedor: str | None = None,
     factores_elegidos: dict[str, str | None] | None = None,
     decisiones_rollos: dict[str, dict[str, object]] | None = None,
+    decisiones_lineas: dict[str, dict[str, object]] | None = None,
     meta_por_clave: dict[str, dict[str, object]] | None = None,
     claves_usadas_lote: dict[str, str] | None = None,
     lineas_variantes: dict | None = None,
@@ -393,6 +394,11 @@ def _fila_desde_concepto(
             linea_raw = ""
             origen_linea = "SIN_LINEA"
 
+    from app.services.almacen.lineas import aplicar_decision
+    decision_linea = aplicar_decision(clave_articulo, c.get("clave_prod_serv"), c.get("clave_unidad"), decisiones_lineas) if not linea_raw else None
+    if decision_linea and decision_linea.get("linea"):
+        linea_raw = decision_linea["linea"]
+        origen_linea = "ASESOR_REFERENCIA"
     info_linea = resolver_linea(
         linea_raw,
         proveedor=str(c.get("proveedor_nombre") or ""),
@@ -452,13 +458,20 @@ def _fila_desde_concepto(
         divisor_metros = None
         precios = {p: None for p in ("PUBLICO", "MINIMO", "MOSTRADOR", "MAYOREO", "DISTRIBUIDOR")}
 
+    linea_pendiente = not linea
+    if linea_pendiente:
+        precios = {p: None for p in COLUMNAS_FACTORES}
     if meta_por_clave is not None and clave_articulo:
         _combinar_meta_por_clave(
             meta_por_clave,
             {
                 str(clave_articulo): {
                     "factor": factor_nombre,
-                    "manual": manual or factor_nombre == "LLENADO_MANUAL",
+                    "manual": manual or linea_pendiente or factor_nombre == "LLENADO_MANUAL",
+                    "linea_pendiente": linea_pendiente,
+                    "linea_confirmada": linea if decision_linea else None,
+                    "referencia_linea": (decision_linea or {}).get("referencia"),
+                    "confirmacion_asesor": bool(decision_linea),
                     "precio_compra": float(precio_compra or 0.0),
                     "precio_compra_bruto": precio_compra_bruto if divisor_metros else None,
                     "divisor_metros": divisor_metros,
@@ -513,6 +526,7 @@ def procesar_xml(
     carpeta: str,
     factores_elegidos: dict[str, str | None] | None = None,
     decisiones_rollos: dict[str, dict[str, object]] | None = None,
+    decisiones_lineas: dict[str, dict[str, object]] | None = None,
 ) -> pd.DataFrame:
     """Un XML -> DataFrame con sus productos (todavía no escribe a disco)."""
     conceptos = extraer_conceptos(ruta_xml)
@@ -556,6 +570,7 @@ def procesar_xml(
             num_proveedor,
             factores_elegidos=factores_elegidos,
             decisiones_rollos=decisiones_rollos,
+            decisiones_lineas=decisiones_lineas,
             meta_por_clave=meta_por_clave,
             claves_usadas_lote=claves_usadas_lote,
             lineas_variantes=variantes,
@@ -1184,6 +1199,7 @@ def _procesar_xmls_de_un_dia(
     rutas_xml: list[str],
     factores_elegidos: dict[str, str | None] | None = None,
     decisiones_rollos: dict[str, dict[str, object]] | None = None,
+    decisiones_lineas: dict[str, dict[str, object]] | None = None,
 ) -> pd.DataFrame | None:
     """Procesa una lista de XML pertenecientes a una misma fecha/carpeta y los combina."""
     dfs: list[pd.DataFrame] = []
@@ -1192,7 +1208,7 @@ def _procesar_xmls_de_un_dia(
     for ruta_xml in rutas_xml:
         carpeta_xml = os.path.dirname(ruta_xml)
         try:
-            if factores_elegidos is None and decisiones_rollos is None:
+            if factores_elegidos is None and decisiones_rollos is None and decisiones_lineas is None:
                 df_xml = procesar_xml(ruta_xml, carpeta_xml)
             else:
                 df_xml = procesar_xml(
@@ -1200,6 +1216,7 @@ def _procesar_xmls_de_un_dia(
                     carpeta_xml,
                     factores_elegidos=factores_elegidos,
                     decisiones_rollos=decisiones_rollos,
+                    decisiones_lineas=decisiones_lineas,
                 )
             if isinstance(df_xml.attrs.get("meta_por_clave"), dict):
                 _combinar_meta_por_clave(meta_total, df_xml.attrs["meta_por_clave"])
@@ -1220,6 +1237,7 @@ def procesar_carpeta(
     carpeta: str = str(CARPETA_DATOS),
     factores_elegidos: dict[str, str | None] | None = None,
     decisiones_rollos: dict[str, dict[str, object]] | None = None,
+    decisiones_lineas: dict[str, dict[str, object]] | None = None,
 ) -> None:
     """
     Procesa los XML de una carpeta local.
@@ -1260,6 +1278,7 @@ def procesar_carpeta(
                 xmls_dia,
                 factores_elegidos=factores_elegidos,
                 decisiones_rollos=decisiones_rollos,
+                decisiones_lineas=decisiones_lineas,
             )
             if df_dia is not None:
                 guardar_en_base_acumulada(
@@ -1310,6 +1329,7 @@ def procesar_carpeta(
         xmls,
         factores_elegidos=factores_elegidos,
         decisiones_rollos=decisiones_rollos,
+        decisiones_lineas=decisiones_lineas,
     )
     if df_nuevo is not None:
         guardar_en_base_acumulada(df_nuevo, carpeta)

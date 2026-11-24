@@ -219,6 +219,9 @@ class GenerarEntradasAlmacenInput(BaseModel):
         default=None,
         description="True ('y') o False ('n') para dividir el precio de compra entre los metros del rollo.",
     )
+    decisiones_lineas: dict[str, dict[str, object]] | None = Field(
+        default=None, description="Decisiones confirmadas por producto: línea y referencia sugerida, o manual=true."
+    )
     decisiones_rollos: dict[str, dict[str, object]] | None = Field(
         default=None,
         description="Decisiones específicas por clave de artículo {'CLAVE': {'cambiar_a_mtr': bool, 'dividir_entre_metros': bool}}.",

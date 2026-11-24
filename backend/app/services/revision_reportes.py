@@ -76,6 +76,8 @@ def registrar_reporte(ruta, meta_por_clave=None):
     for r in range(2, ws.max_row + 1):
         fila = [ws.cell(r, c).value for c in range(1, len(columnas) + 1)]
         faltantes = [nombre for c, nombre in enumerate(columnas) if nombre in PRECIOS and fila[c] is None]
+        if "Línea" in columnas and not str(fila[columnas.index("Línea")] or "").strip():
+            faltantes.insert(0, "Línea")
         fila_id = uuid.uuid4().hex
         filas.append({"id": fila_id, "valores": fila})
         ws.cell(r, len(columnas) + 1, fila_id)
