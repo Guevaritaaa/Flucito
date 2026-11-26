@@ -196,7 +196,8 @@ def inspeccionar_pendientes_carpeta(
             linea_raw = fila["Línea"]
             if not linea_raw and str(clave_articulo) not in (decisiones_lineas or {}):
                 productos_sin_linea.setdefault(clave_articulo, {
-                    "clave_articulo": clave_articulo, "descripcion": descripcion_corta,
+                    "clave_articulo": clave_articulo,
+                    "descripcion": descripcion_corta or c.get("descripcion"),
                     "explicacion": explicar_producto(clave_articulo, trazas.get(str(clave_articulo), {})),
                     "sugerencias": sugerir_lineas(clave_articulo, c.get("clave_prod_serv"), c.get("clave_unidad")),
                 })

@@ -51,6 +51,7 @@ def respuestas(i):
 
 def test_borrador_persistente_aislado_revision_y_confirmacion_unica(entorno):
     i = d.registrar("chat-uno", None, datos_preguntas(), "generar_entradas_almacen", {"factores_elegidos": None, "decisiones_rollos": None})
+    assert [p["tipo"] for p in i["preguntas"] if "MANG-1 — Manguera" in p["titulo"]] == ["unidad", "metros"]
     r = respuestas(i)
     guardado = d.guardar_envio("chat-uno", None, envio(i, r))
     assert d.leer("chat-uno", None) == guardado
@@ -236,17 +237,54 @@ def test_lenguaje_natural_puede_cambiar_una_respuesta_previa(entorno):
     assert cambio.respuestas["metros:MANG-1"].opcion == "dividir"
 
 
-def test_preguntas_nuevas_conservan_las_anteriores_editables(entorno):
-    anterior = d.construir({"requiere_confirmacion": True, "tipo_confirmacion": "solo_xml"}, "generar_entradas_almacen", {}, None)
-    anterior["respuestas"] = {"documentos": {"opcion": "procesar", "recordar": False, "campos": {}}}
-    anterior["estado"] = "aplicada"
-    nueva = d.registrar("chat-uno", None, datos_preguntas(), "generar_entradas_almacen", {"confirmar_solo_xml": True}, [anterior])
-    assert "documentos" in {p["id"] for p in nueva["preguntas"]}
-    r = respuestas(nueva)
-    r["documentos"]["opcion"] = "omitir"
-    estado = d.guardar_envio("chat-uno", None, envio(nueva, r, "confirmar"))
-    args, _ = d.traducir(estado)
-    assert args["omitir_incompletas"] and args["confirmar_solo_xml"] is False
+def test_continuacion_pide_solo_decisiones_pendientes_y_conserva_las_aplicadas(entorno, monkeypatch):
+    from app.agents import tools
+    from app.api.v1.routes import chat
+    from app.schemas.chat import ChatRequest
+
+    etapas = iter([
+        {"ok": True, "requiere_confirmacion": True, "productos_sin_linea": [{
+            "clave_articulo": "P1", "descripcion": "Vaso metálico con purga", "sugerencias": [{
+                "linea": "ZZ9", "referencias": [{"cve_art": "P2", "descr": "Vaso metálico", "linea": "ZZ9"}],
+            }],
+        }]},
+        {"ok": True, "requiere_confirmacion": True, "lineas_sin_factor": [{"linea": "ZZ9"}]},
+        {"ok": True, "reporte_generado": True},
+    ])
+    llamadas = []
+
+    class Herramienta:
+        name = "generar_entradas_almacen"
+
+        def invoke(self, args, **kwargs):
+            llamadas.append(args)
+            return json.dumps(next(etapas))
+
+    monkeypatch.setattr(tools, "HERRAMIENTAS", [Herramienta()])
+    documentos = d.registrar("chat-uno", None, {"tipo_confirmacion": "solo_xml"}, Herramienta.name, {})
+
+    def continuar(interaccion):
+        return chat._ejecutar_chat(ChatRequest(session_id="chat-uno", mensaje="Aplicar decisiones y continuar",
+            decisiones=envio(interaccion, respuestas(interaccion), "confirmar")))
+
+    linea = continuar(documentos).interaccion
+    assert [p["id"] for p in linea["preguntas"]] == ["linea:P1"]
+    assert "P1 — Vaso metálico con purga" in linea["preguntas"][0]["titulo"]
+    assert linea["preguntas"][0]["opciones"][-1]["titulo"] == "Completar línea y precios manualmente en el Excel"
+    assert linea["respuestas"] == {}
+    assert linea["anteriores"][0]["respuestas"] == respuestas(documentos)
+
+    factor = continuar(linea).interaccion
+    assert [p["id"] for p in factor["preguntas"]] == ["factor:ZZ9"]
+    assert [r["id"] for r in factor["anteriores"]] == [documentos["id"], linea["id"]]
+    assert all(r["estado"] == "aplicada" for r in factor["anteriores"])
+    resultado = continuar(factor)
+    assert resultado.interaccion["estado"] == "aplicada"
+    assert llamadas[-1]["confirmar_solo_xml"] is True
+    assert llamadas[-1]["decisiones_lineas"]["P1"]["linea"] == "ZZ9"
+    assert llamadas[-1]["factores_elegidos"]["ZZ9"] == "COMPRAS GENERALES LOCALES"
+    assert "Procesar con el XML" in resultado.respuesta
+    assert "Aplicar línea ZZ9" in resultado.respuesta
 
 
 def test_captura_pregunta_real_del_ejecutor_de_herramientas(entorno):

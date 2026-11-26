@@ -766,14 +766,15 @@ def _continuar_decisiones(request, uid):
                     fecha = resumen.get("fecha_reporte_base") or args.get("carpeta_especifica")
                     if fecha:
                         texto += f" La carpeta procesada es {fecha}."
-                    elecciones = []
-                    for pregunta in i.get("preguntas", []):
-                        seleccion = i.get("respuestas", {}).get(pregunta["id"], {})
-                        opcion = next((o for o in pregunta.get("opciones", []) if o["id"] == seleccion.get("opcion")), None)
-                        if opcion:
-                            elecciones.append(f"- {pregunta['titulo']} {opcion['titulo']}")
+                    elecciones = {}
+                    for ronda in [*i.get("anteriores", []), i]:
+                        for pregunta in ronda["preguntas"]:
+                            seleccion = ronda["respuestas"].get(pregunta["id"], {})
+                            opcion = next((o for o in pregunta["opciones"] if o["id"] == seleccion.get("opcion")), None)
+                            if opcion:
+                                elecciones[pregunta["id"]] = f"- {pregunta['titulo']} {opcion['titulo']}"
                     if elecciones:
-                        texto += "\n\nDecisiones aplicadas\n" + "\n".join(elecciones)
+                        texto += "\n\nDecisiones aplicadas\n" + "\n".join(elecciones.values())
                     explicacion = explicar_procedencia_reporte(resumen)
                     if explicacion:
                         texto += "\n\n" + explicacion

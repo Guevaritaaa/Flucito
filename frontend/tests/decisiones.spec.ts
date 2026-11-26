@@ -114,3 +114,40 @@ test("recuperar una confirmación en curso no vuelve a iniciarla", async ({ page
   expect(estado.inicios).toBe(1);
   expect(estado.confirmacion?.respuestas["metros:M1"].opcion).toBe("dividir");
 });
+
+test("la ronda siguiente solo muestra sus decisiones, incluso al recargar", async ({ page }) => {
+  const estado = await preparar(page);
+  const texto = "Revisa las siguientes decisiones para continuar.";
+  const siguiente = (): InteraccionDecision => ({
+    id: "preguntas-2", revision: 1, estado: "pendiente", permite_recordar: false, respuestas: {},
+    anteriores: [estado.interaccion],
+    preguntas: [{ id: "linea:P1", tipo: "linea", titulo: "P1 — Vaso metálico. ¿Qué línea deseas usar?",
+      contexto: { producto: "P1" }, clave_preferencia: null,
+      opciones: [{ id: "manual", titulo: "Completar línea y precios manualmente en el Excel", descripcion: "Conserva el costo de compra." }] }],
+  });
+  await page.route("**/api/v1/chat/conversaciones/decision-e2e", r => {
+    const creado_en = new Date().toISOString();
+    const mensajes = [{ id: 1, rol: "assistant", contenido: texto, creado_en, interaccion: estado.interaccion }];
+    if (estado.confirmacion) mensajes.push({ id: 2, rol: "assistant", contenido: texto, creado_en, interaccion: siguiente() });
+    return r.fulfill({ json: { id: "decision-e2e", mensajes } });
+  });
+  await page.route("**/api/v1/chat/events/job-decision", r => r.fulfill({ contentType: "text/event-stream",
+    body: `data: ${JSON.stringify({ status: "completed", result: { respuesta: texto, interaccion: siguiente() } })}\n\n` }));
+
+  await page.goto("/tests/ui/decisiones.html");
+  await page.getByRole("radio", { name: /^FESTO/ }).check();
+  await page.getByRole("radio", { name: /^Dividir precio entre los metros/ }).check();
+  await page.getByRole("button", { name: "Aplicar decisiones y continuar" }).click();
+
+  const mensajes = page.locator('[data-role="assistant-message"]');
+  for (const recargar of [false, true]) {
+    if (recargar) await page.reload();
+    await expect(mensajes).toHaveCount(2);
+    await expect(mensajes.first().getByRole("heading", { name: "Decisiones aplicadas" })).toBeVisible();
+    await expect(mensajes.first().getByText("FESTO · Ver respuesta")).toBeVisible();
+    await expect(mensajes.first().getByRole("button", { name: "Aplicar decisiones y continuar" })).toHaveCount(0);
+    await expect(mensajes.last().getByRole("radio", { name: /^Completar línea y precios manualmente/ })).toBeVisible();
+    await expect(mensajes.last().getByText("DAYCO", { exact: false })).toHaveCount(0);
+    await expect(mensajes.last().getByText("Ver decisiones anteriores")).toHaveCount(0);
+  }
+});

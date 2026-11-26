@@ -8,7 +8,7 @@ def avisos_estado(interaccion=None, revision=None, resumen=None):
             if pregunta.get("tipo") == "linea":
                 avisos.append({"nivel": "advertencia", "titulo": pregunta["titulo"],
                     "descripcion": pregunta.get("explicacion") or "No hay una línea confirmada para este producto.",
-                    "accion": "Confirma una referencia en la tarjeta o elige completar el Excel."})
+                    "accion": "Confirma una referencia en la tarjeta o elige completar el Excel manualmente."})
         if any(p.get("tipo") == "factor" for p in interaccion.get("preguntas", [])):
             avisos.append({"nivel": "advertencia", "titulo": "Factor por confirmar",
                 "descripcion": "Falta decidir cómo calcular los precios de venta de las líneas indicadas.",

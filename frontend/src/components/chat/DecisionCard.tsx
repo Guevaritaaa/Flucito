@@ -122,13 +122,12 @@ export function DecisionCard({ interaccion, sessionId, onEnviar, ocupado = false
   }
   return <section aria-label="Decisiones de Flucito" className="space-y-4 border-t border-slate-300 pt-4 dark:border-slate-600">
     <h3 className="text-base font-semibold">{pendiente ? "Revisa tus decisiones" : interaccion.estado === "aplicada" ? "Decisiones aplicadas" : interaccion.estado === "cancelada" ? "Operación cancelada" : interaccion.estado === "error" ? "Operación interrumpida" : "Aplicando decisiones"}</h3>
-    {interaccion.anteriores?.filter(a => a.preguntas.some(p => !interaccion.preguntas.some(actual => actual.id === p.id))).map(a => <details key={a.id}><summary className="cursor-pointer text-sm underline">Ver decisiones anteriores</summary><DecisionCard interaccion={a} sessionId={sessionId} onEnviar={onEnviar} ocupado /></details>)}
     {interaccion.preguntas.map(p => {
       const r = respuestas[p.id];
       const elegida = p.opciones.find(o => o.id === r?.opcion);
       const unidadManual = p.tipo === "unidad" && respuestas["metros:" + p.id.slice(7)]?.opcion === "manual";
       return <div key={p.id} className="border-b border-slate-200 pb-4 dark:border-slate-700">
-        <p className="mb-2 text-sm font-semibold">{p.titulo}</p>
+        <p className="mb-2 break-words text-sm font-semibold">{p.titulo}</p>
         {p.recordada && <p className="mb-2 text-xs text-blue-800 dark:text-sky-200">Elección recuperada de tus preferencias</p>}
         <details open={!r || r.opcion === "custom" || r.opcion === "otra_ruta"}>
           <summary className="cursor-pointer rounded text-sm focus-visible:outline-2">{r ? `${elegida?.titulo ?? "Selección"} · ${pendiente ? "Cambiar respuesta" : "Ver respuesta"}` : "Elegir una opción"}</summary>

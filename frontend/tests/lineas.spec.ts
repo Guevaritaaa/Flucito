@@ -4,21 +4,23 @@ import type { InteraccionDecision, RevisionReporte } from "../src/schemas/chat";
 for (const oscuro of [false, true]) {
   test(`línea sugerida y aviso accesible en tema ${oscuro ? "oscuro" : "claro"}`, async ({ page }, info) => {
     const interaccion: InteraccionDecision = { id: "linea-1", revision: 1, estado: "pendiente", permite_recordar: false, respuestas: {}, preguntas: [{
-      id: "linea:BW-SAF4000DME", tipo: "linea", titulo: "BW-SAF4000DME: confirma la línea del producto", contexto: { producto: "BW-SAF4000DME" }, clave_preferencia: null,
+      id: "linea:BW-SAF4000DME", tipo: "linea", titulo: "BW-SAF4000DME — Vaso metálico para filtro SAF4000 con purga. ¿Qué línea deseas usar?", contexto: { producto: "BW-SAF4000DME" }, clave_preferencia: null,
       opciones: [{ id: "linea:YPC", titulo: "Aplicar línea YPC", descripcion: "BW-SAF4000ME — VASO METALICO PARA SAF4000 SIN PURGA · línea YPC. Factor: YPC. Revisa las diferencias de modelo." },
-        { id: "manual", titulo: "Completar línea y precios en el Excel", descripcion: "Se conserva el costo de compra. La línea y los cinco precios de venta quedan vacíos." }] }] };
+        { id: "manual", titulo: "Completar línea y precios manualmente en el Excel", descripcion: "Se conserva el costo de compra. La línea y los cinco precios de venta quedan vacíos." }] }] };
     await page.route("**/api/v1/chat/conversaciones/decision-e2e", r => r.fulfill({ json: { id: "decision-e2e", mensajes: [{ id: 1, rol: "assistant", contenido: "Carpeta 20-10-2026: falta confirmar una línea.", creado_en: new Date().toISOString(), interaccion,
       avisos: [{ nivel: "advertencia", titulo: "Línea por confirmar · BW-SAF4000DME", descripcion: "El TXT contiene BW-. El XML aporta BW-SAF4000DME y el catálogo del SAE confirma su clave. La columna de línea está vacía en el TXT y en el catálogo del SAE.", accion: "Confirma la referencia o completa el Excel." }] }] } }));
     await page.route("**/api/v1/chat/conversaciones/decision-e2e/decisiones", r => r.fulfill({ json: { ...interaccion, revision: 2, respuestas: r.request().postDataJSON().respuestas } }));
     await page.goto(`/tests/ui/decisiones.html${oscuro ? "?dark" : ""}`);
     await expect(page.getByRole("status").filter({ hasText: "Línea por confirmar" })).toContainText("La columna de línea está vacía");
+    await expect(page.getByRole("paragraph").filter({ hasText: "BW-SAF4000DME — Vaso metálico para filtro SAF4000 con purga." })).toBeVisible();
+    await expect(page.getByRole("radio", { name: /^Completar línea y precios manualmente en el Excel/ })).toBeVisible();
+    await page.screenshot({ path: info.outputPath(`linea-${oscuro ? "oscuro" : "claro"}.png`), fullPage: true });
     await expect(page.getByRole("button", { name: "Aplicar decisiones y continuar" })).toBeDisabled();
     await page.getByRole("radio", { name: /^Aplicar línea YPC/ }).focus();
     await page.keyboard.press("Space");
     await expect(page.getByRole("button", { name: "Aplicar decisiones y continuar" })).toBeEnabled();
     await expect(page.getByText("Aplicar línea YPC · Cambiar respuesta")).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
-    await page.screenshot({ path: info.outputPath(`linea-${oscuro ? "oscuro" : "claro"}.png`), fullPage: true });
   });
 }
 

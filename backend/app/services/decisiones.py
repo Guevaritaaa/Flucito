@@ -60,6 +60,13 @@ def opcion(id, titulo, descripcion):
     return {"id": id, "titulo": titulo, "descripcion": descripcion}
 
 
+def _identificar_producto(clave, descripcion):
+    descripcion = str(descripcion or "").strip()
+    if descripcion and descripcion.casefold() != clave.casefold():
+        return f"{clave} — {descripcion}"
+    return clave
+
+
 def construir(datos, herramienta, argumentos, uid):
     from app.services.almacen.factores import CATALOGO_FACTORES
     preguntas = []
@@ -76,6 +83,7 @@ def construir(datos, herramienta, argumentos, uid):
                  opcion("manual", "Dejar precios de venta para llenado manual", "Los cinco precios de venta quedarán vacíos; el TXT esperará su corrección.")], {"linea": codigo}, costo_ejemplo=100)
     for producto in datos.get("productos_sin_linea", []):
         clave = str(producto["clave_articulo"])
+        articulo = _identificar_producto(clave, producto.get("descripcion"))
         opciones = []
         for grupo in producto.get("sugerencias", []):
             from app.services.almacen.factores import resolver_linea
@@ -84,15 +92,16 @@ def construir(datos, herramienta, argumentos, uid):
             opciones.append(opcion("linea:" + grupo["linea"], "Aplicar línea " + grupo["linea"],
                 "; ".join(f"{r['cve_art']} — {r['descr']} · línea {r['linea']}" for r in referencias)
                 + f". Factor: {factor or 'se preguntará a continuación'}. Son referencias similares; conserva las diferencias de modelo y medida."))
-        opciones.append(opcion("manual", "Completar línea y precios en el Excel",
+        opciones.append(opcion("manual", "Completar línea y precios manualmente en el Excel",
             "Se conserva el costo de compra. La línea y los cinco precios de venta quedan vacíos; los TXT esperan la revisión."))
-        agregar("linea:" + clave, "linea", f"{clave}: confirma la línea del producto", opciones,
+        agregar("linea:" + clave, "linea", f"{articulo}. ¿Qué línea deseas usar?", opciones,
                 {"producto": clave}, explicacion=producto.get("explicacion"), sugerencias=producto.get("sugerencias", []))
     for rollo in datos.get("rollos_pendientes", []):
         clave = str(rollo["clave_articulo"])
+        articulo = _identificar_producto(clave, rollo.get("descripcion"))
         ctx = {"producto": clave, "unidad": rollo.get("clave_unidad"), "metros": rollo.get("metros")}
         if rollo.get("es_xro"):
-            agregar("unidad:" + clave, "unidad", f"{clave}: ¿qué unidad deseas usar?", [
+            agregar("unidad:" + clave, "unidad", f"{articulo}. ¿Qué unidad deseas usar?", [
                 opcion("conservar", "Conservar XRO", "La unidad seguirá siendo rollo."),
                 opcion("mtr", "Cambiar a MTR", "La clave de unidad del reporte será metros; no cambia por sí sola el precio.")], ctx)
         metros = rollo.get("metros")
@@ -101,7 +110,7 @@ def construir(datos, herramienta, argumentos, uid):
         if metros:
             opciones.append(opcion("dividir", "Dividir precio entre los metros", f"{precio} ÷ {metros} = {float(precio) / float(metros):.4f} por metro."))
         opciones.append(opcion("manual", "Dejar precios para llenado manual", "Conserva la unidad original y deja compra y los cinco precios de venta vacíos; el TXT queda pendiente."))
-        agregar("metros:" + clave, "metros", f"{clave}: {rollo.get('descripcion', '')}", opciones, ctx)
+        agregar("metros:" + clave, "metros", f"{articulo}. ¿Cómo deseas calcular el precio de compra?", opciones, ctx)
     if datos.get("tipo_confirmacion") == "solo_xml":
         agregar("documentos", "documentos", "Hay facturas sin PDF o TXT de apoyo. ¿Cómo deseas continuar?", [
             opcion("procesar", "Procesar con el XML", "Usa los datos del XML; conserva los avisos por información faltante."),
@@ -164,14 +173,6 @@ def registrar(sid, uid, datos, herramienta, argumentos, anteriores=None):
         return None
     if anteriores:
         interaccion["anteriores"] = anteriores
-        if herramienta == "generar_entradas_almacen":
-            # La prevalidación puede descubrir factores después de autorizar XML.
-            # Conserva todas las respuestas editables hasta generar el reporte.
-            preguntas_previas = {p["id"]: p for a in anteriores for p in a["preguntas"]}
-            respuestas_previas = {k: v for a in anteriores for k, v in a["respuestas"].items()}
-            preguntas_previas.update({p["id"]: p for p in interaccion["preguntas"]})
-            interaccion["preguntas"] = list(preguntas_previas.values())
-            interaccion["respuestas"] = {**respuestas_previas, **interaccion["respuestas"]}
     estado = {"interaccion": interaccion, "herramienta": herramienta, "argumentos": argumentos, "observado": datos}
     with SessionLocal() as db:
         conv = verificar_dueno(db, sid, uid)

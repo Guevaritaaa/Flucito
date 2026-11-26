@@ -179,7 +179,13 @@ export function useChat({
           revision_reporte: respuesta.revision_reporte,
         };
 
-        setMensajes((prev) => reanudando && prev.at(-1)?.contenido === msgAsistente.contenido ? prev : [...prev, msgAsistente]);
+        setMensajes((prev) => {
+          const ultimo = prev.at(-1);
+          const mismoResultado = ultimo?.contenido === msgAsistente.contenido
+            && ultimo.interaccion?.id === msgAsistente.interaccion?.id
+            && ultimo.interaccion?.revision === msgAsistente.interaccion?.revision;
+          return reanudando && mismoResultado ? prev : [...prev, msgAsistente];
+        });
         onConversacionActualizada();
       } catch (err) {
         if (controller.signal.aborted || (err instanceof DOMException && err.name === "AbortError")) {
