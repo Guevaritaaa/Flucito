@@ -8,9 +8,11 @@ import { SettingsView } from "./components/settings/SettingsView";
 import { useAuth } from "./context/AuthContext";
 import { useTheme } from "./context/ThemeContext";
 import { ASSETS } from "./core/config";
+import { useVisibleViewport } from "./hooks/useVisibleViewport";
 import { useConversations } from "./hooks/useConversations";
 
 export default function App() {
+  useVisibleViewport();
   const { autenticado, usuario, esAdmin, cargandoSesion, logout } = useAuth();
   const { esOscuro } = useTheme();
   const {
@@ -147,7 +149,7 @@ export default function App() {
         />
 
         {/* Lienzo derecho principal */}
-        <div className="relative flex flex-1 flex-col h-full min-w-0 overflow-hidden">
+        <div className="relative flex flex-1 flex-col h-full min-w-0 overflow-hidden @container-size">
           <Header
             tabActiva={tabActiva}
             sidebarAbierto={sidebarAbierto}

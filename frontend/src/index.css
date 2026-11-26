@@ -55,6 +55,20 @@
   }
 }
 
+#root {
+  height: 100%;
+  height: min(100dvh, var(--visible-viewport-height, 100dvh));
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+@container (height < 360px) {
+  [data-purpose="chat-container"]:has(textarea:focus, button[type="submit"]:focus)
+    :is(.chat-intro, .chat-suggestions, .chat-footer) {
+    display: none;
+  }
+}
+
 /* Scrollbar translúcida para contenedores glass de chat, vistas e historial */
 .custom-scroll::-webkit-scrollbar {
   width: 6px;

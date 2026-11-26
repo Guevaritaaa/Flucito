@@ -116,14 +116,13 @@ export function Sidebar({
       <aside
         id="sidebar"
         aria-label="Barra lateral de navegación e historial"
-        style={{
-          marginLeft: abierto ? "0rem" : "-16.75rem",
-          transition: "margin-left 240ms cubic-bezier(0.32, 0.72, 0, 1)",
-        }}
-        className="fixed inset-y-0 left-0 md:relative z-40 flex h-full w-[268px] flex-shrink-0 flex-col justify-between border-r border-white/65 dark:border-sky-200/15 bg-white/55 dark:bg-[#081530]/78 backdrop-blur-2xl text-slate-800 dark:text-slate-100 select-none shadow-[12px_0_36px_rgba(12,50,110,0.12)] md:shadow-none"
+        inert={!abierto}
+        className={`absolute inset-y-0 left-0 md:relative z-40 flex h-full w-[268px] max-w-full flex-shrink-0 flex-col overflow-auto overscroll-contain sidebar-scroll border-r border-white/65 dark:border-sky-200/15 bg-white/55 dark:bg-[#081530]/78 backdrop-blur-2xl text-slate-800 dark:text-slate-100 select-none shadow-[12px_0_36px_rgba(12,50,110,0.12)] md:shadow-none transition-[translate,margin-left] duration-[240ms] ease-[cubic-bezier(0.32,0.72,0,1)] ${
+          abierto ? "" : "-translate-x-full md:translate-x-0 md:-ml-[268px]"
+        }`}
       >
         {/* Cabecera estilo ChatGPT: Logo Interflu + botón discreto de colapsar */}
-        <div className="flex flex-col px-3.5 pt-4 pb-2.5 space-y-3.5">
+        <div className="flex shrink-0 flex-col px-3.5 pt-4 pb-2.5 space-y-3.5">
           <div className="flex items-center justify-between gap-2 px-1">
             <img
               src={esOscuro ? ASSETS.INTERFLU_LOGO_DARK : ASSETS.INTERFLU_LOGO}
@@ -190,7 +189,7 @@ export function Sidebar({
         </div>
 
         {/* Bloque Central: Chats recientes */}
-        <div className="flex flex-1 flex-col overflow-hidden px-3.5 py-2 border-t border-slate-900/7 dark:border-sky-200/10">
+        <div className="flex flex-1 min-h-24 flex-col overflow-hidden px-3.5 py-2 border-t border-slate-900/7 dark:border-sky-200/10">
           <div className="flex items-center justify-between px-2 py-1.5">
             <span className="text-xs font-bold text-slate-700 dark:text-sky-100/85">
               Chats recientes
@@ -321,7 +320,7 @@ export function Sidebar({
         </div>
 
         {/* Pie de Perfil: Tarjeta de cristal esmerilado con usuario y Cerrar sesión */}
-        <div className="p-3 border-t border-slate-900/7 dark:border-sky-200/10">
+        <div className="shrink-0 p-3 border-t border-slate-900/7 dark:border-sky-200/10">
           <div className="flex items-center justify-between gap-2 rounded-2xl border border-white/75 dark:border-sky-300/15 bg-white/65 dark:bg-[#0a1936]/75 px-2.5 py-2">
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="h-8 w-8 flex-shrink-0 rounded-full bg-[#0022e6]/10 dark:bg-sky-400/15 flex items-center justify-center text-[#0022e6] dark:text-sky-300">

@@ -56,9 +56,32 @@ export function LoginView() {
     }
   }
 
+  const selectorTema = (
+    <>
+      <button
+        type="button"
+        onClick={toggleTheme}
+        aria-label={esOscuro ? "Activar modo claro" : "Activar modo oscuro"}
+        className="flex h-11 w-11 md:h-10 md:w-10 items-center justify-center rounded-xl border border-white/65 dark:border-sky-300/25 bg-white/45 dark:bg-[#0e2248]/65 backdrop-blur-md text-slate-700 dark:text-slate-100 shadow-subtle hover:bg-white/75 dark:hover:bg-[#152f61]/80 active:scale-[0.96] transition-all duration-150 cursor-pointer"
+      >
+        {esOscuro ? (
+          <Sun className="h-4 w-4 text-amber-300 transition-transform duration-200 group-hover:rotate-12" />
+        ) : (
+          <Moon className="h-4 w-4 text-[#0018cc] transition-transform duration-200 group-hover:-rotate-12" />
+        )}
+      </button>
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute hidden md:block right-0 top-full mt-2 z-50 whitespace-nowrap rounded-lg bg-slate-900/95 border border-white/15 px-2.5 py-1 text-[11px] font-medium text-white shadow-md opacity-0 scale-95 origin-top-right group-hover:opacity-100 group-hover:scale-100 group-focus-within:opacity-100 group-focus-within:scale-100 transition-all duration-150 ease-out"
+      >
+        {esOscuro ? "Activar modo claro" : "Activar modo oscuro"}
+      </span>
+    </>
+  );
+
   return (
-    <div
-      className="relative flex min-h-full w-full items-center justify-center overflow-hidden px-4 py-8 sm:px-6 lg:px-8 transition-colors duration-300 select-none"
+    <main
+      className="relative flex h-full w-full flex-col items-center overflow-y-auto overflow-x-hidden custom-scroll px-3 py-3 sm:px-6 md:py-8 lg:px-8 transition-colors duration-300 select-none"
       style={{
         background: esOscuro
           ? "radial-gradient(ellipse at 60% 45%, #123672 0%, #0a1e46 48%, #040c1f 100%)"
@@ -79,30 +102,12 @@ export function LoginView() {
         </>
       )}
 
-      {/* Botón superior derecho para Modo Oscuro / Claro */}
-      <div className="absolute top-4 right-4 sm:top-6 sm:right-6 z-30 group">
-        <button
-          type="button"
-          onClick={toggleTheme}
-          aria-label={esOscuro ? "Activar modo claro" : "Activar modo oscuro"}
-          className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/65 dark:border-sky-300/25 bg-white/45 dark:bg-[#0e2248]/65 backdrop-blur-md text-slate-700 dark:text-slate-100 shadow-subtle hover:bg-white/75 dark:hover:bg-[#152f61]/80 active:scale-[0.96] transition-all duration-150 cursor-pointer"
-        >
-          {esOscuro ? (
-            <Sun className="h-4 w-4 text-amber-300 transition-transform duration-200 group-hover:rotate-12" />
-          ) : (
-            <Moon className="h-4 w-4 text-[#0018cc] transition-transform duration-200 group-hover:-rotate-12" />
-          )}
-        </button>
-        <span
-          role="tooltip"
-          className="pointer-events-none absolute right-0 top-full mt-2 z-50 whitespace-nowrap rounded-lg bg-slate-900/95 border border-white/15 px-2.5 py-1 text-[11px] font-medium text-white shadow-md opacity-0 scale-95 origin-top-right group-hover:opacity-100 group-hover:scale-100 group-focus-within:opacity-100 group-focus-within:scale-100 transition-all duration-150 ease-out"
-        >
-          {esOscuro ? "Activar modo claro" : "Activar modo oscuro"}
-        </span>
+      <div className="group absolute top-6 right-6 z-30 hidden md:block">
+        {selectorTema}
       </div>
 
       {/* Escena principal centrada */}
-      <div className="relative w-full max-w-[920px] flex items-center justify-center">
+      <div className="relative w-full max-w-[420px] md:max-w-[920px] flex shrink-0 items-center justify-center md:my-auto">
         {/* Capa 0: Flucito desenfocado en la esquina inferior izquierda (usando flucito-mascota-3d.webp nativo sin residuos de fondo) */}
         <img
           src={ASSETS.FLUCITO_3D}
@@ -113,16 +118,19 @@ export function LoginView() {
         />
 
         {/* Capa 1: Marco exterior de cristal esmerilado (Frosted Glass Container) */}
-        <div className="relative z-10 w-full min-h-[470px] md:min-h-[495px] rounded-[30px] border border-white/65 dark:border-sky-300/20 bg-white/30 dark:bg-[#0d2044]/45 backdrop-blur-[12px] shadow-[0_24px_60px_rgba(14,70,140,0.12)] dark:shadow-[0_28px_70px_rgba(2,8,24,0.65)] px-5 py-7 sm:px-9 sm:py-9 md:px-11 md:py-10 flex flex-col md:flex-row items-center justify-between gap-8 md:gap-4">
+        <div className="relative z-10 w-full md:min-h-[495px] rounded-[30px] border border-white/65 dark:border-sky-300/20 bg-white/30 dark:bg-[#0d2044]/45 backdrop-blur-[12px] shadow-[0_24px_60px_rgba(14,70,140,0.12)] dark:shadow-[0_28px_70px_rgba(2,8,24,0.65)] p-3 md:px-11 md:py-10 flex flex-col md:flex-row items-center gap-3 md:gap-4">
           {/* Columna Izquierda: Tarjeta interna translúcida del formulario */}
-          <div className="relative z-20 w-full max-w-[340px] sm:max-w-[355px] flex-shrink-0 rounded-[22px] border border-white/85 dark:border-sky-200/20 bg-white/72 dark:bg-[#0a1936]/78 backdrop-blur-xl px-6 py-7 sm:px-8 sm:py-8 shadow-[0_12px_32px_rgba(12,50,110,0.08)] dark:shadow-[0_16px_40px_rgba(2,8,26,0.55)]">
+          <div className="relative z-20 w-full md:max-w-[355px] md:w-[46%] flex-shrink-0 rounded-[22px] border border-white/85 dark:border-sky-200/20 bg-white/72 dark:bg-[#0a1936]/78 backdrop-blur-xl px-4 py-5 md:px-8 md:py-8 shadow-[0_12px_32px_rgba(12,50,110,0.08)] dark:shadow-[0_16px_40px_rgba(2,8,26,0.55)]">
             {/* Cabecera integrada: Logo Interflu con proporción exacta respecto a "Iniciar sesión" */}
-            <div className="mb-5">
-              <img
-                src={esOscuro ? ASSETS.INTERFLU_LOGO_DARK : ASSETS.INTERFLU_LOGO}
-                alt="Interflu - Internacional de Fluidos, S.A. de C.V."
-                className="w-[140px] sm:w-[148px] h-auto object-contain select-none mb-5"
-              />
+            <div className="mb-4 md:mb-5">
+              <div className="mb-3 flex items-center justify-between gap-2 md:mb-5">
+                <img
+                  src={esOscuro ? ASSETS.INTERFLU_LOGO_DARK : ASSETS.INTERFLU_LOGO}
+                  alt="Interflu - Internacional de Fluidos, S.A. de C.V."
+                  className="w-[140px] sm:w-[148px] h-auto object-contain select-none"
+                />
+                <div className="md:hidden">{selectorTema}</div>
+              </div>
               <h1 className="text-[24px] sm:text-[26px] leading-tight font-extrabold tracking-tight text-slate-900 dark:text-white">
                 Iniciar sesión
               </h1>
@@ -172,13 +180,12 @@ export function LoginView() {
                   name="username"
                   type="text"
                   autoComplete="username"
-                  autoFocus
                   required
                   disabled={enviando}
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="Ingresa tu usuario"
-                  className="w-full rounded-xl border border-white dark:border-sky-300/20 bg-white dark:bg-[#071229]/90 px-3.5 py-2.5 text-xs sm:text-sm text-slate-800 dark:text-white placeholder-slate-400 dark:placeholder-slate-400/80 shadow-[0_2px_8px_rgba(15,23,42,0.04)] transition-all focus:border-[#0022e6] dark:focus:border-sky-400 focus:ring-2 focus:ring-[#0022e6]/15 dark:focus:ring-sky-400/20 focus:outline-none disabled:opacity-60 select-text"
+                  className="w-full rounded-xl border border-white dark:border-sky-300/20 bg-white dark:bg-[#071229]/90 px-3.5 py-2.5 text-base md:text-sm pointer-coarse:text-base text-slate-800 dark:text-white placeholder-slate-400 dark:placeholder-slate-400/80 shadow-[0_2px_8px_rgba(15,23,42,0.04)] transition-all focus:border-[#0022e6] dark:focus:border-sky-400 focus:ring-2 focus:ring-[#0022e6]/15 dark:focus:ring-sky-400/20 focus:outline-none disabled:opacity-60 select-text"
                 />
               </div>
 
@@ -201,7 +208,7 @@ export function LoginView() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="•••••••••"
-                    className="w-full rounded-xl border border-white dark:border-sky-300/20 bg-white dark:bg-[#071229]/90 py-2.5 pl-3.5 pr-10 text-xs sm:text-sm text-slate-800 dark:text-white placeholder-slate-400 dark:placeholder-slate-400/80 shadow-[0_2px_8px_rgba(15,23,42,0.04)] transition-all focus:border-[#0022e6] dark:focus:border-sky-400 focus:ring-2 focus:ring-[#0022e6]/15 dark:focus:ring-sky-400/20 focus:outline-none disabled:opacity-60 select-text"
+                    className="w-full rounded-xl border border-white dark:border-sky-300/20 bg-white dark:bg-[#071229]/90 py-2.5 pl-3.5 pr-11 text-base md:text-sm pointer-coarse:text-base text-slate-800 dark:text-white placeholder-slate-400 dark:placeholder-slate-400/80 shadow-[0_2px_8px_rgba(15,23,42,0.04)] transition-all focus:border-[#0022e6] dark:focus:border-sky-400 focus:ring-2 focus:ring-[#0022e6]/15 dark:focus:ring-sky-400/20 focus:outline-none disabled:opacity-60 select-text"
                   />
                   <button
                     type="button"
@@ -210,7 +217,7 @@ export function LoginView() {
                     aria-label={
                       mostrarPassword ? "Ocultar contraseña" : "Mostrar contraseña"
                     }
-                    className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-600 dark:text-slate-400 dark:hover:text-sky-300 cursor-pointer"
+                    className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-slate-400 hover:text-slate-600 dark:text-slate-400 dark:hover:text-sky-300 cursor-pointer"
                   >
                     {mostrarPassword ? (
                       <Eye className="h-4 w-4" />
@@ -226,7 +233,7 @@ export function LoginView() {
                 <button
                   type="submit"
                   disabled={enviando}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#0022e6] hover:bg-[#0018cc] dark:bg-[#1d4ed8] dark:hover:bg-[#2563eb] active:scale-[0.99] px-5 py-2.5 text-xs sm:text-sm font-semibold text-white shadow-[0_6px_20px_rgba(0,34,230,0.34)] dark:shadow-[0_6px_22px_rgba(29,78,216,0.45)] transition-all disabled:opacity-60 disabled:pointer-events-none cursor-pointer"
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#0022e6] hover:bg-[#0018cc] dark:bg-[#1d4ed8] dark:hover:bg-[#2563eb] active:scale-[0.99] min-h-11 px-5 py-2.5 text-sm font-semibold text-white shadow-[0_6px_20px_rgba(0,34,230,0.34)] dark:shadow-[0_6px_22px_rgba(29,78,216,0.45)] transition-all disabled:opacity-60 disabled:pointer-events-none cursor-pointer"
                 >
                   {enviando ? (
                     <>
@@ -241,7 +248,7 @@ export function LoginView() {
             </form>
 
             {/* Enlaces inferiores adaptados al flujo empresarial de Interflu */}
-            <div className="mt-5 text-center space-y-2.5">
+            <div className="mt-4 text-center space-y-2.5 md:mt-5">
               <div>
                 <button
                   type="button"
@@ -276,8 +283,8 @@ export function LoginView() {
           </div>
 
           {/* Columna Derecha: Composición multicapa con recursos nativos PNG de public/Recursos */}
-          <div className="relative z-20 flex-1 min-h-[340px] sm:min-h-[410px] md:min-h-[450px] w-full flex items-center justify-center">
-            <div className="relative w-[300px] sm:w-[380px] md:w-[440px] lg:w-[470px] h-[340px] sm:h-[410px] md:h-[470px] flex items-center justify-center md:-my-10 md:-mr-6">
+          <div className="relative z-20 md:flex-1 md:min-h-[450px] w-full min-w-0 flex items-center justify-center">
+            <div className="relative w-full max-w-[270px] aspect-square md:max-w-none md:w-[440px] lg:w-[470px] md:h-[470px] flex items-center justify-center md:-my-10 md:-mr-6">
               {/* --- ELEMENTOS DECORATIVOS FLOTANTES (Detrás y alrededor de Flucito) --- */}
 
               {/* Arriba-Izquierda: Espiral cian pequeña + gota inclinada */}
@@ -403,12 +410,12 @@ export function LoginView() {
                 width={681}
                 height={900}
                 fetchPriority="high"
-                className="relative z-20 w-[235px] sm:w-[295px] md:w-[345px] lg:w-[365px] h-auto object-contain select-none pointer-events-none animate-flucito-float drop-shadow-[0_18px_32px_rgba(8,45,105,0.22)] dark:drop-shadow-[0_20px_38px_rgba(0,0,0,0.45)]"
+                className="relative z-20 w-[62%] md:w-[345px] md:max-w-[94%] lg:w-[365px] h-auto object-contain select-none pointer-events-none animate-flucito-float drop-shadow-[0_18px_32px_rgba(8,45,105,0.22)] dark:drop-shadow-[0_20px_38px_rgba(0,0,0,0.45)]"
               />
             </div>
           </div>
         </div>
       </div>
-    </div>
+    </main>
   );
 }

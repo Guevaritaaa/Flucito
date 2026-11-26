@@ -10,7 +10,6 @@ import {
 interface ChatComposerProps {
   deshabilitado: boolean;
   variante?: "hero" | "docked";
-  autoFocus?: boolean;
   onEnviar: (mensaje: string) => Promise<void>;
 }
 
@@ -40,7 +39,6 @@ export const SUGERENCIAS_RAPIDAS = [
 export function ChatComposer({
   deshabilitado,
   variante = "docked",
-  autoFocus = false,
   onEnviar,
 }: ChatComposerProps) {
   const [texto, setTexto] = useState("");
@@ -94,7 +92,6 @@ export function ChatComposer({
               ref={textareaRef}
               rows={1}
               aria-label="Mensaje para Flucito"
-              autoFocus={autoFocus}
               disabled={deshabilitado}
               value={texto}
               onChange={(e) => {
@@ -103,8 +100,8 @@ export function ChatComposer({
               }}
               onKeyDown={manejarKeyDown}
               placeholder="Escribe un mensaje a Flucito..."
-              style={{ minHeight: "44px", maxHeight: "152px" }}
-              className="w-full resize-none bg-transparent py-2.5 pl-3.5 pr-2 text-sm sm:text-[15px] leading-relaxed text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-sky-200/60 caret-[#0022e6] dark:caret-sky-400 border-0 focus:ring-0 focus:outline-none disabled:opacity-60 custom-scroll"
+              style={{ minHeight: "44px", maxHeight: "clamp(44px, 25cqh, 152px)" }}
+              className="w-full resize-none bg-transparent py-2.5 pl-3.5 pr-2 text-base md:text-[15px] pointer-coarse:text-base leading-relaxed text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-sky-200/60 caret-[#0022e6] dark:caret-sky-400 border-0 focus:ring-0 focus:outline-none disabled:opacity-60 custom-scroll"
             />
           </div>
 
@@ -114,7 +111,7 @@ export function ChatComposer({
             disabled={deshabilitado || !texto.trim()}
             aria-label="Enviar mensaje"
             title="Enviar mensaje (Enter)"
-            className="mb-0.5 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl bg-[#0022e6] hover:bg-[#0018cc] dark:bg-[#1d4ed8] dark:hover:bg-[#2563eb] active:scale-[0.95] text-white shadow-[0_6px_18px_rgba(0,34,230,0.32)] dark:shadow-[0_6px_20px_rgba(29,78,216,0.45)] transition-all duration-150 disabled:opacity-35 disabled:shadow-none disabled:pointer-events-none cursor-pointer"
+            className="mb-0.5 flex h-11 w-11 sm:h-10 sm:w-10 flex-shrink-0 items-center justify-center rounded-2xl bg-[#0022e6] hover:bg-[#0018cc] dark:bg-[#1d4ed8] dark:hover:bg-[#2563eb] active:scale-[0.95] text-white shadow-[0_6px_18px_rgba(0,34,230,0.32)] dark:shadow-[0_6px_20px_rgba(29,78,216,0.45)] transition-all duration-150 disabled:opacity-35 disabled:shadow-none disabled:pointer-events-none cursor-pointer"
           >
             <ArrowUp className="h-4.5 w-4.5 stroke-[2.4]" />
           </button>
@@ -124,7 +121,7 @@ export function ChatComposer({
       {/* Chips de acciones reales debajo del compositor cuando la conversación está recién iniciada */}
       {esHero && (
         <div
-          className="flex flex-wrap items-center justify-center gap-2 pt-0.5"
+          className="chat-suggestions flex flex-wrap items-center justify-center gap-2 pt-0.5"
           aria-label="Sugerencias rápidas"
         >
           {SUGERENCIAS_RAPIDAS.map((item) => {

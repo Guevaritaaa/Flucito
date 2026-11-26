@@ -13,7 +13,7 @@ export function SettingsView({ usuario, esAdmin }: SettingsViewProps) {
 
   return (
     <main
-      className="flex-1 w-full max-w-4xl mx-auto px-4 sm:px-6 py-6 overflow-y-auto custom-scroll space-y-8 animate-stage-in"
+      className="min-h-0 min-w-0 flex-1 w-full max-w-4xl mx-auto px-4 sm:px-6 py-6 overflow-y-auto custom-scroll space-y-8 animate-stage-in"
       id="tab-configuracion-content"
     >
       {/* Bloque 1: Preferencias del Sistema en cristal esmerilado */}
@@ -29,8 +29,8 @@ export function SettingsView({ usuario, esAdmin }: SettingsViewProps) {
 
         <div className="rounded-2xl border border-white/85 dark:border-sky-300/20 bg-white/76 dark:bg-[#0a1936]/80 backdrop-blur-xl shadow-[0_12px_32px_rgba(12,50,110,0.08)] dark:shadow-[0_16px_40px_rgba(2,8,26,0.5)] divide-y divide-slate-900/8 dark:divide-sky-200/12">
           {/* Opción 1: Modo Nocturno / Apariencia */}
-          <div className="p-5 flex items-center justify-between gap-4">
-            <div className="flex items-start gap-3">
+          <div className="p-4 sm:p-5 flex flex-wrap items-center justify-between gap-x-4 gap-y-2.5">
+            <div className="flex min-w-0 flex-[1_0_12rem] items-start gap-3">
               <div className="p-2 rounded-xl bg-[#0022e6]/10 dark:bg-sky-400/15 text-[#0018cc] dark:text-sky-300 mt-0.5">
                 {esOscuro ? (
                   <Moon className="h-5 w-5" />
@@ -67,8 +67,8 @@ export function SettingsView({ usuario, esAdmin }: SettingsViewProps) {
           </div>
 
           {/* Opción 2: Integración Google Drive */}
-          <div className="p-5 flex items-center justify-between gap-4">
-            <div className="flex items-start gap-3">
+          <div className="p-4 sm:p-5 flex flex-wrap items-center justify-between gap-x-4 gap-y-2.5">
+            <div className="flex min-w-0 flex-[1_0_12rem] items-start gap-3">
               <div className="p-2 bg-[#0022e6]/10 dark:bg-sky-400/15 text-[#0018cc] dark:text-sky-300 rounded-xl mt-0.5">
                 <Cloud className="w-5 h-5" />
               </div>
@@ -87,8 +87,8 @@ export function SettingsView({ usuario, esAdmin }: SettingsViewProps) {
           </div>
 
           {/* Opción 3: Base de Datos PostgreSQL y Catálogo SAE */}
-          <div className="p-5 flex items-center justify-between gap-4">
-            <div className="flex items-start gap-3">
+          <div className="p-4 sm:p-5 flex flex-wrap items-center justify-between gap-x-4 gap-y-2.5">
+            <div className="flex min-w-0 flex-[1_0_12rem] items-start gap-3">
               <div className="p-2 bg-[#0022e6]/10 dark:bg-sky-400/15 text-[#0018cc] dark:text-sky-300 rounded-xl mt-0.5">
                 <Database className="w-5 h-5" />
               </div>
@@ -107,7 +107,7 @@ export function SettingsView({ usuario, esAdmin }: SettingsViewProps) {
           </div>
 
           {/* Opción 4: Idioma */}
-          <div className="p-5 flex items-center justify-between gap-4">
+          <div className="p-4 sm:p-5 flex flex-wrap items-center justify-between gap-x-4 gap-y-2.5">
             <div>
               <p className="text-sm font-bold text-slate-900 dark:text-white">
                 Idioma del Asistente
@@ -119,7 +119,7 @@ export function SettingsView({ usuario, esAdmin }: SettingsViewProps) {
             <select
               defaultValue="es-MX"
               aria-label="Idioma del Asistente"
-              className="rounded-xl border border-white/90 dark:border-sky-300/20 bg-white/90 dark:bg-[#071229]/90 px-3 py-1.5 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:border-[#0022e6] dark:focus:border-sky-400 focus:outline-none"
+              className="max-w-full rounded-xl border border-white/90 dark:border-sky-300/20 bg-white/90 dark:bg-[#071229]/90 px-3 py-1.5 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:border-[#0022e6] dark:focus:border-sky-400 focus:outline-none"
             >
               <option value="es-MX">Español (Latinoamérica)</option>
               <option value="en-US">English (US)</option>

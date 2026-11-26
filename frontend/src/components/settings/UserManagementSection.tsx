@@ -200,11 +200,11 @@ export function UserManagementSection({
     <section className="space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-base font-extrabold tracking-tight text-slate-900 dark:text-white">
               Administración de Cuentas de Usuario
             </h2>
-            <span className="inline-flex items-center gap-1 rounded-md border border-[#0022e6]/20 dark:border-sky-400/25 bg-[#0022e6]/10 dark:bg-sky-400/15 px-2 py-0.5 text-[11px] font-semibold text-[#0018cc] dark:text-sky-200">
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-[#0022e6]/20 dark:border-sky-400/25 bg-[#0022e6]/10 dark:bg-sky-400/15 px-2 py-0.5 text-[11px] font-semibold text-[#0018cc] dark:text-sky-200">
               <Shield className="h-3 w-3" />
               <span>Solo Admin</span>
             </span>
@@ -214,7 +214,7 @@ export function UserManagementSection({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => void cargarListaUsuarios()}

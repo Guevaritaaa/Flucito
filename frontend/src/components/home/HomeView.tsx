@@ -19,17 +19,17 @@ interface HomeViewProps {
 export function HomeView({ usuario, onSelectTab, onNuevaConversacion }: HomeViewProps) {
   return (
     <main
-      className="flex-1 w-full max-w-4xl mx-auto px-4 sm:px-6 py-8 flex flex-col items-center justify-center overflow-y-auto custom-scroll"
+      className="flex min-h-0 flex-1 w-full max-w-4xl mx-auto px-4 sm:px-6 py-4 sm:py-8 flex-col items-center overflow-y-auto custom-scroll"
       id="tab-inicio-content"
     >
-      <div className="w-full max-w-2xl space-y-7 text-center animate-stage-in">
+      <div className="my-auto flex w-full max-w-2xl shrink-0 flex-col gap-4 sm:gap-7 text-center animate-stage-in">
         {/* Retrato central de Flucito 3D en armonía con Login y Chat */}
-        <div className="relative mx-auto flex h-24 w-24 items-center justify-center">
+        <div className="relative mx-auto flex h-18 w-18 sm:h-24 sm:w-24 items-center justify-center">
           <div
             aria-hidden="true"
             className="pointer-events-none absolute -inset-2.5 rounded-full bg-cyan-300/40 dark:bg-sky-400/25 blur-xl"
           />
-          <div className="relative flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border-2 border-white/90 dark:border-sky-300/35 bg-gradient-to-b from-sky-100/90 via-white/80 to-cyan-100/85 dark:from-[#163870] dark:via-[#0e244d] dark:to-[#0a1936] shadow-[0_14px_34px_rgba(14,90,170,0.18)]">
+          <div className="relative flex h-18 w-18 sm:h-24 sm:w-24 items-center justify-center overflow-hidden rounded-full border-2 border-white/90 dark:border-sky-300/35 bg-gradient-to-b from-sky-100/90 via-white/80 to-cyan-100/85 dark:from-[#163870] dark:via-[#0e244d] dark:to-[#0a1936] shadow-[0_14px_34px_rgba(14,90,170,0.18)]">
             <img
               src={ASSETS.FLUCITO_3D}
               alt="Flucito"
@@ -41,12 +41,36 @@ export function HomeView({ usuario, onSelectTab, onNuevaConversacion }: HomeView
         </div>
 
         <div className="space-y-2">
-          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+          <h1 className="text-xl sm:text-3xl wrap-anywhere font-extrabold tracking-tight text-slate-900 dark:text-white">
             ¡Bienvenido, {usuario.nombre_completo}!
           </h1>
           <p className="mx-auto max-w-lg text-sm sm:text-[15px] leading-relaxed text-slate-700 dark:text-sky-100/85">
             Soy Flucito, el asistente de Interflu. Inicia una nueva conversación para generar reportes a partir de los documentos en Drive, consultar el catálogo de Aspel SAE o descargar reportes anteriores.
           </p>
+        </div>
+
+        {/* Acciones principales */}
+        <div className="md:order-1 flex flex-wrap items-center justify-center gap-2.5 sm:gap-3 sm:pt-1">
+          <button
+            type="button"
+            onClick={onNuevaConversacion}
+            className="inline-flex min-h-11 max-w-full items-center justify-center gap-2 rounded-xl bg-[#0022e6] hover:bg-[#0018cc] dark:bg-[#1d4ed8] dark:hover:bg-[#2563eb] active:scale-[0.98] px-6 py-3 text-sm font-semibold text-white shadow-[0_6px_20px_rgba(0,34,230,0.32)] dark:shadow-[0_6px_22px_rgba(29,78,216,0.45)] transition-all cursor-pointer"
+          >
+            <MessageSquare className="h-4 w-4" />
+            <span>Nueva conversación</span>
+            <ArrowRight className="h-4 w-4" />
+          </button>
+
+          {usuario.rol === "admin" && (
+            <button
+              type="button"
+              onClick={() => onSelectTab("configuracion")}
+              className="inline-flex min-h-11 max-w-full items-center justify-center gap-2 rounded-xl border border-white/85 dark:border-sky-300/22 bg-white/75 dark:bg-[#0e2248]/75 hover:bg-white dark:hover:bg-[#152f61]/90 backdrop-blur-md active:scale-[0.98] px-5 py-3 text-sm font-semibold text-slate-800 dark:text-slate-100 transition-all cursor-pointer"
+            >
+              <Shield className="h-4 w-4 text-[#0022e6] dark:text-sky-300" />
+              <span>Administrar Usuarios</span>
+            </button>
+          )}
         </div>
 
         {/* Panel unificado de estado de conexiones en cristal esmerilado (sin tarjetas anidadas) */}
@@ -80,30 +104,6 @@ export function HomeView({ usuario, onSelectTab, onNuevaConversacion }: HomeView
               Genera reportes de almacén con precios calculados y descárgalos para SAE.
             </p>
           </div>
-        </div>
-
-        {/* Acciones principales */}
-        <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
-          <button
-            type="button"
-            onClick={onNuevaConversacion}
-            className="inline-flex items-center gap-2 rounded-xl bg-[#0022e6] hover:bg-[#0018cc] dark:bg-[#1d4ed8] dark:hover:bg-[#2563eb] active:scale-[0.98] px-6 py-3 text-sm font-semibold text-white shadow-[0_6px_20px_rgba(0,34,230,0.32)] dark:shadow-[0_6px_22px_rgba(29,78,216,0.45)] transition-all cursor-pointer"
-          >
-            <MessageSquare className="h-4 w-4" />
-            <span>Nueva conversación</span>
-            <ArrowRight className="h-4 w-4" />
-          </button>
-
-          {usuario.rol === "admin" && (
-            <button
-              type="button"
-              onClick={() => onSelectTab("configuracion")}
-              className="inline-flex items-center gap-2 rounded-xl border border-white/85 dark:border-sky-300/22 bg-white/75 dark:bg-[#0e2248]/75 hover:bg-white dark:hover:bg-[#152f61]/90 backdrop-blur-md active:scale-[0.98] px-5 py-3 text-sm font-semibold text-slate-800 dark:text-slate-100 transition-all cursor-pointer"
-            >
-              <Shield className="h-4 w-4 text-[#0022e6] dark:text-sky-300" />
-              <span>Administrar Usuarios</span>
-            </button>
-          )}
         </div>
       </div>
     </main>
