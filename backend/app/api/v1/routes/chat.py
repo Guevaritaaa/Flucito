@@ -38,7 +38,7 @@ from app.schemas.chat import (
 from app.services.almacen.excel import CARPETA_DATOS, NOMBRE_ARCHIVO_BASE
 from app.services.almacen.txt_aspel import NOMBRE_TXT_COMAS, NOMBRE_TXT_TABS
 from app.services.almacen.resumen import explicar_procedencia_reporte
-from app.services.almacen.fuentes.google_drive_client import normalizar_fecha_reporte
+from app.services.almacen.fuentes.google_drive_client import PREFIJO_REPORTE, normalizar_fecha_reporte
 
 
 router = APIRouter()
@@ -475,7 +475,7 @@ def _ejecutar_chat_impl(request: ChatRequest, usuario_id: int | None = None) -> 
     factores_consultados = None
     texto_usuario = request.mensaje.lower()
     pide_reportes = bool(re.search(r"\b(reportes?|excel|xlsx)\b", texto_usuario))
-    pide_reciente = bool(re.search(r"\b([uú]ltim[oa]s?|m[aá]s recientes?|recientes?)\b", texto_usuario))
+    pide_reciente = bool(re.search(r"\b(?:[uú]ltim[oa]s?|recientes?|m[aá]s actual(?:es)?)\b", texto_usuario))
     pide_txt = _solicita_descarga(request.mensaje, "txt")
     pide_excel = _solicita_descarga(request.mensaje, "excel")
     solicita_fecha = bool(re.search(
@@ -483,6 +483,11 @@ def _ejecutar_chat_impl(request: ChatRequest, usuario_id: int | None = None) -> 
         r"(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre))\b",
         texto_usuario,
     ))
+    pide_carpeta = bool(re.search(r"\bcarpetas?\b", texto_usuario))
+    pide_un_reporte_reciente = (
+        pide_reportes and pide_reciente and not solicita_fecha
+        and not pide_carpeta and not re.search(r"\breportes\b", texto_usuario)
+    )
     if not pide_txt and re.fullmatch(r"\s*(s[ií]|claro|ok|adelante|comas|tabulaciones|tabs)([ ,.!]*(por favor|comas|tabulaciones|tabs))*[.! ]*", texto_usuario):
         previos = list(resultado["messages"])
         for indice in range(len(previos) - 1, -1, -1):
@@ -517,9 +522,9 @@ def _ejecutar_chat_impl(request: ChatRequest, usuario_id: int | None = None) -> 
                     fecha_normalizada = None
                 lista_rep = [r for r in lista_rep if fecha_normalizada and r.get("fecha") == fecha_normalizada]
             if (
-                not datos.get("fecha")
-                and lista_rep
+                lista_rep
                 and pide_reciente
+                and not solicita_fecha
             ):
                 def fecha_orden(reporte):
                     try:
@@ -528,6 +533,13 @@ def _ejecutar_chat_impl(request: ChatRequest, usuario_id: int | None = None) -> 
                         return datetime.min
                 fecha_mas_reciente = max(lista_rep, key=fecha_orden).get("fecha")
                 lista_rep = [r for r in lista_rep if r.get("fecha") == fecha_mas_reciente]
+                if pide_un_reporte_reciente:
+                    nombre_general = f"{PREFIJO_REPORTE}{fecha_mas_reciente}.xlsx"
+                    reporte = next(
+                        (r for r in lista_rep if r["nombre"].casefold() == nombre_general.casefold()),
+                        lista_rep[0],
+                    )
+                    lista_rep = [reporte]
             reportes_historicos = [
                 {
                     "nombre": reporte["nombre"],
@@ -566,10 +578,13 @@ def _ejecutar_chat_impl(request: ChatRequest, usuario_id: int | None = None) -> 
     if factores_consultados:
         respuesta = _tabla_factores(factores_consultados)
     if reportes_historicos and pide_reciente:
-        if re.search(r"\bcarpeta\b", texto_usuario):
+        if pide_carpeta:
             fecha = reportes_historicos[0]["fecha"]
             nombres = "\n".join(f"- **{reporte['nombre']}**" for reporte in reportes_historicos)
             respuesta = f"La carpeta de reportes más reciente es **{fecha}**.\n\nReportes disponibles:\n\n{nombres}\n\nAquí tienes los reportes de esa carpeta por si los necesitas."
+        elif pide_un_reporte_reciente:
+            reporte = reportes_historicos[0]
+            respuesta = f"Aquí tienes el reporte más reciente del **{reporte['fecha']}**. Puedes descargar **{reporte['nombre']}** con el botón de descarga."
         else:
             respuesta += "\n\nAquí tienes los reportes de esa fecha por si los necesitas."
 

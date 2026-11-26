@@ -264,6 +264,33 @@ def test_ultima_carpeta_solo_adjunta_reportes_de_fecha_reciente(monkeypatch):
     assert "viejo.xlsx" not in respuesta.respuesta
 
 
+def test_reporte_mas_actual_adjunta_solo_el_general_de_la_fecha_reciente(monkeypatch):
+    from langchain_core.messages import HumanMessage
+
+    general = "ENTRADAS_ALMACEN_17-11-2026.xlsx"
+    proveedor = "ENTRADAS_ALMACEN_TORNICENTER DE MEXICO_17-11-2026.xlsx"
+    anterior = "ENTRADAS_ALMACEN_20-10-2026.xlsx"
+    datos = {"ok": True, "tipo": "busqueda_historica", "reportes": [
+        {"id": "anterior", "nombre": anterior, "fecha": "20-10-2026"},
+        {"id": "proveedor", "nombre": proveedor, "fecha": "17-11-2026"},
+        {"id": "general", "nombre": general, "fecha": "17-11-2026"},
+    ]}
+    respuesta = _chat_con_resultado(
+        monkeypatch, "dame el reporte mas actual", datos,
+        f"Encontré {anterior}, {proveedor} y {general}",
+        anteriores=[HumanMessage(content="¿Qué decisiones se aplicaron al reporte del 20-10-2026?")],
+    )
+    assert respuesta.reportes_historicos == [{
+        "nombre": general,
+        "fecha": "17-11-2026",
+        "url": "/api/v1/almacen/download/historico?fecha=17-11-2026&archivo_id=general",
+    }]
+    assert general in respuesta.respuesta
+    assert proveedor not in respuesta.respuesta
+    assert anterior not in respuesta.respuesta
+    assert respuesta.archivo_almacen_url is None
+
+
 def test_busqueda_historica_filtra_fecha_explicita_y_fecha_invalida(monkeypatch):
     datos = {"ok": True, "tipo": "busqueda_historica", "reportes": [
         {"id": "uno", "nombre": "uno.xlsx", "fecha": "14-11-2026"},
