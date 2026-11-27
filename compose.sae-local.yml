@@ -1,0 +1,61 @@
+name: flucito-sae-local
+
+services:
+  firebird:
+    image: firebirdsql/firebird:3.0.14@sha256:fcec9f574677a3f8bad9c84fa9ace2339a10401a6c4a792655b02a14b98bdd38
+    platform: linux/amd64
+    entrypoint: ["tini", "--", "bash", "/pilot/iniciar.sh"]
+    environment:
+      FIREBIRD_ROOT_PASSWORD: ${SAE_FIREBIRD_ADMIN_PASSWORD:?Configura SAE_FIREBIRD_ADMIN_PASSWORD}
+      SAE_FIREBIRD_PASSWORD: ${SAE_FIREBIRD_PASSWORD:?Configura SAE_FIREBIRD_PASSWORD}
+      FIREBIRD_CONF_DatabaseAccess: None
+    volumes:
+      - sae_data:/var/lib/firebird/data
+      - ./infra/sae/iniciar.sh:/pilot/iniciar.sh:ro
+      - type: bind
+        source: ${SAE_BACKUP_FILE:-./backend/datos/laboratorio_sae/antigua.fbk}
+        target: /pilot/antigua.fbk
+        read_only: true
+        bind:
+          create_host_path: false
+    networks: [sae_privada]
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          printf '%s\n' 'SELECT DOCUMENTOS FROM FLUCITO_SAE_CONTROL;' |
+          ISC_PASSWORD="$$SAE_FIREBIRD_PASSWORD" isql -b -q -user FLUCITO_SAE_LECTOR localhost:sae_empresa02 >/dev/null
+      interval: 5s
+      timeout: 5s
+      start_period: 90s
+      retries: 5
+
+  flucito:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file: ./backend/.env
+    environment:
+      DATABASE_URL: sqlite:////app/backend/datos/flucito_sae_local.db
+      SAE_FIREBIRD_HOST: firebird
+      SAE_FIREBIRD_PASSWORD: ${SAE_FIREBIRD_PASSWORD:?Configura SAE_FIREBIRD_PASSWORD}
+    volumes:
+      - flucito_data:/app/backend/datos
+    networks: [default, sae_privada]
+    depends_on:
+      firebird:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 5s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
+
+networks:
+  sae_privada:
+    internal: true
+
+volumes:
+  sae_data:
+  flucito_data:

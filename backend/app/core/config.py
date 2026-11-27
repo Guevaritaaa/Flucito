@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     # Base de datos PostgreSQL
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/flucito"
 
+    sae_firebird_host: str = "firebird"
+    sae_firebird_password: str | None = None
+
     # Autenticación JWT y usuarios iniciales
     auth_required: bool = False
     jwt_secret_key: str = "flucito-clave-secreta-desarrollo-cambiar-en-produccion-2026"
