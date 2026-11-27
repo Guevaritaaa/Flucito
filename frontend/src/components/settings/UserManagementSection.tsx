@@ -11,6 +11,7 @@ import {
   UserX,
   X,
 } from "lucide-react";
+import { useAuth } from "../../context/AuthContext";
 import type { RolUsuario, UsuarioOut } from "../../schemas/auth";
 import {
   actualizarUsuario,
@@ -41,6 +42,7 @@ function formatearFechaCorta(iso: string | null): string {
 export function UserManagementSection({
   usuarioActualId,
 }: UserManagementSectionProps) {
+  const { recargarPerfil } = useAuth();
   const [usuarios, setUsuarios] = useState<UsuarioOut[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -168,6 +170,23 @@ export function UserManagementSection({
           ? err.message
           : "No se pudo cambiar el rol del usuario."
       );
+    } finally {
+      setProcesandoFilaId(null);
+    }
+  }
+
+  async function alternarAccesoSae(u: UsuarioOut) {
+    setProcesandoFilaId(u.id);
+    setError(null);
+    try {
+      const actualizado = await actualizarUsuario(u.id, { acceso_sae: !u.acceso_sae });
+      setUsuarios((prev) => prev.map((item) => (item.id === u.id ? actualizado : item)));
+      if (u.id === usuarioActualId) await recargarPerfil();
+      mostrarAvisoTemporal(
+        `Acceso a Aspel SAE ${actualizado.acceso_sae ? "concedido" : "retirado"} para @${u.username}.`
+      );
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "No se pudo actualizar el acceso a Aspel SAE.");
     } finally {
       setProcesandoFilaId(null);
     }
@@ -371,6 +390,7 @@ export function UserManagementSection({
                 <th className="py-3 px-4">Usuario</th>
                 <th className="py-3 px-4">Rol</th>
                 <th className="py-3 px-4">Estado</th>
+                <th className="py-3 px-4 whitespace-nowrap">Acceso a Aspel SAE</th>
                 <th className="py-3 px-4">Último acceso</th>
                 <th className="py-3 px-4 text-right">Acciones</th>
               </tr>
@@ -378,7 +398,7 @@ export function UserManagementSection({
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80 text-xs">
               {cargando && usuarios.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="py-8 text-center text-slate-400">
+                  <td colSpan={6} className="py-8 text-center text-slate-400">
                     Cargando usuarios registrados...
                   </td>
                 </tr>
@@ -448,6 +468,24 @@ export function UserManagementSection({
                             </>
                           )}
                         </span>
+                      </td>
+
+                      <td className="py-3.5 px-4">
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={Boolean(u.acceso_sae)}
+                          aria-label={`Acceso a Aspel SAE para @${u.username}`}
+                          disabled={procesando}
+                          onClick={() => void alternarAccesoSae(u)}
+                          className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap transition-colors disabled:opacity-60 ${
+                            u.acceso_sae
+                              ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-400 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300"
+                              : "border-slate-200 bg-slate-100 text-slate-700 hover:border-cobalt-400 dark:border-slate-700 dark:bg-dark-canvas dark:text-slate-300"
+                          }`}
+                        >
+                          {u.acceso_sae ? "Permitido" : "Sin acceso"}
+                        </button>
                       </td>
 
                       <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400">

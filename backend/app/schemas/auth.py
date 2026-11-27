@@ -23,6 +23,7 @@ class UsuarioOut(BaseModel):
     nombre_completo: str
     rol: str
     activo: bool
+    acceso_sae: bool
     creado_en: datetime
     ultimo_login: datetime | None = None
 
@@ -45,3 +46,4 @@ class UsuarioUpdateRequest(BaseModel):
     password: str | None = Field(default=None, min_length=6, max_length=128)
     rol: RolUsuario | None = None
     activo: bool | None = None
+    acceso_sae: bool | None = Field(default=None, strict=True)

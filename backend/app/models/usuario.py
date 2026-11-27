@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from sqlalchemy import Boolean, DateTime, Integer, String
+from sqlalchemy import Boolean, DateTime, Integer, String, false
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -22,6 +22,7 @@ class Usuario(Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     rol: Mapped[str] = mapped_column(String(32), default="operador", nullable=False)
     activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    acceso_sae: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
     creado_en: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=_utc_now,

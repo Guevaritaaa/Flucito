@@ -105,6 +105,36 @@ def test_login_json_y_form_oauth2_exitosos(entorno_bd) -> None:
     assert resp_me.json()["username"] == settings.admin_initial_username
 
 
+def test_permiso_sae_en_sesiones_activas(entorno_bd) -> None:
+    client, _ = entorno_bd
+
+    def autenticar(username, password):
+        response = client.post("/api/v1/auth/login", json={"username": username, "password": password})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["usuario"]["acceso_sae"] is False
+        return data["usuario"]["id"], {"Authorization": f"Bearer {data['access_token']}"}
+
+    admin_id, admin = autenticar(settings.admin_initial_username, settings.admin_initial_password)
+    operador_id, operador = autenticar(settings.operador_initial_username, settings.operador_initial_password)
+    ruta_operador = f"/api/v1/auth/usuarios/{operador_id}"
+    assert client.patch(ruta_operador, headers=operador, json={"acceso_sae": True}).status_code == 403
+    assert client.patch(ruta_operador, headers=admin, json={"acceso_sae": "true"}).status_code == 422
+
+    creada = client.post("/api/v1/auth/usuarios", headers=admin, json={
+        "username": "nuevo-sae", "nombre_completo": "Usuario nuevo", "password": "clave-nueva",
+    })
+    assert creada.status_code == 201
+    assert creada.json()["acceso_sae"] is False
+
+    for valor in (True, False):
+        for usuario_id, headers in ((admin_id, admin), (operador_id, operador)):
+            cambio = client.patch(f"/api/v1/auth/usuarios/{usuario_id}", headers=admin, json={"acceso_sae": valor})
+            assert cambio.status_code == 200
+            assert cambio.json()["acceso_sae"] is valor
+            assert client.get("/api/v1/auth/me", headers=headers).json()["acceso_sae"] is valor
+
+
 def test_login_credenciales_invalidas_y_acceso_sin_token(entorno_bd) -> None:
     client, _ = entorno_bd
 

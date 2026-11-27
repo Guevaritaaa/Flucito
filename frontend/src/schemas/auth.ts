@@ -16,6 +16,7 @@ export interface UsuarioOut {
   nombre_completo: string;
   rol: RolUsuario | string;
   activo: boolean;
+  acceso_sae: boolean;
   creado_en: string;
   ultimo_login: string | null;
 }
@@ -38,4 +39,5 @@ export interface UsuarioUpdateRequest {
   password?: string;
   rol?: RolUsuario;
   activo?: boolean;
+  acceso_sae?: boolean;
 }

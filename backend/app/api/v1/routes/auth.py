@@ -242,7 +242,7 @@ def crear_usuario(
 @router.patch(
     "/usuarios/{usuario_id}",
     response_model=UsuarioOut,
-    summary="Actualiza datos, rol o estado activo de un usuario (solo administradores)",
+    summary="Actualiza datos, rol, estado o acceso SAE de un usuario (solo administradores)",
 )
 def actualizar_usuario(
     usuario_id: int,
@@ -250,7 +250,7 @@ def actualizar_usuario(
     admin_actual: Usuario = Depends(requerir_admin),
     db: Session = Depends(get_db),
 ) -> UsuarioOut:
-    """Permite cambiar contraseña, rol o desactivar/activar a un usuario."""
+    """Actualiza la cuenta y los permisos administrados individualmente."""
     usuario = db.scalar(select(Usuario).where(Usuario.id == usuario_id))
     if usuario is None:
         raise HTTPException(
@@ -272,6 +272,8 @@ def actualizar_usuario(
         usuario.rol = payload.rol
     if payload.activo is not None:
         usuario.activo = payload.activo
+    if payload.acceso_sae is not None:
+        usuario.acceso_sae = payload.acceso_sae
 
     db.commit()
     db.refresh(usuario)

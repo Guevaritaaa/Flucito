@@ -41,6 +41,8 @@ services:
       SAE_FIREBIRD_PASSWORD: ${SAE_FIREBIRD_PASSWORD:?Configura SAE_FIREBIRD_PASSWORD}
     volumes:
       - flucito_data:/app/backend/datos
+    ports:
+      - "127.0.0.1:8000:8000"
     networks: [default, sae_privada]
     depends_on:
       firebird:

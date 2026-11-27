@@ -7,7 +7,7 @@ import json
 import logging
 from typing import Any
 
-from sqlalchemy import func, insert, select
+from sqlalchemy import func, insert, inspect, select
 from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401 - Registra todos los modelos en Base.metadata
@@ -287,14 +287,23 @@ def inicializar_base_de_datos(
     """Crea tablas si no existen y carga usuarios iniciales, catálogo SAE y factores."""
     cerrar_al_final = False
     if db is None:
-        Base.metadata.create_all(bind=engine)
+        bind = engine
         db = SessionLocal()
         cerrar_al_final = True
     else:
         bind = db.get_bind()
-        Base.metadata.create_all(bind=bind)
 
     try:
+        Base.metadata.create_all(bind=bind)
+        # Los despliegues anteriores también pueden haber creado las tablas sin Alembic.
+        connection = db.connection()
+        columnas = inspect(connection).get_columns("usuarios")
+        if all(columna["name"] != "acceso_sae" for columna in columnas):
+            if_not_exists = " IF NOT EXISTS" if connection.dialect.name == "postgresql" else ""
+            connection.exec_driver_sql(
+                f"ALTER TABLE usuarios ADD COLUMN{if_not_exists} acceso_sae BOOLEAN DEFAULT FALSE NOT NULL"
+            )
+            db.commit()
         usuarios_creados = _sembrar_usuarios_iniciales(db)
         sae_resumen = _sembrar_catalogo_sae(db, cargar_articulos=cargar_articulos_sae)
         factores_creados = _sembrar_factores_linea(db)

@@ -20,3 +20,7 @@ docker compose --env-file .env.sae.local -f compose.sae-local.yml exec flucito p
 La comprobación consulta la vista de control desde el contenedor de FastAPI. El último documento de compra esperado es del **1 de julio de 2026**. La fecha procede de `COMPC02.FECHA_DOC` y describe hasta dónde llegan los documentos de compras del respaldo.
 
 Para apagar el entorno conservando el corte y la base local de Flucito, usa `docker compose --env-file .env.sae.local -f compose.sae-local.yml down`. El siguiente arranque reutiliza los volúmenes. El `.fbk` se monta en solo lectura. Si está en otra ubicación, define `SAE_BACKUP_FILE` con su ruta al preparar el piloto por primera vez.
+
+## Permisos de usuarios
+
+Con el Compose activo, ejecuta `npm run dev` desde `frontend` y abre `http://localhost:5173`. Inicia sesión como administrador y entra en **Configuración**. La columna **Acceso a Aspel SAE** permite cambiar el permiso por cuenta, incluida tu propia cuenta. Las cuentas nuevas y existentes empiezan con **Sin acceso** hasta que un administrador lo conceda. Cambiar el permiso conserva la sesión del usuario y su rol.
