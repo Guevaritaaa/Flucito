@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.routes.auth import router as auth_router
 from app.api.v1.routes.chat import router as chat_router
 from app.api.v1.routes.almacen import router as almacen_router
+from app.api.v1.routes.sae import router as sae_router
 from app.core.seed import inicializar_base_de_datos
 
 logging.basicConfig(
@@ -38,6 +39,7 @@ app.add_middleware(
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(almacen_router, prefix="/api/v1")
+app.include_router(sae_router, prefix="/api/v1")
 
 
 @app.get("/")

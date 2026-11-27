@@ -24,3 +24,11 @@ Para apagar el entorno conservando el corte y la base local de Flucito, usa `doc
 ## Permisos de usuarios
 
 Con el Compose activo, ejecuta `npm run dev` desde `frontend` y abre `http://localhost:5173`. Inicia sesión como administrador y entra en **Configuración**. La columna **Acceso a Aspel SAE** permite cambiar el permiso por cuenta, incluida tu propia cuenta. Las cuentas nuevas y existentes empiezan con **Sin acceso** hasta que un administrador lo conceda. Cambiar el permiso conserva la sesión del usuario y su rol.
+
+## Resumen de compras
+
+Desde `http://127.0.0.1:8000/docs`, usa **Authorize** con una cuenta que tenga acceso a Aspel SAE. En **Aspel SAE**, ejecuta `GET /api/v1/sae/resumen` con `desde=2026-06-01` y `hasta=2026-06-30`. Ambas fechas son inclusivas. Sin fechas, el resumen cubre los seis meses completos anteriores al mes de la última compra registrada. Una solicitud fuera de la cobertura devuelve las fechas disponibles. Un periodo cubierto sin compras devuelve un conteo de cero.
+
+El resumen devuelve el conteo de documentos vigentes, los importes con impuestos en moneda del documento, la serie mensual y hasta cinco proveedores por moneda ordenados por importe. Cuenta una vez cada cabecera de `COMPC02` con estado `E` u `O`. `IMPORTE` se guarda en moneda base, por lo que el cálculo divide entre `TIPCAMB` y redondea cada documento a centavos antes de sumar. La cobertura se basa en `FECHA_DOC`. El identificador se deriva de la huella del `.fbk` y la fecha de generación del respaldo queda vacía mientras falte evidencia.
+
+Para habilitar las vistas de compras, el primer arranque de esta fase restaura el mismo `.fbk` a un nuevo archivo dentro del volumen. El alias pasa a ese archivo y los siguientes reinicios lo reutilizan. La copia restaurada de la fase anterior queda en el volumen.

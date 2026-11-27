@@ -196,3 +196,10 @@ def requerir_admin(
             detail="Se requieren permisos de administrador para realizar esta acción.",
         )
     return usuario_actual
+
+
+def requerir_acceso_sae(usuario_actual: Usuario = Depends(obtener_usuario_actual)) -> Usuario:
+    """Comprueba el permiso vigente de la cuenta autenticada."""
+    if not usuario_actual.acceso_sae:
+        raise HTTPException(status_code=403, detail="Para usar Aspel SAE, pide acceso a administración.")
+    return usuario_actual

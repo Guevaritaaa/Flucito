@@ -8,11 +8,15 @@ from firebird.driver import Connection, Isolation, TraAccessMode, connect, tpb
 from app.core.config import settings
 
 
+class SaeNoDisponible(RuntimeError):
+    """El respaldo no está listo para responder consultas."""
+
+
 @contextmanager
 def conectar_sae() -> Iterator[Connection]:
     password = settings.sae_firebird_password
     if not password:
-        raise RuntimeError("La conexión a Aspel SAE no está configurada")
+        raise SaeNoDisponible("La conexión a Aspel SAE no está configurada")
 
     with connect(
         f"{settings.sae_firebird_host}/3050:sae_empresa02",

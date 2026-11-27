@@ -15,15 +15,19 @@ from sqlalchemy.pool import StaticPool
 
 from app.api.v1.routes import auth as auth_route
 from app.api.v1.routes import chat as chat_route
+from app.api.v1.routes import sae as sae_route
 from app.core import database as db_module
 from app.core.config import settings
 from app.core.seed import inicializar_base_de_datos
 from app.main import app
 from app.models.almacen import DetalleEntradaAlmacen, FactorLinea, ReporteAlmacen
 from app.models.catalogo_sae import SaeArticulo, SaeLinea
+from app.schemas.sae import CorteComprasSae, PeriodoSae, ResumenComprasSae
 from app.services.almacen.catalogo_sae import buscar_articulo_sae, cargar_catalogo_sae, limpiar_cache_catalogo_sae
 from app.services.almacen.factores import cargar_factores_personalizados, guardar_factor_personalizado
 from app.services.almacen.resumen import registrar_reporte_en_bd
+from app.services.sae.compras import PeriodoFueraDeCobertura
+from app.services.sae.conexion import SaeNoDisponible
 
 
 @pytest.fixture()
@@ -133,6 +137,61 @@ def test_permiso_sae_en_sesiones_activas(entorno_bd) -> None:
             assert cambio.status_code == 200
             assert cambio.json()["acceso_sae"] is valor
             assert client.get("/api/v1/auth/me", headers=headers).json()["acceso_sae"] is valor
+
+
+def test_resumen_sae_revalida_permiso_y_distingue_cobertura_de_indisponibilidad(entorno_bd, monkeypatch) -> None:
+    client, _ = entorno_bd
+    cobertura = PeriodoSae(desde=date(2023, 10, 22), hasta=date(2026, 7, 1))
+    llamadas = []
+
+    def consultar(desde, hasta):
+        llamadas.append((desde, hasta))
+        if hasta > cobertura.hasta:
+            raise PeriodoFueraDeCobertura(cobertura)
+        if desde == date(2026, 5, 1):
+            raise SaeNoDisponible()
+        return ResumenComprasSae(
+            corte=CorteComprasSae(corte_id="corte-prueba", cobertura=cobertura),
+            periodo=PeriodoSae(desde=desde, hasta=hasta),
+            documentos=0,
+            totales_por_moneda=[],
+            tendencia_mensual=[],
+            principales_proveedores=[],
+        )
+
+    monkeypatch.setattr(sae_route, "consultar_resumen_compras", consultar)
+    sesion = client.post("/api/v1/auth/login", json={
+        "username": settings.admin_initial_username, "password": settings.admin_initial_password,
+    }).json()
+    headers = {"Authorization": f"Bearer {sesion['access_token']}"}
+    acceso = f"/api/v1/auth/usuarios/{sesion['usuario']['id']}"
+    ruta = "/api/v1/sae/resumen"
+    junio = {"desde": "2026-06-01", "hasta": "2026-06-30"}
+
+    assert client.get(ruta, params=junio).status_code == 401
+    assert client.get(ruta, params=junio, headers=headers).status_code == 403
+    assert not llamadas
+
+    assert client.patch(acceso, json={"acceso_sae": True}, headers=headers).status_code == 200
+    respuesta = client.get(ruta, params=junio, headers=headers)
+    assert respuesta.status_code == 200
+    assert respuesta.headers["cache-control"] == "no-store"
+    assert respuesta.json()["documentos"] == 0
+    assert respuesta.json()["corte"]["fecha_respaldo"] is None
+    assert llamadas == [(date(2026, 6, 1), date(2026, 6, 30))]
+
+    respuesta = client.get(ruta, params={**junio, "hasta": "2026-07-02"}, headers=headers)
+    assert respuesta.status_code == 422
+    assert respuesta.json()["detail"]["codigo"] == "fuera_de_cobertura"
+    assert respuesta.json()["detail"]["cobertura"]["hasta"] == "2026-07-01"
+
+    respuesta = client.get(ruta, params={**junio, "desde": "2026-05-01"}, headers=headers)
+    assert respuesta.status_code == 503
+    assert respuesta.json()["detail"]["codigo"] == "sae_no_disponible"
+
+    assert client.patch(acceso, json={"acceso_sae": False}, headers=headers).status_code == 200
+    assert client.get(ruta, params=junio, headers=headers).status_code == 403
+    assert len(llamadas) == 3
 
 
 def test_login_credenciales_invalidas_y_acceso_sin_token(entorno_bd) -> None:
