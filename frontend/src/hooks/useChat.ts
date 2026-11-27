@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AvisoReporte, ActividadChat, ReporteHistoricoItem, InteraccionDecision, RevisionReporte, EnvioDecisiones } from "../schemas/chat";
+import { esIdChatSae } from "../schemas/chat";
 import {
   enviarMensajeChat,
   obtenerDetalleConversacion,
@@ -16,6 +17,7 @@ export interface MensajeUI {
   archivo_txt_url?: string | null;
   reportes_historicos?: ReporteHistoricoItem[];
   esError?: boolean;
+  sugerir_chat_sae?: boolean;
   avisos?: AvisoReporte[];
   actividades?: ActividadChat[];
   interaccion?: InteraccionDecision | null;
@@ -51,10 +53,13 @@ export function useChat({
   const [textoProvisional, setTextoProvisional] = useState("");
   const [etapa, setEtapa] = useState<"pensando" | "trabajando">("pensando");
   const [cargandoMensajes, setCargandoMensajes] = useState(false);
+  const [accesoSaeRechazado, setAccesoSaeRechazado] = useState(false);
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const ultimaSesionCargadaRef = useRef<string | null>(null);
   const reanudadaRef = useRef<string | null>(null);
+
+  useEffect(() => () => abortControllerRef.current?.abort(), [sessionId]);
 
   // Cargar mensajes si el usuario selecciona una conversación guardada en BD
   useEffect(() => {
@@ -63,6 +68,7 @@ export function useChat({
     setActividades([]);
     setTextoProvisional("");
     setEtapa("pensando");
+    setAccesoSaeRechazado(false);
 
     if (!existeEnHistorial) {
       ultimaSesionCargadaRef.current = sessionId;
@@ -86,6 +92,7 @@ export function useChat({
           id: `db-${m.id}`,
           rol: m.rol === "user" ? "user" : "assistant",
           contenido: m.contenido,
+          sugerir_chat_sae: m.sugerir_chat_sae,
           hora: formatearHora(m.creado_en),
           archivo_almacen_url: m.archivo_almacen_url,
           archivo_txt_url: m.archivo_txt_url,
@@ -99,7 +106,10 @@ export function useChat({
       })
       .catch((err) => {
         if (cancelado) return;
-        if (err instanceof ApiError && err.status === 404) {
+        if (esIdChatSae(sessionId) && err instanceof ApiError && (err.isForbidden || err.status === 404)) {
+          setMensajes([]);
+          setAccesoSaeRechazado(true);
+        } else if (err instanceof ApiError && err.status === 404) {
           setMensajes([]);
         } else {
           setMensajes([
@@ -169,6 +179,7 @@ export function useChat({
           id: `assistant-${Date.now()}`,
           rol: "assistant",
           contenido: respuesta.respuesta,
+          sugerir_chat_sae: respuesta.sugerir_chat_sae,
           hora: formatearHora(),
           archivo_almacen_url: respuesta.archivo_almacen_url,
           archivo_txt_url: respuesta.archivo_txt_url,
@@ -189,6 +200,13 @@ export function useChat({
         onConversacionActualizada();
       } catch (err) {
         if (controller.signal.aborted || (err instanceof DOMException && err.name === "AbortError")) {
+          return;
+        }
+        if (esIdChatSae(sessionId) && err instanceof ApiError && err.isForbidden) {
+          setMensajes([]);
+          setTextoProvisional("");
+          setAccesoSaeRechazado(true);
+          onConversacionActualizada();
           return;
         }
         const detalleError =
@@ -240,6 +258,7 @@ export function useChat({
     textoProvisional,
     etapa,
     cargandoMensajes,
+    accesoSaeRechazado,
     enviarMensaje,
   };
 }

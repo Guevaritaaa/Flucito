@@ -26,7 +26,7 @@ export interface AuthContextValue {
   cargandoSesion: boolean;
   login: (credenciales: LoginRequest) => Promise<UsuarioOut>;
   logout: () => void;
-  recargarPerfil: () => Promise<void>;
+  recargarPerfil: (silencioso?: boolean) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -53,7 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [logout]);
 
-  const recargarPerfil = useCallback(async () => {
+  const recargarPerfil = useCallback(async (silencioso = false) => {
     const tokenActual = obtenerTokenGuardado();
     if (!tokenActual) {
       logout();
@@ -61,10 +61,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     try {
       const perfil = await obtenerPerfilActual();
+      if (obtenerTokenGuardado() !== tokenActual) return;
       guardarUsuario(perfil);
       setUsuario(perfil);
     } catch {
-      logout();
+      if (!silencioso && obtenerTokenGuardado() === tokenActual) logout();
     } finally {
       setCargandoSesion(false);
     }

@@ -24,6 +24,7 @@ class Conversacion(Base):
         nullable=True,
     )
     titulo: Mapped[str] = mapped_column(String(255), default="Nueva conversación", nullable=False)
+    tipo: Mapped[str] = mapped_column(String(16), default="general", server_default="general", nullable=False)
     creada_en: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=_utc_now,

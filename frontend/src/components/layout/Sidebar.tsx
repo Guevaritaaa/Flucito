@@ -3,6 +3,7 @@ import {
   Check,
   Home,
   LogOut,
+  LockKeyhole,
   MessageSquare,
   PanelLeftClose,
   Plus,
@@ -15,7 +16,8 @@ import {
 import { useTheme } from "../../context/ThemeContext";
 import { ASSETS } from "../../core/config";
 import type { UsuarioOut } from "../../schemas/auth";
-import type { ConversacionResumenOut } from "../../schemas/chat";
+import { CHAT_SAE_BLOQUEADO, type ConversacionResumenOut } from "../../schemas/chat";
+import { AccionSae } from "../chat/AccionSae";
 
 export type AppTab = "inicio" | "chat" | "configuracion";
 
@@ -30,6 +32,8 @@ interface SidebarProps {
   sessionIdActivo: string;
   cargandoHistorial: boolean;
   onNuevaConversacion: () => void;
+  onAbrirChatSae: () => void;
+  creandoSae: boolean;
   onSeleccionarConversacion: (sessionId: string) => void;
   onBorrarConversacion: (sessionId: string) => Promise<void>;
   onRefrescarHistorial: () => void;
@@ -70,6 +74,8 @@ export function Sidebar({
   sessionIdActivo,
   cargandoHistorial,
   onNuevaConversacion,
+  onAbrirChatSae,
+  creandoSae,
   onSeleccionarConversacion,
   onBorrarConversacion,
   onRefrescarHistorial,
@@ -185,6 +191,15 @@ export function Sidebar({
                 </button>
               );
             })}
+            <AccionSae
+              permitido={usuario.acceso_sae === true}
+              ocupado={creandoSae}
+              onClick={onAbrirChatSae}
+              className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-[13px] font-medium hover:bg-white/55 dark:hover:bg-white/8"
+            >
+              <MessageSquare className="h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>Abrir chat SAE</span>
+            </AccionSae>
           </nav>
         </div>
 
@@ -226,6 +241,20 @@ export function Sidebar({
               </div>
             ) : (
               conversaciones.map((conv) => {
+                if (conv.tipo === "sae" && (conv.bloqueada || !usuario.acceso_sae)) {
+                  return (
+                    <button
+                      key={conv.id}
+                      type="button"
+                      aria-disabled="true"
+                      title={CHAT_SAE_BLOQUEADO}
+                      onClick={() => { onSeleccionarConversacion(conv.id); cerrarEnMovil(); }}
+                      className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs text-slate-600 dark:text-slate-400 cursor-not-allowed"
+                    >
+                      <LockKeyhole className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> Chat de Aspel SAE
+                    </button>
+                  );
+                }
                 const esActiva =
                   conv.id === sessionIdActivo && tabActiva === "chat";
                 const confirmando = confirmandoBorradoId === conv.id;

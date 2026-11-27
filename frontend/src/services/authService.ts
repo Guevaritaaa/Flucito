@@ -24,6 +24,7 @@ export async function iniciarSesion(credenciales: LoginRequest): Promise<TokenRe
 export async function obtenerPerfilActual(): Promise<UsuarioOut> {
   return apiFetch<UsuarioOut>("/auth/me", {
     method: "GET",
+    cache: "no-store",
   });
 }
 

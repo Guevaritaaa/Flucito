@@ -12,6 +12,7 @@ import type {
   ConversacionResumenOut,
 } from "../schemas/chat";
 import { ApiError, apiFetch } from "./http";
+import { esIdChatSae } from "../schemas/chat";
 import { API_V1_PREFIX } from "../core/config";
 import { obtenerTokenGuardado } from "../core/storage";
 
@@ -32,7 +33,7 @@ async function escucharProgreso(jobId: string, signal?: AbortSignal, onProgreso?
   const headers = new Headers({ Accept: "text/event-stream" });
   const token = obtenerTokenGuardado();
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  const response = await fetch(`${API_V1_PREFIX}/chat/events/${encodeURIComponent(jobId)}`, { headers, signal });
+  const response = await fetch(`${API_V1_PREFIX}/chat/events/${encodeURIComponent(jobId)}`, { headers, signal, cache: "no-store" });
   if (!response.ok) throw new ApiError("No se pudo conectar a la actividad", response.status);
   if (!response.body || !response.headers.get("content-type")?.includes("text/event-stream")) throw new Error("Streaming no disponible");
   const reader = response.body.getReader();
@@ -105,6 +106,7 @@ export async function consultarEstadoChat(
 ): Promise<ChatJobStatusResponse> {
   return apiFetch<ChatJobStatusResponse>(`/chat/status/${encodeURIComponent(jobId)}`, {
     method: "GET",
+    cache: "no-store",
     signal,
   });
 }
@@ -125,7 +127,9 @@ async function ejecutarMensajeChat(
     if (!jobId) {
       const inicio = await iniciarChatAsync(payload, signal);
       jobId = inicio.job_id;
-      try { sessionStorage.setItem(clavePendiente(payload.session_id), JSON.stringify({ ...payload, jobId })); } catch { /* Puede continuar aunque el navegador no permita almacenamiento. */ }
+      if (!esIdChatSae(payload.session_id)) {
+        try { sessionStorage.setItem(clavePendiente(payload.session_id), JSON.stringify({ ...payload, jobId })); } catch { /* Puede continuar aunque el navegador no permita almacenamiento. */ }
+      }
     }
   } catch (err) {
     if (signal?.aborted || (err instanceof DOMException && err.name === "AbortError")) {
@@ -207,6 +211,7 @@ export async function enviarMensajeChat(payload: ChatRequest, signal?: AbortSign
 export async function listarConversaciones(): Promise<ConversacionResumenOut[]> {
   return apiFetch<ConversacionResumenOut[]>("/chat/conversaciones", {
     method: "GET",
+    cache: "no-store",
   });
 }
 
@@ -217,8 +222,13 @@ export async function obtenerDetalleConversacion(
     `/chat/conversaciones/${encodeURIComponent(sessionId)}`,
     {
       method: "GET",
+      cache: "no-store",
     }
   );
+}
+
+export function crearConversacionSae(): Promise<ConversacionResumenOut> {
+  return apiFetch<ConversacionResumenOut>("/chat/conversaciones/sae", { method: "POST" });
 }
 
 export async function eliminarConversacion(sessionId: string): Promise<void> {

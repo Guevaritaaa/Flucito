@@ -12,17 +12,19 @@ from copy import deepcopy
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.callbacks import BaseCallbackHandler
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.agents.graph import grafo
+from app.agents.graph_sae import grafo_sae
 from app.agents.actividad import PASOS, ESTADOS
 from app.services.almacen.fuentes.operaciones_drive import recuperar as recuperar_operaciones_drive
 from app.core.database import Base, SessionLocal, engine, get_db
 from app.core.config import settings
-from app.core.security import obtener_usuario_actual, obtener_usuario_opcional
+from app.core.security import obtener_usuario_actual, obtener_usuario_opcional, requerir_acceso_sae
 from app.models.conversacion import Conversacion, MensajeChat
 from app.models.usuario import Usuario
 from app.schemas.decisiones import EnvioDecisiones
@@ -39,6 +41,9 @@ from app.services.almacen.excel import CARPETA_DATOS, NOMBRE_ARCHIVO_BASE
 from app.services.almacen.txt_aspel import NOMBRE_TXT_COMAS, NOMBRE_TXT_TABS
 from app.services.almacen.resumen import explicar_procedencia_reporte
 from app.services.almacen.fuentes.google_drive_client import PREFIJO_REPORTE, normalizar_fecha_reporte
+from app.services.sae.conversaciones import (
+    ABRIR_CHAT_SAE, PREFIJO_CHAT_SAE, TITULO_CHAT_SAE, autorizar_chat_sae, solicita_consulta_sae,
+)
 
 
 router = APIRouter()
@@ -55,6 +60,7 @@ _NOMBRES_HERRAMIENTAS = {
     "generar_entradas_almacen": "Generando reporte de almacén",
     "actualizar_precios_reportes_generados": "Actualizando precios de reportes",
     "preparar_entorno_pruebas": "Preparando el entorno de pruebas",
+    "consultar_aspel_sae": "Consultando compras de Aspel SAE",
 }
 
 
@@ -262,7 +268,7 @@ def _generar_titulo_conversacion(mensaje: str) -> str:
     return limpio[:80] + ("..." if len(limpio) > 80 else "")
 
 
-def _obtener_mensajes_previos_bd(session_id: str, usuario_id: int | None) -> list[Any]:
+def _obtener_mensajes_previos_bd(session_id: str, usuario_id: int | None, *, tipo: str = "general") -> list[Any]:
     """
     Verifica permisos de la conversación y devuelve los mensajes previos guardados en BD
     para reconstruir el contexto de LangGraph si el servidor se reinició.
@@ -271,18 +277,22 @@ def _obtener_mensajes_previos_bd(session_id: str, usuario_id: int | None) -> lis
         Base.metadata.create_all(bind=engine)
         with SessionLocal() as db:
             conv = db.scalar(select(Conversacion).where(Conversacion.id == session_id))
+            if tipo == "sae":
+                autorizar_chat_sae(db, conv, usuario_id)
             if conv is None:
                 return []
+            if conv.tipo != tipo:
+                raise HTTPException(403, "El historial pertenece a otro tipo de conversación.")
             if conv.usuario_id is not None and usuario_id is not None and conv.usuario_id != usuario_id:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="No tienes permiso para acceder a una conversación de otro usuario.",
                 )
-            filas = db.scalars(
-                select(MensajeChat)
-                .where(MensajeChat.conversacion_id == session_id)
-                .order_by(MensajeChat.id.asc())
-            ).all()
+            consulta = select(MensajeChat).where(MensajeChat.conversacion_id == session_id)
+            if tipo == "sae":
+                filas = reversed(db.scalars(consulta.order_by(MensajeChat.id.desc()).limit(10)).all())
+            else:
+                filas = db.scalars(consulta.order_by(MensajeChat.id.asc())).all()
             historial = []
             for fila in filas:
                 if fila.rol == "user":
@@ -293,6 +303,8 @@ def _obtener_mensajes_previos_bd(session_id: str, usuario_id: int | None) -> lis
     except HTTPException:
         raise
     except Exception as exc:
+        if tipo == "sae":
+            raise
         logger.warning("No se pudo leer historial previo de BD para %s: %s", session_id, exc)
         return []
 
@@ -303,6 +315,7 @@ def _guardar_interaccion_en_bd(
     usuario_id: int | None,
     mensaje_usuario: str,
     respuesta_chat: ChatResponse,
+    tipo: str = "general",
 ) -> None:
     """Guarda la conversación y los mensajes del usuario y de Flucito en la base de datos."""
     from app.services.almacen.avisos import avisos_estado
@@ -313,6 +326,10 @@ def _guardar_interaccion_en_bd(
         ahora = datetime.now(timezone.utc)
         with SessionLocal() as db:
             conv = db.scalar(select(Conversacion).where(Conversacion.id == session_id))
+            if tipo == "sae":
+                autorizar_chat_sae(db, conv, usuario_id)
+            if conv is not None and conv.tipo != tipo:
+                raise HTTPException(403, "El historial pertenece a otro tipo de conversación.")
             if conv is None:
                 conv = Conversacion(
                     id=session_id,
@@ -325,6 +342,8 @@ def _guardar_interaccion_en_bd(
             else:
                 if conv.usuario_id is None and usuario_id is not None:
                     conv.usuario_id = usuario_id
+                if tipo == "sae" and conv.titulo == TITULO_CHAT_SAE:
+                    conv.titulo = f"SAE · {_generar_titulo_conversacion(mensaje_usuario)}"
                 conv.actualizada_en = ahora
 
             db.add(
@@ -338,6 +357,7 @@ def _guardar_interaccion_en_bd(
             )
             metadatos = {
                 "avisos": respuesta_chat.avisos,
+                "sugerir_chat_sae": respuesta_chat.sugerir_chat_sae,
                 "interaccion": respuesta_chat.interaccion,
                 "revision_reporte": respuesta_chat.revision_reporte,
                 "archivo_almacen_url": respuesta_chat.archivo_almacen_url,
@@ -355,7 +375,11 @@ def _guardar_interaccion_en_bd(
                 )
             )
             db.commit()
+    except HTTPException:
+        raise
     except Exception as exc:
+        if tipo == "sae":
+            raise
         logger.warning("No se pudo guardar la conversación %s en BD: %s", session_id, exc)
 
 
@@ -685,12 +709,55 @@ def _ejecutar_chat_impl(request: ChatRequest, usuario_id: int | None = None) -> 
     return respuesta_final
 
 
+def _ejecutar_chat_sae(request: ChatRequest, usuario_id: int) -> ChatResponse:
+    if request.decisiones is not None:
+        raise HTTPException(422, "Las decisiones de almacén pertenecen al chat cotidiano.")
+    historial = _obtener_mensajes_previos_bd(request.session_id, usuario_id, tipo="sae")
+    actividad = ActividadHandler(getattr(_CONTEXTO_JOB, "job_id", None))
+    try:
+        resultado = grafo_sae.invoke(
+            {"messages": [*historial, HumanMessage(content=request.mensaje)]},
+            config={
+                "configurable": {"sae_session_id": request.session_id, "sae_usuario_id": usuario_id},
+                "callbacks": [actividad],
+            },
+        )
+        mensajes = resultado["messages"]
+        texto = contenido_a_texto(mensajes[-1]) or "No pude responder. Reformula tu consulta de compras."
+        if len(mensajes) >= 2 and isinstance(mensajes[-2], ToolMessage):
+            datos = json.loads(mensajes[-2].content)
+            if datos.get("ok"):
+                texto += f"\n\nFuente: Aspel SAE, Empresa 02. Compras registradas hasta el {datos['compras_registradas_hasta']}."
+    except Exception as exc:
+        logger.warning("No se completó el chat SAE (%s)", type(exc).__name__)
+        texto = "Ocurrió una interrupción al consultar Aspel SAE. Intenta de nuevo."
+
+    respuesta = ChatResponse(respuesta=texto, actividades=actividad.actividades)
+    _guardar_interaccion_en_bd(
+        session_id=request.session_id, usuario_id=usuario_id, mensaje_usuario=request.mensaje,
+        respuesta_chat=respuesta, tipo="sae",
+    )
+    return respuesta
+
+
 def _ejecutar_chat(request: ChatRequest, usuario_id: int | None = None) -> ChatResponse:
     from app.services.contexto_decisiones import contexto
     from app.services import decisiones as servicio
     Base.metadata.create_all(engine)
     with SessionLocal() as db:
-        servicio.verificar_dueno(db, request.session_id, usuario_id)
+        conv = db.get(Conversacion, request.session_id)
+        es_sae = request.session_id.startswith(PREFIJO_CHAT_SAE) or (conv is not None and conv.tipo == "sae")
+        if es_sae:
+            autorizar_chat_sae(db, conv, usuario_id)
+        else:
+            servicio.verificar_dueno(db, request.session_id, usuario_id)
+    if es_sae:
+        return _ejecutar_chat_sae(request, usuario_id)
+    if not request.decisiones and solicita_consulta_sae(request.mensaje):
+        respuesta = ChatResponse(respuesta=ABRIR_CHAT_SAE, sugerir_chat_sae=True)
+        _guardar_interaccion_en_bd(session_id=request.session_id, usuario_id=usuario_id,
+                                   mensaje_usuario=request.mensaje, respuesta_chat=respuesta)
+        return respuesta
     ctx = {"session_id": request.session_id, "usuario_id": usuario_id}
     token = contexto.set(ctx)
     try:
@@ -838,11 +905,17 @@ def _trabajador_chat(job_id: str, request: ChatRequest, usuario_id: int | None =
                 _JOBS[job_id]["result"] = respuesta
                 _JOBS[job_id]["texto_provisional"] = respuesta.respuesta
     except Exception as exc:
-        logger.exception("Error procesando tarea de chat %s", job_id)
         with _JOBS_LOCK:
             if job_id in _JOBS:
                 _JOBS[job_id]["status"] = "failed"
-                _JOBS[job_id]["error"] = str(exc)
+                if _JOBS[job_id].get("session_sae"):
+                    _JOBS[job_id]["error"] = "No se pudo completar la consulta de Aspel SAE."
+                    _JOBS[job_id]["texto_provisional"] = ""
+                else:
+                    _JOBS[job_id]["error"] = str(exc)
+        logger.warning("Error procesando tarea de chat %s (%s)", job_id, type(exc).__name__)
+    finally:
+        _CONTEXTO_JOB.job_id = None
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -864,6 +937,13 @@ def iniciar_chat_async(
 ) -> ChatJobCreateResponse:
     """Inicia una conversación en segundo plano para evitar timeouts HTTP (Cloudflare 524)."""
     uid = getattr(usuario_actual, "id", None)
+    Base.metadata.create_all(engine)
+    with SessionLocal() as db:
+        conv = db.get(Conversacion, request.session_id)
+        session_sae = None
+        if request.session_id.startswith(PREFIJO_CHAT_SAE) or (conv is not None and conv.tipo == "sae"):
+            autorizar_chat_sae(db, conv, uid)
+            session_sae = conv.id
     _limpiar_jobs_expirados()
     job_id = str(uuid.uuid4())
     with _JOBS_LOCK:
@@ -876,6 +956,7 @@ def iniciar_chat_async(
             "actividades": [],
             "texto_provisional": "",
             "usuario_id": uid,
+            "session_sae": session_sae,
         }
     hilo = threading.Thread(target=_trabajador_chat, args=(job_id, request, uid), daemon=True)
     hilo.start()
@@ -889,21 +970,24 @@ def consultar_estado_chat(
 ) -> ChatJobStatusResponse:
     """Consulta el estado de una tarea de chat iniciada con /chat/async."""
     with _JOBS_LOCK:
-        job = _JOBS.get(job_id)
-        if not job:
-            raise HTTPException(status_code=404, detail="Tarea de chat no encontrada")
-        uid = getattr(usuario_actual, "id", None)
-        if job.get("usuario_id") is not None and job["usuario_id"] != uid:
-            raise HTTPException(status_code=403, detail="No tienes acceso a esta tarea")
-        return ChatJobStatusResponse(
-            job_id=job_id,
-            status=job["status"],
-            result=job["result"],
-            error=job["error"],
-            etapa=job.get("etapa", "pensando"),
-            actividades=job.get("actividades", []),
-            texto_provisional=job.get("texto_provisional", ""),
-        )
+        job = dict(_JOBS.get(job_id, {}))
+    if not job:
+        raise HTTPException(status_code=404, detail="Tarea de chat no encontrada")
+    uid = getattr(usuario_actual, "id", None)
+    if job.get("usuario_id") is not None and job["usuario_id"] != uid:
+        raise HTTPException(status_code=403, detail="No tienes acceso a esta tarea")
+    if session_sae := job.get("session_sae"):
+        with SessionLocal() as db:
+            autorizar_chat_sae(db, db.get(Conversacion, session_sae), uid)
+    return ChatJobStatusResponse(
+        job_id=job_id,
+        status=job["status"],
+        result=job["result"],
+        error=job["error"],
+        etapa=job.get("etapa", "pensando"),
+        actividades=job.get("actividades", []),
+        texto_provisional=job.get("texto_provisional", ""),
+    )
 
 
 @router.get("/chat/events/{job_id}")
@@ -916,7 +1000,7 @@ def eventos_chat(job_id: str, usuario_actual: Usuario | None = Depends(obtener_u
         latido = time.monotonic()
         while True:
             try:
-                estado = consultar_estado_chat(job_id, usuario_actual)
+                estado = await run_in_threadpool(consultar_estado_chat, job_id, usuario_actual)
             except HTTPException:
                 return
             actual = estado.model_dump_json()
@@ -930,7 +1014,23 @@ def eventos_chat(job_id: str, usuario_actual: Usuario | None = Depends(obtener_u
                 latido = time.monotonic()
             await asyncio.sleep(0.15)
 
-    return StreamingResponse(eventos(), media_type="text/event-stream", headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"})
+    return StreamingResponse(eventos(), media_type="text/event-stream", headers={"Cache-Control": "no-store, no-transform", "X-Accel-Buffering": "no"})
+
+
+@router.post("/chat/conversaciones/sae", response_model=ConversacionResumenOut, status_code=201)
+def crear_conversacion_sae(
+    usuario: Usuario = Depends(requerir_acceso_sae),
+    db: Session = Depends(get_db),
+) -> ConversacionResumenOut:
+    conversacion = Conversacion(
+        id=PREFIJO_CHAT_SAE + uuid.uuid4().hex,
+        usuario_id=usuario.id,
+        titulo=TITULO_CHAT_SAE,
+        tipo="sae",
+    )
+    db.add(conversacion)
+    db.commit()
+    return ConversacionResumenOut.model_validate(conversacion, from_attributes=True)
 
 
 @router.get(
@@ -939,10 +1039,12 @@ def eventos_chat(job_id: str, usuario_actual: Usuario | None = Depends(obtener_u
     summary="Lista todas las conversaciones guardadas del usuario autenticado",
 )
 def listar_conversaciones_usuario(
+    response: Response,
     usuario_actual: Usuario = Depends(obtener_usuario_actual),
     db: Session = Depends(get_db),
 ) -> list[ConversacionResumenOut]:
     """Devuelve las conversaciones del usuario ordenadas de la más reciente a la más antigua."""
+    response.headers["Cache-Control"] = "no-store"
     conversaciones = db.scalars(
         select(Conversacion)
         .where(Conversacion.usuario_id == usuario_actual.id)
@@ -951,6 +1053,7 @@ def listar_conversaciones_usuario(
 
     salida: list[ConversacionResumenOut] = []
     for conv in conversaciones:
+        bloqueada = conv.tipo == "sae" and not usuario_actual.acceso_sae
         total_msgs = (
             db.scalar(
                 select(func.count())
@@ -958,15 +1061,17 @@ def listar_conversaciones_usuario(
                 .where(MensajeChat.conversacion_id == conv.id)
             )
             or 0
-        )
+        ) if not bloqueada else 0
         salida.append(
             ConversacionResumenOut(
                 id=conv.id,
                 usuario_id=conv.usuario_id,
-                titulo=conv.titulo,
+                titulo=TITULO_CHAT_SAE if bloqueada else conv.titulo,
                 creada_en=conv.creada_en,
                 actualizada_en=conv.actualizada_en,
                 total_mensajes=int(total_msgs),
+                tipo=conv.tipo,
+                bloqueada=bloqueada,
             )
         )
     return salida
@@ -979,17 +1084,21 @@ def listar_conversaciones_usuario(
 )
 def obtener_detalle_conversacion(
     session_id: str,
+    response: Response,
     usuario_actual: Usuario = Depends(obtener_usuario_actual),
     db: Session = Depends(get_db),
 ) -> ConversacionDetalleOut:
     """Devuelve los mensajes completos de una conversación verificando su dueño."""
+    response.headers["Cache-Control"] = "no-store"
     conv = db.scalar(select(Conversacion).where(Conversacion.id == session_id))
     if conv is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Conversación no encontrada.",
         )
-    if conv.usuario_id != usuario_actual.id and usuario_actual.rol != "admin":
+    if conv.tipo == "sae":
+        autorizar_chat_sae(db, conv, usuario_actual.id)
+    elif conv.usuario_id != usuario_actual.id and usuario_actual.rol != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="No tienes permiso para ver esta conversación.",
@@ -997,7 +1106,7 @@ def obtener_detalle_conversacion(
 
     mensajes_out: list[MensajeChatOut] = []
     from app.services.decisiones import leer
-    decision_actual = leer(session_id, usuario_actual.id)
+    decision_actual = leer(session_id, usuario_actual.id) if conv.tipo == "general" else None
     for msg in conv.mensajes:
         meta: dict[str, Any] = {}
         if msg.metadatos_json:
@@ -1010,6 +1119,7 @@ def obtener_detalle_conversacion(
                 id=msg.id,
                 rol=msg.rol,
                 contenido=msg.contenido,
+                sugerir_chat_sae=meta.get("sugerir_chat_sae", False),
                 avisos=meta.get("avisos") or [],
                 interaccion=(decision_actual["interaccion"] if decision_actual and (meta.get("interaccion") or {}).get("id") == decision_actual["interaccion"]["id"] else meta.get("interaccion")),
                 revision_reporte=meta.get("revision_reporte"),
@@ -1028,6 +1138,7 @@ def obtener_detalle_conversacion(
         creada_en=conv.creada_en,
         actualizada_en=conv.actualizada_en,
         mensajes=mensajes_out,
+        tipo=conv.tipo,
     )
 
 
@@ -1048,7 +1159,9 @@ def eliminar_conversacion(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Conversación no encontrada.",
         )
-    if conv.usuario_id != usuario_actual.id and usuario_actual.rol != "admin":
+    if conv.tipo == "sae":
+        autorizar_chat_sae(db, conv, usuario_actual.id)
+    elif conv.usuario_id != usuario_actual.id and usuario_actual.rol != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="No tienes permiso para eliminar esta conversación.",

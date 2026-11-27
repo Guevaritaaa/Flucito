@@ -10,10 +10,12 @@ import { useTheme } from "./context/ThemeContext";
 import { ASSETS } from "./core/config";
 import { useVisibleViewport } from "./hooks/useVisibleViewport";
 import { useConversations } from "./hooks/useConversations";
+import { CHAT_SAE_BLOQUEADO, esIdChatSae } from "./schemas/chat";
 
 export default function App() {
   useVisibleViewport();
-  const { autenticado, usuario, esAdmin, cargandoSesion, logout } = useAuth();
+  const { autenticado, usuario, esAdmin, cargandoSesion, logout, recargarPerfil } = useAuth();
+  const accesoSae = usuario?.acceso_sae === true;
   const { esOscuro } = useTheme();
   const {
     conversaciones,
@@ -21,12 +23,16 @@ export default function App() {
     conversacionActiva,
     cargandoHistorial,
     iniciarNuevaConversacion,
+    iniciarConversacionSae,
     seleccionarConversacion,
     borrarConversacion,
     refrescarConversaciones,
-  } = useConversations(autenticado);
+  } = useConversations(autenticado, accesoSae);
 
   const [tabActiva, setTabActiva] = useState<AppTab>("inicio");
+  const [borradorSae, setBorradorSae] = useState<{ id: string; texto: string } | null>(null);
+  const [creandoSae, setCreandoSae] = useState(false);
+  const [errorSae, setErrorSae] = useState<string | null>(null);
   const [sidebarAbierto, setSidebarAbierto] = useState<boolean>(() =>
     typeof window !== "undefined" ? window.innerWidth >= 768 : true
   );
@@ -34,8 +40,68 @@ export default function App() {
   useEffect(() => {
     if (!autenticado) {
       setTabActiva("inicio");
+      setBorradorSae(null);
+      setErrorSae(null);
+      return;
     }
-  }, [autenticado]);
+    const chat = new URLSearchParams(window.location.search).get("chat");
+    if (chat && esIdChatSae(chat)) {
+      seleccionarConversacion(chat);
+      setTabActiva("chat");
+    }
+  }, [autenticado, seleccionarConversacion]);
+
+  useEffect(() => {
+    if (!autenticado) return;
+    const actualizar = () => {
+      if (document.visibilityState === "visible") void recargarPerfil(true);
+    };
+    const intervalo = window.setInterval(actualizar, 10000);
+    window.addEventListener("focus", actualizar);
+    return () => {
+      window.clearInterval(intervalo);
+      window.removeEventListener("focus", actualizar);
+    };
+  }, [autenticado, recargarPerfil]);
+
+  const esChatSae = conversacionActiva?.tipo === "sae" || esIdChatSae(sessionIdActivo);
+  const bloqueadoSae = esChatSae && (!accesoSae || conversacionActiva?.bloqueada);
+  useEffect(() => {
+    if (!accesoSae) setBorradorSae(null);
+  }, [accesoSae]);
+
+  function actualizarUrlChat(id?: string) {
+    const url = new URL(window.location.href);
+    if (id && esIdChatSae(id)) url.searchParams.set("chat", id);
+    else url.searchParams.delete("chat");
+    window.history.replaceState(window.history.state, "", url);
+  }
+
+  function nuevoChatCotidiano() {
+    setErrorSae(null);
+    iniciarNuevaConversacion();
+    actualizarUrlChat();
+    setTabActiva("chat");
+  }
+
+  async function abrirChatSae(texto = "") {
+    if (!accesoSae || creandoSae) return;
+    setCreandoSae(true);
+    setErrorSae(null);
+    try {
+      const id = await iniciarConversacionSae();
+      setBorradorSae({ id, texto });
+      seleccionarConversacion(id);
+      actualizarUrlChat(id);
+      setTabActiva("chat");
+      if (window.innerWidth < 768) setSidebarAbierto(false);
+    } catch (err) {
+      setErrorSae(err instanceof Error ? err.message : "No se pudo abrir el chat de Aspel SAE.");
+      void recargarPerfil(true);
+    } finally {
+      setCreandoSae(false);
+    }
+  }
 
   const estiloFondoAtmosferico = {
     background: esOscuro
@@ -136,12 +202,13 @@ export default function App() {
           conversaciones={conversaciones}
           sessionIdActivo={sessionIdActivo}
           cargandoHistorial={cargandoHistorial}
-          onNuevaConversacion={() => {
-            iniciarNuevaConversacion();
-            setTabActiva("chat");
-          }}
+          onNuevaConversacion={nuevoChatCotidiano}
+          onAbrirChatSae={() => void abrirChatSae()}
+          creandoSae={creandoSae}
           onSeleccionarConversacion={(id) => {
+            setErrorSae(null);
             seleccionarConversacion(id);
+            actualizarUrlChat(id);
             setTabActiva("chat");
           }}
           onBorrarConversacion={borrarConversacion}
@@ -153,32 +220,38 @@ export default function App() {
           <Header
             tabActiva={tabActiva}
             sidebarAbierto={sidebarAbierto}
-            tituloConversacionActiva={conversacionActiva?.titulo}
+            tituloConversacionActiva={bloqueadoSae ? "Chat de Aspel SAE" : conversacionActiva?.titulo}
             onToggleSidebar={() => setSidebarAbierto((prev) => !prev)}
-            onNuevaConversacion={() => {
-              iniciarNuevaConversacion();
-              setTabActiva("chat");
-            }}
+            onNuevaConversacion={nuevoChatCotidiano}
           />
+          {errorSae && <p role="alert" className="mx-auto mb-2 px-4 text-sm text-red-700 dark:text-red-200">{errorSae}</p>}
 
           {/* TAB 1: ChatWorkspace (UI/UX estilo ChatGPT en Glassmorphism) */}
-          {tabActiva === "chat" && (
+          {tabActiva === "chat" && (bloqueadoSae ? (
+            <p role="status" className="m-auto max-w-md px-5 text-center text-sm text-slate-700 dark:text-slate-200">
+              {CHAT_SAE_BLOQUEADO}
+            </p>
+          ) : (
             <ChatWorkspace
+              key={sessionIdActivo}
               sessionId={sessionIdActivo}
-              existeEnHistorial={Boolean(conversacionActiva)}
+              existeEnHistorial={Boolean(conversacionActiva) || esChatSae}
+              esChatSae={esChatSae}
+              accesoSae={accesoSae}
+              creandoSae={creandoSae}
+              borradorInicial={borradorSae?.id === sessionIdActivo ? borradorSae.texto : ""}
+              onBorradorConsumido={() => setBorradorSae(null)}
+              onAbrirChatSae={(texto) => void abrirChatSae(texto)}
               onConversacionActualizada={() => void refrescarConversaciones(true)}
             />
-          )}
+          ))}
 
           {/* TAB 2: Inicio */}
           {tabActiva === "inicio" && (
             <HomeView
               usuario={usuario}
               onSelectTab={setTabActiva}
-              onNuevaConversacion={() => {
-                iniciarNuevaConversacion();
-                setTabActiva("chat");
-              }}
+              onNuevaConversacion={nuevoChatCotidiano}
             />
           )}
 

@@ -1,22 +1,36 @@
 import { mensajeVigente } from "./mensajeVigente";
-import { useEffect, useRef } from "react";
+import { Fragment, useEffect, useRef } from "react";
 import { ASSETS } from "../../core/config";
 import { useChat } from "../../hooks/useChat";
 import { ChatComposer } from "./ChatComposer";
+import { AccionSae } from "./AccionSae";
 import { FlucitoLoadingBubble, MessageBubble } from "./MessageBubble";
+import { CHAT_SAE_BLOQUEADO } from "../../schemas/chat";
 
 interface ChatWorkspaceProps {
   sessionId: string;
   existeEnHistorial: boolean;
+  esChatSae?: boolean;
+  accesoSae?: boolean;
+  creandoSae?: boolean;
+  borradorInicial?: string;
+  onBorradorConsumido?: () => void;
+  onAbrirChatSae?: (texto: string) => void;
   onConversacionActualizada: () => void;
 }
 
 export function ChatWorkspace({
   sessionId,
   existeEnHistorial,
+  esChatSae = false,
+  accesoSae = false,
+  creandoSae = false,
+  borradorInicial,
+  onBorradorConsumido,
+  onAbrirChatSae,
   onConversacionActualizada,
 }: ChatWorkspaceProps) {
-  const { mensajes, enviando, actividades, etapa, textoProvisional, cargandoMensajes, enviarMensaje } = useChat({
+  const { mensajes, enviando, actividades, etapa, textoProvisional, cargandoMensajes, accesoSaeRechazado, enviarMensaje } = useChat({
     sessionId,
     existeEnHistorial,
     onConversacionActualizada,
@@ -32,6 +46,10 @@ export function ChatWorkspace({
 
   const esEstadoInicial =
     !cargandoMensajes && !existeEnHistorial && mensajes.length === 0 && !enviando;
+
+  if (accesoSaeRechazado) {
+    return <p role="status" className="m-auto max-w-md px-5 text-center text-sm">{CHAT_SAE_BLOQUEADO}</p>;
+  }
 
   return (
     <main
@@ -103,9 +121,27 @@ export function ChatWorkspace({
                 </div>
               ) : (
                 <>
-                  {mensajes.map((msg, index) => (
-                    <MessageBubble key={msg.id} mensaje={mensajeVigente(msg, mensajes.slice(index + 1))} sessionId={sessionId} onDecision={enviarMensaje} ocupado={enviando} />
-                  ))}
+                  {mensajes.map((msg, index) => {
+                    const pregunta = msg.sugerir_chat_sae && mensajes[index - 1]?.rol === "user" ? mensajes[index - 1].contenido : "";
+                    return (
+                      <Fragment key={msg.id}>
+                        <MessageBubble mensaje={mensajeVigente(msg, mensajes.slice(index + 1))} sessionId={sessionId} onDecision={enviarMensaje} ocupado={enviando} />
+                        {pregunta && onAbrirChatSae && (
+                          <AccionSae
+                            permitido={accesoSae}
+                            ocupado={creandoSae}
+                            onClick={() => onAbrirChatSae(pregunta)}
+                            className="rounded-lg border border-sky-600/40 bg-white/60 dark:bg-sky-950/45 px-3 py-2 text-sm font-semibold"
+                          >
+                            Abrir chat SAE
+                          </AccionSae>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                  {esChatSae && mensajes.length === 0 && !enviando && (
+                    <p className="mt-8 text-center text-sm text-slate-700 dark:text-slate-200">Pregunta por las compras del respaldo de Aspel SAE.</p>
+                  )}
                   {enviando && <FlucitoLoadingBubble actividades={actividades} etapa={etapa} textoProvisional={textoProvisional} />}
                 </>
               )}
@@ -116,7 +152,11 @@ export function ChatWorkspace({
             <ChatComposer
               variante="docked"
               deshabilitado={enviando || cargandoMensajes}
-              onEnviar={enviarMensaje}
+              textoInicial={borradorInicial}
+              onEnviar={(texto) => {
+                onBorradorConsumido?.();
+                return enviarMensaje(texto);
+              }}
             />
           </div>
         </>

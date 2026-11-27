@@ -2,27 +2,32 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date
 from decimal import Decimal
 import json
+import time
 
 from fastapi.testclient import TestClient
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, ToolMessage
 import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from app.api.v1.routes import auth as auth_route
 from app.api.v1.routes import chat as chat_route
 from app.api.v1.routes import sae as sae_route
+from app.agents import graph_sae
+from app.agents.tools import sae_tools
 from app.core import database as db_module
 from app.core.config import settings
 from app.core.seed import inicializar_base_de_datos
 from app.main import app
 from app.models.almacen import DetalleEntradaAlmacen, FactorLinea, ReporteAlmacen
 from app.models.catalogo_sae import SaeArticulo, SaeLinea
+from app.models.usuario import Usuario
 from app.schemas.sae import CorteComprasSae, PeriodoSae, ResumenComprasSae
+from app.services import decisiones
 from app.services.almacen.catalogo_sae import buscar_articulo_sae, cargar_catalogo_sae, limpiar_cache_catalogo_sae
 from app.services.almacen.factores import cargar_factores_personalizados, guardar_factor_personalizado
 from app.services.almacen.resumen import registrar_reporte_en_bd
@@ -31,13 +36,9 @@ from app.services.sae.conexion import SaeNoDisponible
 
 
 @pytest.fixture()
-def entorno_bd(monkeypatch):
-    """Crea una base de datos SQLAlchemy aislada en memoria para pruebas rápidas y deterministas."""
-    test_engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
+def entorno_bd(monkeypatch, tmp_path):
+    """Crea una base aislada con conexiones independientes para el chat y su seguimiento."""
+    test_engine = create_engine(f"sqlite:///{tmp_path / 'auth.db'}")
     TestSessionLocal = sessionmaker(
         autocommit=False,
         autoflush=False,
@@ -49,6 +50,8 @@ def entorno_bd(monkeypatch):
     monkeypatch.setattr(db_module, "SessionLocal", TestSessionLocal)
     monkeypatch.setattr(chat_route, "engine", test_engine)
     monkeypatch.setattr(chat_route, "SessionLocal", TestSessionLocal)
+    monkeypatch.setattr(decisiones, "engine", test_engine)
+    monkeypatch.setattr(decisiones, "SessionLocal", TestSessionLocal)
 
     def _override_get_db():
         with TestSessionLocal() as session:
@@ -66,6 +69,7 @@ def entorno_bd(monkeypatch):
         app.dependency_overrides.clear()
         auth_route.limpiar_intentos_login()
         limpiar_cache_catalogo_sae()
+        test_engine.dispose()
 
 
 def test_login_json_y_form_oauth2_exitosos(entorno_bd) -> None:
@@ -192,6 +196,94 @@ def test_resumen_sae_revalida_permiso_y_distingue_cobertura_de_indisponibilidad(
     assert client.patch(acceso, json={"acceso_sae": False}, headers=headers).status_code == 200
     assert client.get(ruta, params=junio, headers=headers).status_code == 403
     assert len(llamadas) == 3
+
+
+def test_chat_sae_separa_historial_y_revoca_resultados_y_stream(entorno_bd, monkeypatch) -> None:
+    client, sesiones = entorno_bd
+    monkeypatch.setattr(chat_route, "_JOBS", {})
+    inicio = client.post("/api/v1/auth/login", json={
+        "username": settings.admin_initial_username, "password": settings.admin_initial_password,
+    }).json()
+    uid = inicio["usuario"]["id"]
+    headers = {"Authorization": f"Bearer {inicio['access_token']}"}
+    permiso = f"/api/v1/auth/usuarios/{uid}"
+    conversaciones = "/api/v1/chat/conversaciones"
+    pregunta = "¿Cuántas compras tuvimos en Aspel SAE en junio de 2026?"
+    assert client.post(f"{conversaciones}/sae", headers=headers).status_code == 403
+    assert client.patch(permiso, headers=headers, json={"acceso_sae": True}).status_code == 200
+
+    intentos = []
+    cobertura = PeriodoSae(desde=date(2023, 10, 22), hasta=date(2026, 7, 1))
+
+    def consultar(desde, hasta, **filtros):
+        intentos.append((desde, hasta, filtros))
+        return ResumenComprasSae(corte=CorteComprasSae(corte_id="prueba", cobertura=cobertura),
+            periodo=PeriodoSae(desde=desde, hasta=hasta), documentos=146, totales_por_moneda=[],
+            tendencia_mensual=[], principales_proveedores=[])
+
+    def responder(mensajes, *modelos):
+        if isinstance(mensajes[-1], ToolMessage):
+            assert json.loads(mensajes[-1].content)["documentos"] == 146
+            return AIMessage(content="Junio de 2026 tuvo 146 compras.")
+        if mensajes[-1].content == "¿Y en USD?":
+            assert any(m.content == pregunta for m in mensajes[:-1])
+        argumentos = {"metrica": "documentos", "desde": "2026-06-01", "hasta": "2026-06-30"}
+        if mensajes[-1].content == "¿Y en USD?":
+            argumentos["moneda"] = "USD"
+        return AIMessage(content="", tool_calls=[{"name": "consultar_aspel_sae", "args": argumentos, "id": "consulta"}])
+
+    monkeypatch.setattr(sae_tools, "consultar_resumen_compras", consultar)
+    monkeypatch.setattr(graph_sae, "invocar_con_fallback", responder)
+
+    general = client.post("/api/v1/chat", headers=headers, json={"session_id": "cotidiano", "mensaje": pregunta})
+    assert general.status_code == 200
+    assert general.json()["sugerir_chat_sae"] is True
+    assert not intentos
+    nuevo = client.post(f"{conversaciones}/sae", headers=headers)
+    assert nuevo.status_code == 201 and nuevo.json()["tipo"] == "sae"
+    sid = nuevo.json()["id"]
+    assert client.post("/api/v1/chat", headers=headers, json={"session_id": sid, "mensaje": pregunta}).status_code == 200
+    trabajo = client.post("/api/v1/chat/async", headers=headers, json={"session_id": sid, "mensaje": "¿Y en USD?"})
+    assert trabajo.status_code == 200
+    job_id = trabajo.json()["job_id"]
+    ruta_estado = f"/api/v1/chat/status/{job_id}"
+    ruta_eventos = f"/api/v1/chat/events/{job_id}"
+    for _ in range(60):
+        estado = client.get(ruta_estado, headers=headers).json()
+        if estado["status"] != "running":
+            break
+        time.sleep(0.03)
+    assert estado["status"] == "completed"
+    assert "Compras registradas hasta el 2026-07-01" in estado["result"]["respuesta"]
+    assert intentos[-1][2]["moneda"] == "USD"
+    assert "146 compras" in client.get(ruta_eventos, headers=headers).text
+
+    with sesiones() as db:
+        usuario = db.get(Usuario, uid)
+    with chat_route._JOBS_LOCK:
+        chat_route._JOBS[job_id]["status"] = "running"
+    stream = chat_route.eventos_chat(job_id, usuario)
+
+    async def revocar_durante_stream():
+        eventos = stream.body_iterator
+        assert "running" in await anext(eventos)
+        with sesiones() as db:
+            db.get(Usuario, uid).acceso_sae = False
+            db.commit()
+        assert await anext(eventos, None) is None
+
+    asyncio.run(revocar_durante_stream())
+    assert client.get(ruta_estado, headers=headers).status_code == 403
+    assert client.get(ruta_eventos, headers=headers).status_code == 403
+    assert client.get(f"{conversaciones}/{sid}", headers=headers).status_code == 403
+    assert client.post("/api/v1/chat/async", headers=headers, json={"session_id": sid, "mensaje": pregunta}).status_code == 403
+    lista = {item["id"]: item for item in client.get(conversaciones, headers=headers).json()}
+    assert lista[sid]["bloqueada"] and lista[sid]["titulo"] == "Chat de Aspel SAE" and lista[sid]["total_mensajes"] == 0
+    anterior = client.get(f"{conversaciones}/cotidiano", headers=headers).json()
+    assert anterior["tipo"] == "general" and anterior["mensajes"][-1]["sugerir_chat_sae"] is True
+    assert "146 compras" not in str(anterior)
+    assert client.patch(permiso, headers=headers, json={"acceso_sae": True}).status_code == 200
+    assert "146 compras" in client.get(f"{conversaciones}/{sid}", headers=headers).text
 
 
 def test_login_credenciales_invalidas_y_acceso_sin_token(entorno_bd) -> None:

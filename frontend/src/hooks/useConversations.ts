@@ -6,6 +6,7 @@ import {
 } from "../core/storage";
 import type { ConversacionResumenOut } from "../schemas/chat";
 import {
+  crearConversacionSae,
   eliminarConversacion,
   listarConversaciones,
 } from "../services/chatService";
@@ -17,12 +18,13 @@ export interface UseConversationsReturn {
   cargandoHistorial: boolean;
   errorHistorial: string | null;
   iniciarNuevaConversacion: () => string;
+  iniciarConversacionSae: () => Promise<string>;
   seleccionarConversacion: (sessionId: string) => void;
   borrarConversacion: (sessionId: string) => Promise<void>;
   refrescarConversaciones: (silencioso?: boolean) => Promise<void>;
 }
 
-export function useConversations(autenticado: boolean): UseConversationsReturn {
+export function useConversations(autenticado: boolean, accesoSae: boolean): UseConversationsReturn {
   const [conversaciones, setConversaciones] = useState<ConversacionResumenOut[]>([]);
   const [sessionIdActivo, setSessionIdActivo] = useState<string>(() =>
     obtenerSessionIdActivo()
@@ -60,7 +62,7 @@ export function useConversations(autenticado: boolean): UseConversationsReturn {
     } else {
       setConversaciones([]);
     }
-  }, [autenticado, refrescarConversaciones]);
+  }, [accesoSae, autenticado, refrescarConversaciones]);
 
   const iniciarNuevaConversacion = useCallback((): string => {
     const nuevoId = generarNuevoSessionId();
@@ -72,6 +74,12 @@ export function useConversations(autenticado: boolean): UseConversationsReturn {
   const seleccionarConversacion = useCallback((sessionId: string) => {
     guardarSessionIdActivo(sessionId);
     setSessionIdActivo(sessionId);
+  }, []);
+
+  const iniciarConversacionSae = useCallback(async () => {
+    const conversacion = await crearConversacionSae();
+    setConversaciones((previas) => [conversacion, ...previas]);
+    return conversacion.id;
   }, []);
 
   const borrarConversacion = useCallback(
@@ -113,6 +121,7 @@ export function useConversations(autenticado: boolean): UseConversationsReturn {
     cargandoHistorial,
     errorHistorial,
     iniciarNuevaConversacion,
+    iniciarConversacionSae,
     seleccionarConversacion,
     borrarConversacion,
     refrescarConversaciones,

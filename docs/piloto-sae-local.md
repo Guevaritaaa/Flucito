@@ -32,3 +32,9 @@ Desde `http://127.0.0.1:8000/docs`, usa **Authorize** con una cuenta que tenga a
 El resumen devuelve el conteo de documentos vigentes, los importes con impuestos en moneda del documento, la serie mensual y hasta cinco proveedores por moneda ordenados por importe. Cuenta una vez cada cabecera de `COMPC02` con estado `E` u `O`. `IMPORTE` se guarda en moneda base, por lo que el cálculo divide entre `TIPCAMB` y redondea cada documento a centavos antes de sumar. La cobertura se basa en `FECHA_DOC`. El identificador se deriva de la huella del `.fbk` y la fecha de generación del respaldo queda vacía mientras falte evidencia.
 
 Para habilitar las vistas de compras, el primer arranque de esta fase restaura el mismo `.fbk` a un nuevo archivo dentro del volumen. El alias pasa a ese archivo y los siguientes reinicios lo reutilizan. La copia restaurada de la fase anterior queda en el volumen.
+
+## Chat de Aspel SAE
+
+Con acceso concedido, pulsa **Abrir chat SAE** en la barra lateral o pregunta por las compras en un chat cotidiano. En el segundo caso, el botón que aparece bajo la respuesta abre un hilo nuevo con la pregunta en el editor, lista para enviarse. Por ejemplo, pregunta «¿Cuántas compras registramos en Aspel SAE en junio de 2026?» y luego «¿Y en USD?». El chat usa el mismo servicio de métricas del resumen y admite conteos e importes agrupados por mes o proveedor, con filtros por periodo, moneda y proveedor.
+
+Retira el permiso desde Configuración con la sesión del otro usuario abierta. Su chat SAE quedará bloqueado, incluso si conserva el enlace directo. El historial cotidiano se puede seguir abriendo. Si restituyes el permiso, el usuario recupera el historial del chat SAE.

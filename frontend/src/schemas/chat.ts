@@ -31,6 +31,7 @@ export interface AvisoReporte { nivel: "advertencia" | "error"; titulo: string; 
 export interface ChatResponse {
   avisos?: AvisoReporte[];
   respuesta: string;
+  sugerir_chat_sae?: boolean;
   interaccion?: InteraccionDecision | null;
   revision_reporte?: RevisionReporte | null;
   archivo_almacen_url: string | null;
@@ -61,6 +62,8 @@ export interface ConversacionResumenOut {
   creada_en: string;
   actualizada_en: string;
   total_mensajes: number;
+  tipo?: "general" | "sae";
+  bloqueada?: boolean;
 }
 
 export interface MensajeChatOut {
@@ -68,6 +71,7 @@ export interface MensajeChatOut {
   id: number;
   rol: "user" | "assistant" | string;
   contenido: string;
+  sugerir_chat_sae?: boolean;
   interaccion?: InteraccionDecision | null;
   revision_reporte?: RevisionReporte | null;
   archivo_almacen_url: string | null;
@@ -84,7 +88,12 @@ export interface ConversacionDetalleOut {
   creada_en: string;
   actualizada_en: string;
   mensajes: MensajeChatOut[];
+  tipo?: "general" | "sae";
 }
+
+export const CHAT_SAE_BLOQUEADO = "Ya no cuentas con acceso a este chat. Pide acceso a administración para volver a usar Aspel SAE.";
+export const ACCESO_SAE_REQUERIDO = "Para usar Aspel SAE, pide acceso a administración.";
+export const esIdChatSae = (id: string) => id.startsWith("sae-");
 
 export const PRECIOS_FACTOR = ["PUBLICO", "MINIMO", "MOSTRADOR", "MAYOREO", "DISTRIBUIDOR"] as const;
 export type PrecioFactor = typeof PRECIOS_FACTOR[number];

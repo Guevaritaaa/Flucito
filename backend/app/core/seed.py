@@ -297,12 +297,16 @@ def inicializar_base_de_datos(
         Base.metadata.create_all(bind=bind)
         # Los despliegues anteriores también pueden haber creado las tablas sin Alembic.
         connection = db.connection()
-        columnas = inspect(connection).get_columns("usuarios")
-        if all(columna["name"] != "acceso_sae" for columna in columnas):
-            if_not_exists = " IF NOT EXISTS" if connection.dialect.name == "postgresql" else ""
-            connection.exec_driver_sql(
-                f"ALTER TABLE usuarios ADD COLUMN{if_not_exists} acceso_sae BOOLEAN DEFAULT FALSE NOT NULL"
-            )
+        if_not_exists = " IF NOT EXISTS" if connection.dialect.name == "postgresql" else ""
+        esquema_actualizado = False
+        for tabla, nombre, definicion in (
+            ("usuarios", "acceso_sae", "BOOLEAN DEFAULT FALSE NOT NULL"),
+            ("conversaciones", "tipo", "VARCHAR(16) DEFAULT 'general' NOT NULL"),
+        ):
+            if all(columna["name"] != nombre for columna in inspect(connection).get_columns(tabla)):
+                connection.exec_driver_sql(f"ALTER TABLE {tabla} ADD COLUMN{if_not_exists} {nombre} {definicion}")
+                esquema_actualizado = True
+        if esquema_actualizado:
             db.commit()
         usuarios_creados = _sembrar_usuarios_iniciales(db)
         sae_resumen = _sembrar_catalogo_sae(db, cargar_articulos=cargar_articulos_sae)

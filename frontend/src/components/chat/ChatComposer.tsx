@@ -11,6 +11,7 @@ interface ChatComposerProps {
   deshabilitado: boolean;
   variante?: "hero" | "docked";
   onEnviar: (mensaje: string) => Promise<void>;
+  textoInicial?: string;
 }
 
 export const SUGERENCIAS_RAPIDAS = [
@@ -40,8 +41,9 @@ export function ChatComposer({
   deshabilitado,
   variante = "docked",
   onEnviar,
+  textoInicial = "",
 }: ChatComposerProps) {
-  const [texto, setTexto] = useState("");
+  const [texto, setTexto] = useState(textoInicial);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   function ajustarAlturaTextarea(el: HTMLTextAreaElement | null) {

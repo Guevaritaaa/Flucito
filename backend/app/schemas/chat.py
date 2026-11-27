@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from pydantic import BaseModel, Field
 from app.schemas.decisiones import EnvioDecisiones
 
@@ -21,6 +22,7 @@ class ActividadChat(BaseModel):
 
 class ChatResponse(BaseModel):
     respuesta: str
+    sugerir_chat_sae: bool = False
     avisos: list[dict[str, str]] = Field(default_factory=list)
     interaccion: dict | None = None
     revision_reporte: dict | None = None
@@ -52,12 +54,15 @@ class ConversacionResumenOut(BaseModel):
     creada_en: datetime
     actualizada_en: datetime
     total_mensajes: int = 0
+    tipo: Literal["general", "sae"] = "general"
+    bloqueada: bool = False
 
 
 class MensajeChatOut(BaseModel):
     id: int
     rol: str
     contenido: str
+    sugerir_chat_sae: bool = False
     avisos: list[dict[str, str]] = Field(default_factory=list)
     interaccion: dict | None = None
     revision_reporte: dict | None = None
@@ -75,3 +80,4 @@ class ConversacionDetalleOut(BaseModel):
     creada_en: datetime
     actualizada_en: datetime
     mensajes: list[MensajeChatOut] = Field(default_factory=list)
+    tipo: Literal["general", "sae"] = "general"

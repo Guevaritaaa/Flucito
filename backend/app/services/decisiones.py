@@ -12,6 +12,7 @@ from sqlalchemy import select, update
 
 from app.core.database import Base, SessionLocal, engine
 from app.models.conversacion import ConfirmacionPendiente, Conversacion
+from app.services.sae.conversaciones import PREFIJO_CHAT_SAE
 from app.models.preferencia import PreferenciaDecision
 from app.schemas.decisiones import EnvioDecisiones
 from app.services.contexto_decisiones import contexto
@@ -151,6 +152,8 @@ def construir(datos, herramienta, argumentos, uid):
 
 def verificar_dueno(db, sid, uid):
     conv = db.get(Conversacion, sid)
+    if sid.startswith(PREFIJO_CHAT_SAE) or (conv and conv.tipo == "sae"):
+        raise HTTPException(403, "Esta operación pertenece al chat cotidiano.")
     if conv and conv.usuario_id != uid:
         raise HTTPException(403, "Esta conversación pertenece a otro usuario.")
     return conv
