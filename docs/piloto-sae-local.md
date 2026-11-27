@@ -38,3 +38,7 @@ Para habilitar las vistas de compras, el primer arranque de esta fase restaura e
 Con acceso concedido, pulsa **Abrir chat SAE** en la barra lateral o pregunta por las compras en un chat cotidiano. En el segundo caso, el botón que aparece bajo la respuesta abre un hilo nuevo con la pregunta en el editor, lista para enviarse. Por ejemplo, pregunta «¿Cuántas compras registramos en Aspel SAE en junio de 2026?» y luego «¿Y en USD?». El chat usa el mismo servicio de métricas del resumen y admite conteos e importes agrupados por mes o proveedor, con filtros por periodo, moneda y proveedor.
 
 Retira el permiso desde Configuración con la sesión del otro usuario abierta. Su chat SAE quedará bloqueado, incluso si conserva el enlace directo. El historial cotidiano se puede seguir abriendo. Si restituyes el permiso, el usuario recupera el historial del chat SAE.
+
+## Panel de compras
+
+Con una cuenta autorizada, abre **Aspel SAE** en la barra lateral de Flucito. Puedes consultar el periodo y la cobertura del respaldo, elegir moneda para los importes y revisar la tendencia mensual y los principales proveedores. El conteo general reúne todos los documentos vigentes del periodo. **Ver datos mensuales** abre la tabla que acompaña a la gráfica. **Preguntar a Flucito** lleva el periodo y la moneda del resumen a un chat SAE nuevo.

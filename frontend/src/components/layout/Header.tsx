@@ -21,14 +21,14 @@ export function Header({
 
   const etiquetaModo = esOscuro ? "Activar modo claro" : "Activar modo oscuro";
 
-  const etiquetaCentral =
-    tabActiva === "configuracion"
-      ? "Configuración • Interflu AI"
-      : tabActiva === "inicio"
-        ? "Inicio • Interflu AI"
-        : tituloConversacionActiva
-          ? `Flucito • ${tituloConversacionActiva}`
-          : "Flucito • Interflu AI";
+  const etiquetas = {
+    configuracion: "Configuración • Interflu AI",
+    inicio: "Inicio • Interflu AI",
+    sae: "Aspel SAE • Interflu AI",
+  };
+  const etiquetaCentral = tabActiva === "chat"
+    ? `Flucito • ${tituloConversacionActiva || "Interflu AI"}`
+    : etiquetas[tabActiva];
 
   return (
     <header

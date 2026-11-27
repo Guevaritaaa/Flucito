@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   Check,
+  ChartColumn,
   Home,
   LogOut,
   LockKeyhole,
@@ -19,7 +20,7 @@ import type { UsuarioOut } from "../../schemas/auth";
 import { CHAT_SAE_BLOQUEADO, type ConversacionResumenOut } from "../../schemas/chat";
 import { AccionSae } from "../chat/AccionSae";
 
-export type AppTab = "inicio" | "chat" | "configuracion";
+export type AppTab = "inicio" | "chat" | "configuracion" | "sae";
 
 interface SidebarProps {
   abierto: boolean;
@@ -191,6 +192,19 @@ export function Sidebar({
                 </button>
               );
             })}
+            <AccionSae
+              permitido={usuario.acceso_sae === true}
+              paginaActual={tabActiva === "sae" && usuario.acceso_sae}
+              onClick={() => { onSelectTab("sae"); cerrarEnMovil(); }}
+              className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-[13px] font-medium ${
+                tabActiva === "sae" && usuario.acceso_sae
+                  ? "bg-[#0022e6]/11 font-semibold text-[#0018cc] dark:bg-sky-400/18 dark:text-white"
+                  : "hover:bg-white/55 dark:hover:bg-white/8"
+              }`}
+            >
+              <ChartColumn className="h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>Aspel SAE</span>
+            </AccionSae>
             <AccionSae
               permitido={usuario.acceso_sae === true}
               ocupado={creandoSae}

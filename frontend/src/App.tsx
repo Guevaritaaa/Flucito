@@ -5,12 +5,13 @@ import { HomeView } from "./components/home/HomeView";
 import { Header } from "./components/layout/Header";
 import { Sidebar, type AppTab } from "./components/layout/Sidebar";
 import { SettingsView } from "./components/settings/SettingsView";
+import { PanelSae } from "./components/sae/PanelSae";
 import { useAuth } from "./context/AuthContext";
 import { useTheme } from "./context/ThemeContext";
 import { ASSETS } from "./core/config";
 import { useVisibleViewport } from "./hooks/useVisibleViewport";
 import { useConversations } from "./hooks/useConversations";
-import { CHAT_SAE_BLOQUEADO, esIdChatSae } from "./schemas/chat";
+import { ACCESO_SAE_REQUERIDO, CHAT_SAE_BLOQUEADO, esIdChatSae } from "./schemas/chat";
 
 export default function App() {
   useVisibleViewport();
@@ -196,7 +197,13 @@ export default function App() {
           abierto={sidebarAbierto}
           onToggle={() => setSidebarAbierto((prev) => !prev)}
           tabActiva={tabActiva}
-          onSelectTab={setTabActiva}
+          onSelectTab={(tab) => {
+            if (tab === "sae") {
+              actualizarUrlChat();
+              setErrorSae(null);
+            }
+            setTabActiva(tab);
+          }}
           usuario={usuario}
           onLogout={logout}
           conversaciones={conversaciones}
@@ -259,6 +266,12 @@ export default function App() {
           {tabActiva === "configuracion" && (
             <SettingsView usuario={usuario} esAdmin={esAdmin} />
           )}
+
+          {tabActiva === "sae" && (accesoSae ? (
+            <PanelSae creandoChat={creandoSae} onPreguntar={(mensaje) => void abrirChatSae(mensaje)} onRevalidarAcceso={recargarPerfil} />
+          ) : (
+            <p role="status" className="m-auto max-w-md px-5 text-center text-sm">{ACCESO_SAE_REQUERIDO}</p>
+          ))}
         </div>
       </div>
     </div>

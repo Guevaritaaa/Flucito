@@ -1,10 +1,11 @@
 import { useId, useState, type ReactNode } from "react";
 import { ACCESO_SAE_REQUERIDO } from "../../schemas/chat";
 
-export function AccionSae({ children, permitido, ocupado, onClick, className }: {
+export function AccionSae({ children, permitido, ocupado, paginaActual, onClick, className }: {
   children: ReactNode;
   permitido: boolean;
   ocupado?: boolean;
+  paginaActual?: boolean;
   onClick: () => void;
   className?: string;
 }) {
@@ -15,6 +16,7 @@ export function AccionSae({ children, permitido, ocupado, onClick, className }: 
       <button
         type="button"
         aria-disabled={!permitido || ocupado || undefined}
+        aria-current={paginaActual ? "page" : undefined}
         aria-describedby={permitido ? undefined : avisoId}
         onClick={() => permitido ? !ocupado && onClick() : setMostrarAviso(true)}
         onBlur={() => setMostrarAviso(false)}

@@ -107,6 +107,8 @@ export async function apiFetch<T>(
       } else if (rawDetail && typeof rawDetail === "object" && "errores" in rawDetail) {
         const errores = (rawDetail as { errores: { producto: string; campo: string; motivo: string }[] }).errores;
         detail = errores.map(e => `${e.producto} · ${e.campo}: ${e.motivo}`).join("\n");
+      } else if (rawDetail && typeof rawDetail === "object" && "mensaje" in rawDetail && typeof rawDetail.mensaje === "string") {
+        detail = rawDetail.mensaje;
       }
     }
     throw new ApiError(detail, response.status);
