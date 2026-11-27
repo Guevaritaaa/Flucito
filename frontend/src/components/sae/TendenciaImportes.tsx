@@ -2,7 +2,9 @@ import { useState } from "react";
 import type { ComprasMes } from "../../schemas/sae";
 import { conteoSae, etiquetaMesSae, importeSae, mesSae } from "./formatoSae";
 
-export function TendenciaCompras({ serie, moneda }: { serie: ComprasMes[]; moneda: string }) {
+export function TendenciaImportes({ serie, moneda, titulo = "Tendencia mensual", documentos = "Compras" }: {
+  serie: ComprasMes[]; moneda: string; titulo?: string; documentos?: string;
+}) {
   const datos = serie.map(({ mes, totales_por_moneda }) => {
     const total = totales_por_moneda.find((item) => item.moneda === moneda);
     return { mes, documentos: total?.documentos ?? 0, importe: total?.importe ?? "0.00" };
@@ -16,7 +18,7 @@ export function TendenciaCompras({ serie, moneda }: { serie: ComprasMes[]; moned
 
   return (
     <section aria-labelledby="sae-tendencia" className="min-w-0 rounded-2xl border border-white/85 bg-white/82 p-4 sm:p-5 dark:border-sky-300/15 dark:bg-[#0a1936]/85">
-      <h2 id="sae-tendencia" className="text-base font-bold">Tendencia mensual</h2>
+      <h2 id="sae-tendencia" className="text-base font-bold">{titulo}</h2>
       {seleccionado && (
         <p aria-live="polite" className="mt-1 text-sm text-slate-600 dark:text-sky-100/75">
           <span className="inline-block first-letter:uppercase">{mesSae(seleccionado.mes)}</span>{" · "}
@@ -36,7 +38,7 @@ export function TendenciaCompras({ serie, moneda }: { serie: ComprasMes[]; moned
                 key={dato.mes}
                 type="button"
                 aria-pressed={activo}
-                aria-label={`${mesSae(dato.mes)}, ${importeSae(dato.importe)} ${moneda}, ${conteoSae.format(dato.documentos)} compras`}
+                aria-label={`${mesSae(dato.mes)}, ${importeSae(dato.importe)} ${moneda}, ${conteoSae.format(dato.documentos)} ${documentos.toLowerCase()}`}
                 onClick={() => setMesElegido(dato.mes)}
                 className="flex min-w-0 flex-1 cursor-pointer flex-col items-stretch rounded-lg px-1 text-xs text-slate-600 outline-offset-[-2px] hover:bg-sky-100/65 focus-visible:outline-2 focus-visible:outline-blue-600 dark:text-sky-100/80 dark:hover:bg-sky-400/12 dark:focus-visible:outline-sky-300"
               >
@@ -55,9 +57,9 @@ export function TendenciaCompras({ serie, moneda }: { serie: ComprasMes[]; moned
       <details className="mt-2 border-t border-slate-200/90 pt-2 dark:border-sky-200/15">
         <summary className="w-fit cursor-pointer rounded py-1 text-sm font-semibold text-blue-800 dark:text-sky-300">Ver datos mensuales</summary>
         <table className="mt-2 w-full text-left text-sm tabular-nums">
-          <caption className="sr-only">Importe y compras por mes en {moneda}</caption>
+          <caption className="sr-only">Importe y {documentos.toLowerCase()} por mes en {moneda}</caption>
           <thead className="text-xs text-slate-600 dark:text-sky-100/75">
-            <tr><th scope="col" className="py-1">Mes</th><th scope="col" className="py-1 text-right">Compras</th><th scope="col" className="py-1 text-right">Importe ({moneda})</th></tr>
+            <tr><th scope="col" className="py-1">Mes</th><th scope="col" className="py-1 text-right">{documentos}</th><th scope="col" className="py-1 text-right">Importe ({moneda})</th></tr>
           </thead>
           <tbody className="divide-y divide-slate-200/80 dark:divide-sky-200/12">
             {datos.map((dato) => (

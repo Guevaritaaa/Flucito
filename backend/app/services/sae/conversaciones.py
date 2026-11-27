@@ -35,6 +35,6 @@ def solicita_consulta_sae(mensaje: str) -> bool:
         return False
     if re.search(r"\baspel sae\b|\b(?:respaldo|base de datos) (?:de[l]? )?(?:aspel |del sistema )?sae\b|\b(?:en|desde|seg[uú]n|del|de) sae\b", consulta):
         return True
-    return bool(re.search(r"\b(?:compras?|proveedores|gastamos)\b", consulta) and re.search(
-        r"\b(?:cu[aá]nt[oa]s?|cu[aá]l(?:es)?|totales?|importes?|resumen|ranking|principales|gastamos|tendencia|m[aá]s)\b", consulta
+    return bool(re.search(r"\b(?:compras?|proveedores|gastamos|facturaci[oó]n|facturamos|facturas? emitidas?|ventas|devoluciones|existencias?|bajo m[ií]nimo)\b", consulta) and re.search(
+        r"\b(?:cu[aá]nt[oa]s?|cu[aá]l(?:es)?|totales?|importes?|resumen|ranking|principales|gastamos|tendencia|m[aá]s|muestra|consulta|lista)\b", consulta
     ))

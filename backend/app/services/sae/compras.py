@@ -1,8 +1,7 @@
 """Métricas de compras por fecha del documento, en su moneda original."""
 
 from collections import defaultdict
-from collections.abc import Iterator
-from datetime import date, timedelta
+from datetime import date
 from typing import Literal
 
 from app.schemas.sae import (
@@ -14,43 +13,7 @@ from app.schemas.sae import (
     TotalComprasMoneda,
 )
 from app.services.sae.conexion import SaeNoDisponible, conectar_sae
-
-
-class PeriodoComprasInvalido(ValueError):
-    """Las fechas no forman un intervalo admitido."""
-
-
-class PeriodoFueraDeCobertura(ValueError):
-    def __init__(self, cobertura: PeriodoSae):
-        super().__init__("El periodo solicitado queda fuera de la cobertura del respaldo de compras.")
-        self.cobertura = cobertura
-
-
-def _periodo_compras(desde: date | None, hasta: date | None, cobertura: PeriodoSae) -> PeriodoSae:
-    if desde is None and hasta is None:
-        # Los seis meses completos previos al mes de la última compra registrada.
-        inicio = cobertura.hasta.replace(day=1)
-        fin = inicio - timedelta(days=1)
-        for _ in range(6):
-            inicio = (inicio - timedelta(days=1)).replace(day=1)
-        if fin < cobertura.desde:
-            return cobertura
-        return PeriodoSae(desde=max(inicio, cobertura.desde), hasta=fin)
-
-    if desde is None or hasta is None or desde > hasta:
-        raise PeriodoComprasInvalido("Indica ambas fechas y coloca desde antes de o igual a hasta.")
-    if desde < cobertura.desde or hasta > cobertura.hasta:
-        raise PeriodoFueraDeCobertura(cobertura)
-    if (hasta - desde).days >= 366:
-        raise PeriodoComprasInvalido("El periodo admite hasta 366 días, incluidas ambas fechas.")
-    return PeriodoSae(desde=desde, hasta=hasta)
-
-
-def _meses(desde: date, hasta: date) -> Iterator[date]:
-    mes = desde.replace(day=1)
-    while mes <= hasta:
-        yield mes
-        mes = (mes + timedelta(days=32)).replace(day=1)
+from app.services.sae.periodos import meses_del_periodo, resolver_periodo
 
 
 def consultar_resumen_compras(
@@ -69,7 +32,7 @@ def consultar_resumen_compras(
 
         huella, primera_compra, ultima_compra = origen
         cobertura = PeriodoSae(desde=primera_compra, hasta=ultima_compra)
-        periodo = _periodo_compras(desde, hasta, cobertura)
+        periodo = resolver_periodo(desde, hasta, cobertura)
         fechas = (periodo.desde, periodo.hasta)
         condiciones = ["FECHA BETWEEN ? AND ?"]
         parametros = list(fechas)
@@ -77,7 +40,7 @@ def consultar_resumen_compras(
             condiciones.append("MONEDA = ?")
             parametros.append(moneda)
         if proveedor:
-            condiciones.append("(PROVEEDOR_CLAVE = ? OR PROVEEDOR_NOMBRE CONTAINING ?)")
+            condiciones.append("(PROVEEDOR_CLAVE = CAST(? AS VARCHAR(100)) OR PROVEEDOR_NOMBRE CONTAINING CAST(? AS VARCHAR(100)))")
             parametros.extend((proveedor, proveedor))
         filtro = " AND ".join(condiciones)
 
@@ -128,6 +91,6 @@ def consultar_resumen_compras(
         periodo=periodo,
         documentos=sum(total.documentos for total in totales),
         totales_por_moneda=totales,
-        tendencia_mensual=[ComprasMes(mes=mes, totales_por_moneda=meses[mes]) for mes in _meses(*fechas)],
+        tendencia_mensual=[ComprasMes(mes=mes, totales_por_moneda=meses[mes]) for mes in meses_del_periodo(*fechas)],
         principales_proveedores=proveedores,
     )

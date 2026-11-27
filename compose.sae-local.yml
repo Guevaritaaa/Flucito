@@ -13,6 +13,7 @@ services:
       - sae_data:/var/lib/firebird/data
       - ./infra/sae/iniciar.sh:/pilot/iniciar.sh:ro
       - ./infra/sae/compras.sql:/pilot/compras.sql:ro
+      - ./infra/sae/indicadores.sql:/pilot/indicadores.sql:ro
       - type: bind
         source: ${SAE_BACKUP_FILE:-./backend/datos/laboratorio_sae/antigua.fbk}
         target: /pilot/antigua.fbk
@@ -24,9 +25,10 @@ services:
       test:
         - CMD-SHELL
         - >-
-          printf '%s\n' 'SELECT HASTA FROM FLUCITO_SAE_CORTE_COMPRAS;' |
-          ISC_PASSWORD="$$SAE_FIREBIRD_PASSWORD" isql -b -q -user FLUCITO_SAE_LECTOR localhost:sae_empresa02 >/dev/null &&
-          printf '%s\n' 'SELECT FIRST 1 DOCUMENTOS FROM FLUCITO_SAE_COMPRAS_DIA;' |
+          printf '%s\n' 'SELECT HASTA FROM FLUCITO_SAE_CORTE_COMPRAS;'
+          'SELECT FIRST 1 DOCUMENTOS FROM FLUCITO_SAE_COMPRAS_DIA;'
+          'SELECT FIRST 1 DOCUMENTOS FROM FLUCITO_SAE_FACTURACION_DIA;'
+          'SELECT FIRST 1 EXISTENCIA FROM FLUCITO_SAE_INVENTARIO;' |
           ISC_PASSWORD="$$SAE_FIREBIRD_PASSWORD" isql -b -q -user FLUCITO_SAE_LECTOR localhost:sae_empresa02 >/dev/null
       interval: 5s
       timeout: 5s

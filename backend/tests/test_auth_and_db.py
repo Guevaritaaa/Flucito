@@ -31,7 +31,7 @@ from app.services import decisiones
 from app.services.almacen.catalogo_sae import buscar_articulo_sae, cargar_catalogo_sae, limpiar_cache_catalogo_sae
 from app.services.almacen.factores import cargar_factores_personalizados, guardar_factor_personalizado
 from app.services.almacen.resumen import registrar_reporte_en_bd
-from app.services.sae.compras import PeriodoFueraDeCobertura
+from app.services.sae.periodos import PeriodoFueraDeCobertura
 from app.services.sae.conexion import SaeNoDisponible
 
 

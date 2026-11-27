@@ -16,3 +16,11 @@ export function importeSae(decimal: string): string {
     .map((parte) => parte.type === "fraction" ? fraccion.padEnd(2, "0").slice(0, 2) : parte.value)
     .join("");
 }
+
+export function cantidadSae(cantidad: string | null): string {
+  if (cantidad === null) return "Sin dato";
+  const [entero, fraccion = ""] = cantidad.split(".");
+  const decimales = fraccion.replace(/0+$/, "");
+  const valor = entero === "-0" && decimales ? -0 : BigInt(entero);
+  return `${conteoSae.format(valor)}${decimales ? `.${decimales}` : ""}`;
+}

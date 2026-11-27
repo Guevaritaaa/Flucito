@@ -140,7 +140,7 @@ export function ChatWorkspace({
                     );
                   })}
                   {esChatSae && mensajes.length === 0 && !enviando && (
-                    <p className="mt-8 text-center text-sm text-slate-700 dark:text-slate-200">Pregunta por las compras del respaldo de Aspel SAE.</p>
+                    <p className="mt-8 text-center text-sm text-slate-700 dark:text-slate-200">Pregunta por compras, facturación o inventario del respaldo de Aspel SAE.</p>
                   )}
                   {enviando && <FlucitoLoadingBubble actividades={actividades} etapa={etapa} textoProvisional={textoProvisional} />}
                 </>

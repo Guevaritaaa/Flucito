@@ -60,7 +60,7 @@ _NOMBRES_HERRAMIENTAS = {
     "generar_entradas_almacen": "Generando reporte de almacén",
     "actualizar_precios_reportes_generados": "Actualizando precios de reportes",
     "preparar_entorno_pruebas": "Preparando el entorno de pruebas",
-    "consultar_aspel_sae": "Consultando compras de Aspel SAE",
+    "consultar_aspel_sae": "Consultando Aspel SAE",
 }
 
 
@@ -723,11 +723,11 @@ def _ejecutar_chat_sae(request: ChatRequest, usuario_id: int) -> ChatResponse:
             },
         )
         mensajes = resultado["messages"]
-        texto = contenido_a_texto(mensajes[-1]) or "No pude responder. Reformula tu consulta de compras."
+        texto = contenido_a_texto(mensajes[-1]) or "No pude responder. Reformula tu consulta de Aspel SAE."
         if len(mensajes) >= 2 and isinstance(mensajes[-2], ToolMessage):
             datos = json.loads(mensajes[-2].content)
             if datos.get("ok"):
-                texto += f"\n\nFuente: Aspel SAE, Empresa 02. Compras registradas hasta el {datos['compras_registradas_hasta']}."
+                texto += f"\n\nFuente: Aspel SAE, Empresa 02. {datos['fuente']}"
     except Exception as exc:
         logger.warning("No se completó el chat SAE (%s)", type(exc).__name__)
         texto = "Ocurrió una interrupción al consultar Aspel SAE. Intenta de nuevo."

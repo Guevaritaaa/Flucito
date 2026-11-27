@@ -119,3 +119,63 @@ test("distingue servicio no disponible, periodo vacío y falta de permiso", asyn
   await expect(page.locator("#sidebar").getByRole("tooltip")).toBeVisible();
   expect(peticiones).toBe(peticionesConPermiso);
 });
+
+test("consulta facturas, devoluciones y existencias por almacén", async ({ page, isMobile }, info) => {
+  const ventas = { moneda: "MXN", facturas: 30, importe_facturado: "14880.23", devoluciones: 2, importe_devoluciones: "561.72" };
+  const lista = [{ clave: 1, nombre: "Principal" }, { clave: 2, nombre: "Secundario" }];
+  const solicitudes: URLSearchParams[] = [];
+  await page.route("**/api/v1/**", async (route) => {
+    const url = new URL(route.request().url());
+    const ruta = url.pathname;
+    if (ruta.endsWith("/auth/login")) return route.fulfill({ json: { access_token: "token-prueba", usuario } });
+    if (ruta.endsWith("/auth/me")) return route.fulfill({ json: usuario });
+    if (ruta.endsWith("/sae/resumen")) return route.fulfill({ json: semestre });
+    if (ruta.endsWith("/sae/facturacion")) return route.fulfill({ json: {
+      corte, periodo: junio.periodo, facturas: 30, devoluciones: 2, totales_por_moneda: [ventas],
+      tendencia_mensual: [{ mes: "2026-06-01", totales_por_moneda: [ventas] }],
+    } });
+    if (ruta.endsWith("/sae/inventario")) {
+      solicitudes.push(url.searchParams);
+      const almacen = lista.find((item) => String(item.clave) === url.searchParams.get("almacen")) ?? null;
+      const pagina = Number(url.searchParams.get("pagina"));
+      const existencias = [{ clave: pagina === 2 ? "SEGUNDO" : "PRIMERO", nombre: "Junta de prueba", unidad: "PZA", existencia: "1.500000", minimo: "3.000000" }];
+      return route.fulfill({ json: {
+        corte: { ...corte, ultimo_movimiento: "2026-07-01" }, almacen, almacenes: lista,
+        articulos: almacen ? 18 : 40, sin_existencia: 3, bajo_minimo: 2,
+        total_resultados: almacen ? 2 : 40, pagina, por_pagina: 1, existencias,
+      } });
+    }
+    if (ruta.endsWith("/chat/conversaciones/sae")) return route.fulfill({ status: 201, json: {
+      id: "sae-indicadores", tipo: "sae", titulo: "Chat de Aspel SAE", total_mensajes: 0,
+    } });
+    if (ruta.endsWith("/chat/conversaciones/sae-indicadores")) return route.fulfill({ json: { mensajes: [] } });
+    return route.fulfill({ json: [] });
+  });
+
+  await (await ingresar(page, isMobile)).click();
+  const modulos = page.getByRole("navigation", { name: "Módulos de Aspel SAE" });
+  await modulos.getByRole("button", { name: "Facturación", exact: true }).click();
+  await expect(page.getByText("Facturas registradas hasta el 1 de julio de 2026")).toBeVisible();
+  const facturacion = page.getByRole("region", { name: "Facturación", exact: true });
+  await expect(facturacion.getByText("14,880.23", { exact: true })).toBeVisible();
+  await expect(facturacion.getByText("561.72", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Facturación mensual" })).toBeVisible();
+  await page.screenshot({ path: info.outputPath("facturacion.png") });
+
+  await modulos.getByRole("button", { name: "Inventario", exact: true }).click();
+  await expect(page.getByText("Último movimiento registrado el 1 de julio de 2026")).toBeVisible();
+  await page.screenshot({ path: info.outputPath("inventario.png") });
+  const filtros = page.getByRole("form", { name: "Filtros de inventario" });
+  await filtros.getByLabel("Almacén").selectOption("2");
+  await filtros.getByLabel("Artículo").fill("Junta");
+  await filtros.getByLabel("Estado").selectOption("bajo_minimo");
+  await filtros.getByRole("button", { name: "Aplicar filtros" }).click();
+  await expect(page.getByRole("region", { name: "Existencias", exact: true })).toContainText("2 · Secundario");
+  await expect(page.getByRole("cell", { name: "1.5", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Siguiente" }).click();
+  await expect(page.getByText("SEGUNDO", { exact: true })).toBeVisible();
+  expect(Object.fromEntries(solicitudes.at(-1)!)).toEqual({ almacen: "2", articulo: "Junta", estado: "bajo_minimo", pagina: "2" });
+
+  await page.getByRole("button", { name: "Preguntar a Flucito" }).click();
+  await expect(page.getByRole("textbox", { name: "Mensaje para Flucito" })).toHaveValue(/almacén 2.*bajo mínimo.*Junta/);
+});
